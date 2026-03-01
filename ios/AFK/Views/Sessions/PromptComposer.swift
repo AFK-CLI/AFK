@@ -17,9 +17,13 @@ struct PromptComposer: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            #if compiler(>=6.2)
             if #unavailable(iOS 26) {
                 Divider()
             }
+            #else
+            Divider()
+            #endif
 
             if let error = errorMessage {
                 Text(error)
@@ -101,11 +105,15 @@ struct PromptComposer: View {
 
     @ViewBuilder
     private var composerBackground: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             Color.clear
         } else {
             Color(UIColor.systemGroupedBackground)
         }
+        #else
+        Color(UIColor.systemGroupedBackground)
+        #endif
     }
 
     private var quickActionButtons: some View {
@@ -155,26 +163,35 @@ struct PromptComposer: View {
 
 private struct GlassContainerModifier: ViewModifier {
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             GlassEffectContainer { content }
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
 private struct GlassButtonModifier: ViewModifier {
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             content.glassEffect(.regular.interactive(), in: .circle)
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 
 private struct GlassFieldModifier: ViewModifier {
     func body(content: Content) -> some View {
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
         } else {
@@ -182,6 +199,11 @@ private struct GlassFieldModifier: ViewModifier {
                 .background(Color(UIColor.secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
         }
+        #else
+        content
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+        #endif
     }
 }
 
@@ -193,6 +215,7 @@ struct QuickActionPill: View {
     let action: () -> Void
 
     var body: some View {
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             Button(action: action) {
                 Label(title, systemImage: icon)
@@ -203,13 +226,20 @@ struct QuickActionPill: View {
             .buttonStyle(.plain)
             .glassEffect(.regular.interactive(), in: .capsule)
         } else {
-            Button(action: action) {
-                Label(title, systemImage: icon)
-                    .font(.caption.weight(.medium))
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
+            fallbackButton
         }
+        #else
+        fallbackButton
+        #endif
+    }
+
+    private var fallbackButton: some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.caption.weight(.medium))
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
     }
 }
