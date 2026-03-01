@@ -57,6 +57,21 @@ cat > "${EXPORT_OPTIONS}" <<PLIST
 </plist>
 PLIST
 
+# Ensure GeneratedConfig.swift exists before xcodebuild scans the source tree.
+# PBXFileSystemSynchronizedRootGroup discovers files at build-graph creation time,
+# so the file must exist before archiving. The "Generate Config" build phase will
+# overwrite it with real values from the xcconfig.
+GENERATED="${PROJECT_DIR}/AFK-Agent/Config/GeneratedConfig.swift"
+if [ ! -f "${GENERATED}" ]; then
+    echo "==> Creating placeholder GeneratedConfig.swift"
+    cat > "${GENERATED}" <<'SWIFT'
+// Auto-generated placeholder — will be overwritten by build phase
+enum GeneratedConfig {
+    static let serverURL = ""
+}
+SWIFT
+fi
+
 # Archive
 echo "==> Archiving..."
 xcodebuild archive \
