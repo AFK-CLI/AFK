@@ -649,10 +649,12 @@ final class SessionStore {
 
     /// Load cached sessions from local DB for instant cold start.
     private func loadCachedSessions() {
-        let cached = localStore.cachedSessions()
-        if !cached.isEmpty {
-            sessions = cached
-            print("[SessionStore] Loaded \(cached.count) sessions from cache")
+        MainActor.assumeIsolated {
+            let cached = localStore.cachedSessions()
+            if !cached.isEmpty {
+                sessions = cached
+                print("[SessionStore] Loaded \(cached.count) sessions from cache")
+            }
         }
     }
 
@@ -711,7 +713,7 @@ final class SessionStore {
             var existing = events[sessionId] ?? []
             existing.insert(contentsOf: decryptEvents(olderEvents, sessionId: sessionId), at: 0)
             events[sessionId] = existing
-            localStore.saveEvents(olderEvents, for: sessionId)
+            await MainActor.run { localStore.saveEvents(olderEvents, for: sessionId) }
             let minSeq = olderEvents.first?.seq ?? pagination.minSeq
             eventPagination[sessionId] = EventPagination(minSeq: minSeq, hasMore: hasMore)
         } catch {
@@ -826,7 +828,7 @@ final class SessionStore {
             }
 
             // Persist to local DB
-            self.localStore.saveSession(session)
+            Task { @MainActor in self.localStore.saveSession(session) }
 
             // Live Activity integration
             if let lam = self.liveActivityManager {
@@ -879,7 +881,7 @@ final class SessionStore {
             self.events[event.sessionId] = list
 
             // Persist to local DB
-            self.localStore.saveEvent(event)
+            Task { @MainActor in self.localStore.saveEvent(event) }
 
             // Async E2EE fallback: when sync decryptor couldn't decrypt (sender key version mismatch),
             // trigger full fallback with historical key lookup and update the event in-place.
@@ -893,7 +895,7 @@ final class SessionStore {
                            let idx = list.firstIndex(where: { $0.id == first.id }) {
                             list[idx] = first
                             self.events[event.sessionId] = list
-                            self.localStore.saveEvent(first)
+                            await MainActor.run { self.localStore.saveEvent(first) }
                             print("[E2EE] Async fallback: decrypted event \(first.id.prefix(8)) for session \(event.sessionId.prefix(8))")
                         }
                     }

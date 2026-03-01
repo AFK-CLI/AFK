@@ -1,7 +1,7 @@
 import Foundation
 
 @Observable
-final class AuthService {
+final class AuthService: @unchecked Sendable {
     var isAuthenticated = false
     var currentUser: User?
     var accessToken: String?
@@ -9,6 +9,7 @@ final class AuthService {
 
     private var baseURL: String { AppConfig.apiBaseURL }
     private let keychain = KeychainService()
+    private let refreshCoordinator = TokenRefreshCoordinator()
 
     /// Called after sign-out to let the app clear caches (sessions, events, E2EE keys).
     var onSignOut: (() -> Void)?
@@ -21,7 +22,15 @@ final class AuthService {
     private static let legacyAccessTokenKey = "afk_access_token"
     private static let legacyRefreshTokenKey = "afk_refresh_token"
 
+    /// Refreshes the access token, coalescing concurrent calls so only one
+    /// HTTP refresh happens at a time (prevents thundering herd on 401s).
     func refreshAccessToken() async throws {
+        try await refreshCoordinator.refreshIfNeeded { [self] in
+            try await performTokenRefresh()
+        }
+    }
+
+    private func performTokenRefresh() async throws {
         guard let refreshToken else { throw URLError(.userAuthenticationRequired) }
 
         let body = ["refreshToken": refreshToken]
@@ -202,4 +211,22 @@ private struct AuthResponse: Codable {
     let refreshToken: String
     let expiresAt: Int64?
     let user: User
+}
+
+/// Serialises concurrent token refresh calls so only one HTTP request
+/// is in flight at a time. Additional callers await the same result.
+private actor TokenRefreshCoordinator {
+    private var activeTask: Task<Void, any Error>?
+
+    func refreshIfNeeded(perform operation: @Sendable @escaping () async throws -> Void) async throws {
+        if let activeTask {
+            return try await activeTask.value
+        }
+
+        let task = Task { try await operation() }
+        activeTask = task
+
+        defer { activeTask = nil }
+        try await task.value
+    }
 }

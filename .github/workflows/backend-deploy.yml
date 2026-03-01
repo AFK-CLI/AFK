@@ -1,0 +1,61 @@
+name: Backend Deploy
+
+on:
+  push:
+    tags: ['backend-v*']
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to server
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          VERSION="${TAG#backend-v}"
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "root@${DEPLOY_HOST}" << DEPLOY_SCRIPT
+            set -euo pipefail
+            cd /opt/AFK
+            git fetch origin --tags --force
+            git checkout "$TAG"
+            export AFK_VERSION="$VERSION"
+            docker compose --profile prod build afk-cloud
+            docker compose --profile prod up -d afk-cloud
+          DEPLOY_SCRIPT
+
+      - name: Health check
+        run: |
+          echo "Waiting for service to start..."
+          sleep 10
+          for i in $(seq 1 6); do
+            if curl -sf https://afk.ahmetbirinci.dev/healthz; then
+              echo ""
+              echo "Health check passed!"
+              exit 0
+            fi
+            echo "Attempt $i/6 failed, retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after 60 seconds"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
