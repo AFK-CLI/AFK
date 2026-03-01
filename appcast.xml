@@ -4,11 +4,11 @@
         <title>AFK-Agent</title>
         <item>
             <title>0.0.1-rc1</title>
-            <pubDate>Sun, 01 Mar 2026 19:12:32 +0000</pubDate>
+            <pubDate>Sun, 01 Mar 2026 19:20:16 +0000</pubDate>
             <sparkle:version>0.0.1-rc1</sparkle:version>
             <sparkle:shortVersionString>0.0.1-rc1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="AFK-Agent-0.0.1-rc1.dmg" length="4795374" type="application/octet-stream"/>
+            <enclosure url="AFK-Agent-0.0.1-rc1.dmg" length="4792338" type="application/octet-stream"/>
         </item>
     </channel>
 </rss>
