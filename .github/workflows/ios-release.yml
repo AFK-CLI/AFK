@@ -118,9 +118,9 @@ jobs:
           	<key>provisioningProfiles</key>
           	<dict>
           		<key>dev.ahmetbirinci.AFK</key>
-          		<string>AFK App Store</string>
+          		<string>AFK_App_Store</string>
           		<key>dev.ahmetbirinci.AFK.AFKWidgets</key>
-          		<string>AFK Widgets App Store</string>
+          		<string>AFK_Widgets_App_Store</string>
           	</dict>
           	<key>uploadSymbols</key>
           	<true/>
