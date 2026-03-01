@@ -1,0 +1,49 @@
+name: iOS CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'config/Secrets.xcconfig'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'config/Secrets.xcconfig'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.2.app
+
+      - name: Create Secrets.xcconfig if missing
+        run: |
+          if [ ! -f config/Secrets.xcconfig ]; then
+            cat > config/Secrets.xcconfig << 'EOF'
+          DEVELOPMENT_TEAM = PLACEHOLDER
+          AFK_BUNDLE_PREFIX = com.ci.test
+          PRODUCT_BUNDLE_IDENTIFIER = $(AFK_BUNDLE_PREFIX).AFK
+          CODE_SIGN_STYLE = Manual
+          CODE_SIGN_IDENTITY =
+          PROVISIONING_PROFILE_SPECIFIER =
+          AFK_SERVER_URL = wss://localhost:9847
+          EOF
+          fi
+
+      - name: Build for simulator
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -scheme AFK \
+            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcpretty

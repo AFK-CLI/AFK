@@ -1,0 +1,3 @@
+// Base configuration for AFK project — checked into git.
+// Personal overrides go in Secrets.xcconfig / AgentSecrets.xcconfig (gitignored).
+// See the .example files for what to fill in.

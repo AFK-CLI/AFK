@@ -1,0 +1,11 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Left eye -->
+  <circle cx="172" cy="195" r="16" fill="#3A3450" opacity="0.45" />
+  <!-- Left eye highlight -->
+  <circle cx="176" cy="189" r="6" fill="#FFFFFF" opacity="0.6" />
+  
+  <!-- Right eye -->
+  <circle cx="228" cy="195" r="16" fill="#3A3450" opacity="0.45" />
+  <!-- Right eye highlight -->
+  <circle cx="232" cy="189" r="6" fill="#FFFFFF" opacity="0.6" />
+</svg>

@@ -1,0 +1,194 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.02574,0.06019,0.09238,1.00000",
+      "srgb:0.00000,0.21474,0.40646,1.00000"
+    ]
+  },
+  "groups" : [
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "blend-mode" : "normal",
+          "fill" : "automatic",
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "08-ground-glow.svg",
+          "name" : "08-ground-glow",
+          "position" : {
+            "scale" : 4,
+            "translation-in-points" : [
+              -9.515625,
+              -555.22265625
+            ]
+          }
+        },
+        {
+          "blend-mode" : "darken",
+          "fill" : "automatic",
+          "hidden" : false,
+          "image-name" : "06-lantern-flame.svg",
+          "name" : "06-lantern-flame",
+          "position" : {
+            "scale" : 3.5,
+            "translation-in-points" : [
+              -192.7265625,
+              -251.14453125
+            ]
+          }
+        },
+        {
+          "fill" : "automatic",
+          "image-name" : "05-lantern-frame.svg",
+          "name" : "05-lantern-frame",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -126.02734375,
+              -251.51171875
+            ]
+          }
+        },
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name" : "07-lantern-glow.svg",
+          "name" : "07-lantern-glow",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -65.7421875,
+              -272.09765625
+            ]
+          }
+        }
+      ],
+      "name" : "Lantern",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "image-name" : "02-ghost-eyes.svg",
+          "name" : "02-ghost-eyes",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -168.6328125,
+              -39.81640625
+            ]
+          }
+        },
+        {
+          "blend-mode" : "darken",
+          "fill" : "automatic",
+          "glass" : false,
+          "image-name" : "03-ghost-cheeks.svg",
+          "name" : "03-ghost-cheeks",
+          "opacity" : 1,
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -168.7890625,
+              -24.6484375
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "automatic-gradient" : "srgb:1.00000,0.98202,0.90810,1.00000"
+          },
+          "image-name" : "01-ghost-body.svg",
+          "name" : "01-ghost-body",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -172.16015625,
+              48.33203125
+            ]
+          }
+        },
+        {
+          "fill" : {
+            "automatic-gradient" : "srgb:1.00000,0.98202,0.90810,1.00000"
+          },
+          "image-name" : "04-ghost-arm.svg",
+          "name" : "04-ghost-arm",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -158.1953125,
+              -68.51953125
+            ]
+          }
+        }
+      ],
+      "name" : "Ghost",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    },
+    {
+      "hidden" : false,
+      "layers" : [
+        {
+          "fill" : {
+            "solid" : "srgb:0.30633,0.47242,0.68209,1.00000"
+          },
+          "hidden" : false,
+          "image-name" : "10-stars.svg",
+          "name" : "10-stars",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              -27.12890625,
+              45.3515625
+            ]
+          }
+        },
+        {
+          "hidden" : true,
+          "image-name" : "09-background.svg",
+          "name" : "09-background",
+          "position" : {
+            "scale" : 3,
+            "translation-in-points" : [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "name" : "Background",
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

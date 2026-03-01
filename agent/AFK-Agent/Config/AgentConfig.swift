@@ -1,0 +1,133 @@
+//
+//  AgentConfig.swift
+//  AFK-Agent
+//
+
+import Foundation
+
+struct AgentConfig: Sendable {
+    let serverURL: String
+    let deviceID: String?
+    let authToken: String?
+    let claudeProjectsPath: String
+    let heartbeatInterval: TimeInterval
+    let idleTimeout: TimeInterval       // 120s -> session_idle
+    let completedTimeout: TimeInterval   // 300s -> session_completed
+    let permissionStallTimeout: TimeInterval  // 10s -> permission_needed
+    let remoteApprovalEnabled: Bool      // false by default
+    let remoteApprovalTimeout: TimeInterval  // 120s default
+    let hookInstallPath: String          // ~/.claude/hooks
+    var defaultPrivacyMode: String       // "telemetry_only", "relay_only", "encrypted"
+    let projectPrivacyOverrides: [String: String]  // projectPath -> privacyMode override
+    let acceptLegacyPermissionFallback: Bool  // true by default — set false to disable legacy HMAC tier
+    let deviceName: String
+    let logLevel: String
+    let hooksEnabled: Bool
+    let planAutoExit: Bool
+
+    var isConfigured: Bool {
+        !serverURL.isEmpty
+    }
+
+    var httpBaseURL: String {
+        serverURL
+            .replacingOccurrences(of: "wss://", with: "https://")
+            .replacingOccurrences(of: "ws://", with: "http://")
+    }
+
+    static func load() -> AgentConfig {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let configPath = "\(home)/.afk-agent/config.json"
+
+        // Default from xcconfig (generated at build time)
+        let defaultServerURL = GeneratedConfig.serverURL
+
+        // Try to load from config file
+        if let data = FileManager.default.contents(atPath: configPath),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return AgentConfig(
+                serverURL: json["serverURL"] as? String ?? defaultServerURL,
+                deviceID: json["deviceId"] as? String,
+                authToken: json["authToken"] as? String,
+                claudeProjectsPath: json["claudeProjectsPath"] as? String ?? "\(home)/.claude/projects",
+                heartbeatInterval: json["heartbeatInterval"] as? TimeInterval ?? 30,
+                idleTimeout: json["idleTimeout"] as? TimeInterval ?? 120,
+                completedTimeout: json["completedTimeout"] as? TimeInterval ?? 300,
+                permissionStallTimeout: json["permissionStallTimeout"] as? TimeInterval ?? 10,
+                remoteApprovalEnabled: json["remoteApprovalEnabled"] as? Bool ?? true,
+                remoteApprovalTimeout: json["remoteApprovalTimeout"] as? TimeInterval ?? 120,
+                hookInstallPath: json["hookInstallPath"] as? String ?? "\(home)/.claude/hooks",
+                defaultPrivacyMode: json["defaultPrivacyMode"] as? String ?? "encrypted",
+                projectPrivacyOverrides: json["projectPrivacyOverrides"] as? [String: String] ?? [:],
+                acceptLegacyPermissionFallback: json["acceptLegacyPermissionFallback"] as? Bool ?? true,
+                deviceName: json["deviceName"] as? String ?? Host.current().localizedName ?? "Mac",
+                logLevel: json["logLevel"] as? String ?? "info",
+                hooksEnabled: json["hooksEnabled"] as? Bool ?? true,
+                planAutoExit: json["planAutoExit"] as? Bool ?? false
+            )
+        }
+
+        // Defaults from environment → xcconfig → hardcoded
+        let env = ProcessInfo.processInfo.environment
+        return AgentConfig(
+            serverURL: env["AFK_SERVER_URL"] ?? defaultServerURL,
+            deviceID: env["AFK_DEVICE_ID"],
+            authToken: env["AFK_AUTH_TOKEN"],
+            claudeProjectsPath: "\(home)/.claude/projects",
+            heartbeatInterval: 30,
+            idleTimeout: 120,
+            completedTimeout: 300,
+            permissionStallTimeout: 10,
+            remoteApprovalEnabled: env["AFK_REMOTE_APPROVAL"] != "0",
+            remoteApprovalTimeout: 120,
+            hookInstallPath: "\(home)/.claude/hooks",
+            defaultPrivacyMode: env["AFK_PRIVACY_MODE"] ?? "encrypted",
+            projectPrivacyOverrides: [:],
+            acceptLegacyPermissionFallback: {
+                if let val = env["AFK_ACCEPT_LEGACY_PERMISSION_FALLBACK"] {
+                    return val != "false" && val != "0"
+                }
+                return true
+            }(),
+            deviceName: Host.current().localizedName ?? "Mac",
+            logLevel: env["AFK_LOG_LEVEL"] ?? "info",
+            hooksEnabled: env["AFK_HOOKS_ENABLED"] != "0",
+            planAutoExit: env["AFK_PLAN_AUTO_EXIT"] == "1"
+        )
+    }
+
+    /// Resolve the effective privacy mode for a given project path.
+    /// Project-level overrides take precedence over the default.
+    func privacyMode(for projectPath: String) -> String {
+        return projectPrivacyOverrides[projectPath] ?? defaultPrivacyMode
+    }
+
+    func save() {
+        let fm = FileManager.default
+        let home = fm.homeDirectoryForCurrentUser.path
+        let configDir = "\(home)/.afk-agent"
+        let configPath = "\(configDir)/config.json"
+
+        try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+        // Restrict config directory to owner only (0700)
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: configDir)
+
+        var dict: [String: Any] = [
+            "serverURL": serverURL,
+            "deviceName": deviceName,
+            "logLevel": logLevel,
+            "hooksEnabled": hooksEnabled,
+            "planAutoExit": planAutoExit,
+            "remoteApprovalEnabled": remoteApprovalEnabled,
+            "defaultPrivacyMode": defaultPrivacyMode,
+        ]
+        if let deviceID { dict["deviceId"] = deviceID }
+        if let authToken { dict["authToken"] = authToken }
+
+        if let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) {
+            try? data.write(to: URL(fileURLWithPath: configPath))
+            // Restrict config file to owner read/write only (0600) since it may contain authToken
+            try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: configPath)
+        }
+    }
+}

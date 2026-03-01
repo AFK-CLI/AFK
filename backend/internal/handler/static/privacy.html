@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AFK — Privacy Policy</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.6; color: #1d1d1f; }
+        h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+        h2 { margin-top: 2rem; font-size: 1.25rem; }
+        .updated { color: #86868b; font-size: 0.9rem; margin-bottom: 2rem; }
+        ul { padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+    </style>
+</head>
+<body>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: February 2026</p>
+
+    <h2>What AFK Does</h2>
+    <p>AFK is a companion app for Claude Code. It relays session activity from your Mac to your iOS device and lets you send commands remotely. AFK acts as a bridge — it does not run AI models or process your code.</p>
+
+    <h2>Data We Collect</h2>
+    <ul>
+        <li><strong>Account information</strong>: Apple ID (opaque user identifier provided by Sign in with Apple) or email address if you register with email/password.</li>
+        <li><strong>Device information</strong>: Device name and OS version, used to identify your enrolled devices.</li>
+        <li><strong>Session metadata</strong>: Project path, git branch, session status, token counts, and timestamps. This metadata helps you track your Claude Code sessions.</li>
+        <li><strong>Session events</strong>: Tool calls, assistant messages, and other session activity relayed from your Mac agent. When end-to-end encryption (E2EE) is enabled, event content is encrypted on-device and the server cannot read it.</li>
+        <li><strong>Push notification tokens</strong>: APNs device tokens for delivering notifications. These are device identifiers, not personal data.</li>
+        <li><strong>Subscription data</strong>: If you subscribe to AFK Pro, Apple provides us with transaction identifiers and subscription expiry dates for managing your plan. We do not receive your payment method or billing details.</li>
+    </ul>
+
+    <h2>End-to-End Encryption</h2>
+    <p>AFK supports end-to-end encryption using Curve25519 key agreement and AES-256-GCM. When E2EE is enabled, session content is encrypted on your Mac and can only be decrypted on your iOS device. The server routes encrypted data without the ability to read it — zero-knowledge architecture.</p>
+
+    <h2>Data We Do Not Collect</h2>
+    <ul>
+        <li>We do not collect analytics or usage telemetry.</li>
+        <li>We do not serve advertisements.</li>
+        <li>We do not sell, share, or trade your data with third parties.</li>
+        <li>We do not read your code. In E2EE mode, we cannot.</li>
+    </ul>
+
+    <h2>Data Retention</h2>
+    <ul>
+        <li><strong>Free tier</strong>: Session events are retained for 7 days, then automatically deleted.</li>
+        <li><strong>Pro tier</strong>: Session events are retained for 90 days.</li>
+        <li><strong>Account data</strong>: Retained until you request deletion.</li>
+    </ul>
+
+    <h2>Data Deletion</h2>
+    <p>You can request deletion of your account and all associated data by emailing <a href="mailto:privacy@afk.dev">privacy@afk.dev</a> or opening an issue on our <a href="https://github.com/AFK-CLI/AFK">GitHub repository</a>. Upon deletion, all session data, device enrollments, and account information are permanently removed.</p>
+
+    <h2>Third-Party Services</h2>
+    <ul>
+        <li><strong>Apple Push Notification service (APNs)</strong>: Used to deliver push notifications to your iOS device.</li>
+        <li><strong>Sign in with Apple</strong>: Used for authentication. Apple provides an opaque user identifier; we do not receive your Apple ID password.</li>
+        <li><strong>App Store</strong>: Subscription purchases are processed by Apple. We receive transaction identifiers but not payment details.</li>
+    </ul>
+
+    <h2>Security</h2>
+    <p>All communication between the iOS app, Mac agent, and backend server uses TLS. Authentication uses JWT tokens with short expiry. WebSocket connections require pre-authenticated tickets. Command signing uses Ed25519 with replay protection.</p>
+
+    <h2>Changes to This Policy</h2>
+    <p>We may update this policy from time to time. Material changes will be communicated through the app or on this page.</p>
+
+    <h2>Contact</h2>
+    <p>For privacy questions or data deletion requests, email <a href="mailto:privacy@afk.dev">privacy@afk.dev</a> or open an issue on our <a href="https://github.com/AFK-CLI/AFK">GitHub repository</a>.</p>
+</body>
+</html>

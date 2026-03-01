@@ -1,0 +1,11 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="lantern-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFECD2" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#FFD4A0" stop-opacity="0.06" />
+      <stop offset="100%" stop-color="#FFC078" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- Large ambient glow centered on lantern area -->
+  <circle cx="338" cy="225" r="160" fill="url(#lantern-glow)" />
+</svg>

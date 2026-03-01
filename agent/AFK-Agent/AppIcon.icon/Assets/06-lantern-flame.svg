@@ -1,0 +1,12 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFE8C8" />
+      <stop offset="100%" stop-color="#E8A050" />
+    </linearGradient>
+  </defs>
+  <!-- Main flame -->
+  <rect x="322" y="190" width="32" height="64" rx="10" fill="url(#flame)" opacity="0.85" />
+  <!-- Flame inner highlight -->
+  <rect x="328" y="196" width="16" height="28" rx="6" fill="#FFF5E6" opacity="0.4" />
+</svg>

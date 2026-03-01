@@ -1,0 +1,5 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Arm extending from ghost body to lantern handle -->
+  <path d="M 270 225 Q 300 210, 316 185"
+    fill="none" stroke="#DDD4CA" stroke-width="14" stroke-linecap="round" opacity="0.6" />
+</svg>

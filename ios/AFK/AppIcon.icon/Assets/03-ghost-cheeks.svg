@@ -1,0 +1,12 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="cheek" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFD4A0" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#FFD4A0" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- Left cheek -->
+  <circle cx="156" cy="218" r="22" fill="url(#cheek)" />
+  <!-- Right cheek -->
+  <circle cx="244" cy="218" r="22" fill="url(#cheek)" />
+</svg>

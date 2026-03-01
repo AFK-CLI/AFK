@@ -1,0 +1,61 @@
+# Secrets
+config/Secrets.xcconfig
+config/AgentSecrets.xcconfig
+config/Local.xcconfig
+
+# Generated at build time from xcconfig
+agent/AFK-Agent/Config/GeneratedConfig.swift
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+DerivedData/
+build/
+
+# Go
+backend/backend
+
+# macOS
+.DS_Store
+
+# Docker
+afk-data/
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env*
+!.env.example
+
+*.p8
+
+# Security artifacts
+.claude/security/
+security-audit-*
+
+# Worktrees
+.claude/worktrees/
+
+# Internal planning docs
+.claude/milestones/
+todo.md
+
+# Secrets directory
+secrets/
+
+# Nginx (user config, certs)
+nginx/afk.conf
+certs/
+certbot-www/
+
+# Misc scripts
+msc/
+backend/server

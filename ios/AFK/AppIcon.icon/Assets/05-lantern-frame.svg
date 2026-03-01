@@ -1,0 +1,14 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Lantern handle/hook -->
+  <rect x="330" y="140" width="20" height="20" rx="10" fill="#C4956A" opacity="0.4" />
+  
+  <!-- Lantern cap -->
+  <rect x="310" y="156" width="56" height="14" rx="6" fill="#C4956A" opacity="0.5" />
+  
+  <!-- Lantern glass body -->
+  <path d="M 306 170 L 306 270 Q 306 282, 318 282 L 358 282 Q 370 282, 370 270 L 370 170"
+    fill="#FFECD2" fill-opacity="0.04" stroke="#FFCC80" stroke-width="2.4" opacity="0.25" />
+  
+  <!-- Lantern base -->
+  <rect x="310" y="282" width="56" height="14" rx="6" fill="#C4956A" opacity="0.35" />
+</svg>

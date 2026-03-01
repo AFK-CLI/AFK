@@ -1,0 +1,97 @@
+name: Agent Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-and-release:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Import certificate
+          echo "$CERTIFICATE_P12" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
+
+      - name: Build, notarize, and package
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          chmod +x agent/scripts/build-release.sh
+          cd agent && ./scripts/build-release.sh "$VERSION"
+
+      - name: Upload DMG to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DMG_PATH="agent/build/release/AFK-Agent-${VERSION}.dmg"
+          gh release upload "$GITHUB_REF_NAME" "$DMG_PATH" --clobber
+
+      - name: Generate appcast
+        env:
+          SPARKLE_VERSION: "2.9.0"
+          SPARKLE_SHA256: "" # TODO: set actual SHA256 of Sparkle-2.9.0.tar.xz before next release
+        run: |
+          SPARKLE_URL="https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-2.tar.xz"
+          curl -sL "$SPARKLE_URL" -o "$RUNNER_TEMP/sparkle.tar.xz"
+
+          # Verify download integrity when SHA is configured
+          if [ -n "$SPARKLE_SHA256" ]; then
+            echo "${SPARKLE_SHA256}  ${RUNNER_TEMP}/sparkle.tar.xz" | shasum -a 256 -c -
+          else
+            echo "WARNING: Sparkle SHA256 not set, skipping verification"
+          fi
+
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP" bin/generate_appcast
+          $RUNNER_TEMP/bin/generate_appcast agent/build/release/
+          cp agent/build/release/appcast.xml appcast.xml || true
+
+      - name: Create appcast PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f appcast.xml ]; then
+            echo "No appcast.xml generated, skipping"
+            exit 0
+          fi
+          BRANCH="chore/appcast-${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add appcast.xml
+          if git diff --cached --quiet; then
+            echo "No appcast changes, skipping"
+            exit 0
+          fi
+          git commit -m "chore: update appcast.xml for ${GITHUB_REF_NAME}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: update appcast.xml for ${GITHUB_REF_NAME}" \
+            --body "Auto-generated appcast update from agent release workflow." \
+            --base main \
+            --head "$BRANCH"

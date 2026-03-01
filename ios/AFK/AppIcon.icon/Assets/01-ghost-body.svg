@@ -1,0 +1,11 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ghost-body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F0EAE2" />
+      <stop offset="100%" stop-color="#DDD4CA" />
+    </linearGradient>
+  </defs>
+  <!-- Ghost body with wavy bottom -->
+  <path d="M 120 220 Q 120 100, 200 100 Q 280 100, 280 220 L 280 310 Q 265 290, 252 310 Q 239 330, 226 310 Q 213 290, 200 310 Q 187 290, 174 310 Q 161 330, 148 310 Q 135 330, 124 310 Q 118 330, 120 310 Z"
+    fill="url(#ghost-body)" />
+</svg>
