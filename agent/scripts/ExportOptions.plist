@@ -5,6 +5,13 @@
 	<key>method</key>
 	<string>developer-id</string>
 	<key>teamID</key>
-	<string>$(TEAM_ID)</string>
+	<string>YOUR_TEAM_ID</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>provisioningProfiles</key>
+	<dict>
+		<key>YOUR_BUNDLE_ID</key>
+		<string>YOUR_PROFILE_NAME</string>
+	</dict>
 </dict>
 </plist>

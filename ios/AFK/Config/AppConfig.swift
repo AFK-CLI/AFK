@@ -4,16 +4,21 @@ enum AppConfig {
     private static let apiBaseURLKey = "afk_api_base_url"
 
     static var isConfigured: Bool {
+        if UserDefaults.standard.string(forKey: apiBaseURLKey) != nil { return true }
+        if let bundled = Bundle.main.infoDictionary?["AFKAPIBaseURL"] as? String, !bundled.isEmpty { return true }
         #if targetEnvironment(simulator)
         return true
         #else
-        return UserDefaults.standard.string(forKey: apiBaseURLKey) != nil
+        return false
         #endif
     }
 
     static var apiBaseURL: String {
         if let stored = UserDefaults.standard.string(forKey: apiBaseURLKey) {
             return stored
+        }
+        if let bundled = Bundle.main.infoDictionary?["AFKAPIBaseURL"] as? String, !bundled.isEmpty {
+            return bundled
         }
         #if targetEnvironment(simulator)
         return "http://localhost:9847"
