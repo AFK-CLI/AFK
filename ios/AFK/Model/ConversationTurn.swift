@@ -7,7 +7,18 @@ struct ConversationTurn: Identifiable {
     let toolPairs: [ToolCallPair]
 
     var userSnippet: String? {
-        events.first { $0.eventType == "turn_started" }?.userSnippet
+        guard let raw = events.first(where: { $0.eventType == "turn_started" })?.userSnippet else {
+            return nil
+        }
+        // Strip CLI system/meta XML tags that aren't meaningful in the mobile UI
+        let cleaned = raw
+            .replacingOccurrences(
+                of: "<(local-command-caveat|command-name|command-message|command-args|local-command-stdout|system-reminder)>[\\s\\S]*?</\\1>",
+                with: "",
+                options: .regularExpression
+            )
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
     }
 
     var assistantSnippet: String? {

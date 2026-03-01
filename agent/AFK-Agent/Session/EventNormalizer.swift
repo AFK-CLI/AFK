@@ -79,7 +79,7 @@ struct EventNormalizer: Sendable {
                 // Build content snippet for user message if privacy mode allows
                 var turnContent: [String: String]? = nil
                 if sendContent, let msgContent = entry.message?.content {
-                    let userText = msgContent.textContent
+                    let userText = Self.stripSystemTags(msgContent.textContent)
                     if !userText.isEmpty {
                         turnContent = ["userSnippet": redactor.redactSnippet(userText)]
                     }
@@ -405,6 +405,15 @@ struct EventNormalizer: Sendable {
         let components = path.split(separator: "/")
         if components.count <= 2 { return path }
         return components.suffix(2).joined(separator: "/")
+    }
+
+    /// Strips CLI system/meta XML tags (e.g. `<local-command-caveat>`, `<command-name>`)
+    /// that are injected by Claude Code but meaningless outside the terminal.
+    private static func stripSystemTags(_ text: String) -> String {
+        let pattern = "<(local-command-caveat|command-name|command-message|command-args|local-command-stdout|system-reminder)>[\\s\\S]*?</\\1>"
+        return text
+            .replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Truncates a string, collapsing whitespace.

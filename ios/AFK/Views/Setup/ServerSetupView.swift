@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ServerSetupView: View {
     var onConfigured: () -> Void
-    @State private var serverURL = ""
+    @State private var serverURL = "https://afk.ahmetbirinci.dev"
     @State private var isValidating = false
     @State private var errorMessage: String?
 
@@ -63,6 +63,16 @@ struct ServerSetupView: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
+
+                    if !serverURL.isEmpty {
+                        Button {
+                            serverURL = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 14)
                 .frame(height: 50)
