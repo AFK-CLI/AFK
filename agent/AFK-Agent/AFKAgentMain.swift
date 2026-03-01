@@ -28,10 +28,15 @@ struct AFKAgentMain {
 
         #if canImport(Sparkle)
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: false,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
+        let feedString = GeneratedConfig.feedURL
+        if !feedString.isEmpty, let feedURL = URL(string: feedString) {
+            updaterController?.updater.setFeedURL(feedURL)
+        }
+        try? updaterController?.updater.start()
         #endif
 
         let config = AgentConfig.load()

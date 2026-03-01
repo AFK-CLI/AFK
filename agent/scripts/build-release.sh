@@ -68,6 +68,7 @@ if [ ! -f "${GENERATED}" ]; then
 // Auto-generated placeholder — will be overwritten by build phase
 enum GeneratedConfig {
     static let serverURL = ""
+    static let feedURL = ""
 }
 SWIFT
 fi

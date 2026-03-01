@@ -171,7 +171,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "cat > \"${SRCROOT}/AFK-Agent/Config/GeneratedConfig.swift\" << SWIFT_EOF\n// Auto-generated from AgentSecrets.xcconfig — do not edit\nenum GeneratedConfig {\n    static let serverURL = \"${AFK_SERVER_URL}\"\n}\nSWIFT_EOF\n";
+			shellScript = "cat > \"${SRCROOT}/AFK-Agent/Config/GeneratedConfig.swift\" << SWIFT_EOF\n// Auto-generated from AgentSecrets.xcconfig — do not edit\nenum GeneratedConfig {\n    static let serverURL = \"${AFK_SERVER_URL}\"\n    static let feedURL = \"${AFK_FEED_URL}\"\n}\nSWIFT_EOF\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
