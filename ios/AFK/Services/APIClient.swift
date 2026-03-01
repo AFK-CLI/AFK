@@ -2,11 +2,11 @@ import Foundation
 
 @Observable
 final class APIClient {
-    private let baseURL: String
     private let authService: AuthService
 
-    init(baseURL: String = AppConfig.apiBaseURL, authService: AuthService) {
-        self.baseURL = baseURL
+    var baseURL: String { AppConfig.apiBaseURL }
+
+    init(authService: AuthService) {
         self.authService = authService
     }
 

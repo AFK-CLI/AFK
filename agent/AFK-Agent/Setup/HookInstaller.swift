@@ -200,6 +200,7 @@ struct HookInstaller {
         // PostToolUse hook for ExitPlanMode — injects Shift+Tab to Claude Code's TTY
         // to complete the plan mode toggle after iOS approves ExitPlanMode.
         // IMPORTANT: Must NEVER exit non-zero — PostToolUse errors can break the session.
+        let configDir = BuildEnvironment.configDirectoryName
         return """
         #!/bin/bash
         # AFK Agent — Claude Code PostToolUse hook (ExitPlanMode)
@@ -209,12 +210,12 @@ struct HookInstaller {
         # IMPORTANT: No 'set -e' — this script must ALWAYS exit 0.
         # A non-zero exit from PostToolUse causes Claude Code to raise an error.
 
-        LOG="$HOME/.afk-agent/run/plan-hook-debug.log"
-        mkdir -p "$HOME/.afk-agent/run"
+        LOG="$HOME/\(configDir)/run/plan-hook-debug.log"
+        mkdir -p "$HOME/\(configDir)/run"
 
         INPUT=$(cat 2>/dev/null) || true
         SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
-        FLAG="$HOME/.afk-agent/run/plan-approved-${SESSION_ID:-unknown}"
+        FLAG="$HOME/\(configDir)/run/plan-approved-${SESSION_ID:-unknown}"
 
         echo "$(date '+%H:%M:%S') PostToolUse fired: session=${SESSION_ID:-?}, flag=$FLAG" >> "$LOG" 2>/dev/null
 
@@ -285,18 +286,19 @@ struct HookInstaller {
         // Inline the script contents so the agent binary is self-contained.
         // Uses Python for reliable bidirectional Unix socket communication.
         // Falls back to socat, then nc as last resort.
+        let configDir = BuildEnvironment.configDirectoryName
         return """
         #!/bin/bash
         # AFK Agent — Claude Code PreToolUse hook
         # Connects to the AFK Agent's Unix socket, sends the tool call JSON,
         # and waits for a permission decision response.
         set -euo pipefail
-        LOG="$HOME/.afk-agent/run/hook-debug.log"
-        BYPASS="$HOME/.afk-agent/run/hook-bypass"
-        SOCKET="$HOME/.afk-agent/run/agent.sock"
+        LOG="$HOME/\(configDir)/run/hook-debug.log"
+        BYPASS="$HOME/\(configDir)/run/hook-bypass"
+        SOCKET="$HOME/\(configDir)/run/agent.sock"
         TIMEOUT=\(Int(hookTimeout / 1000))
 
-        mkdir -p "$HOME/.afk-agent/run"
+        mkdir -p "$HOME/\(configDir)/run"
 
         # If bypass flag exists, exit immediately — no output means Claude Code
         # falls through to its normal built-in terminal permission prompts.
@@ -383,13 +385,13 @@ struct HookInstaller {
         # that requires user interaction EVEN when the hook returns "allow".
         # The background process waits for the prompt to appear, then injects
         # Shift+Tab to answer it (selects option 1: clear context + auto-accept).
-        PLAN_AUTOEXIT="$HOME/.afk-agent/run/plan-autoexit"
+        PLAN_AUTOEXIT="$HOME/\(configDir)/run/plan-autoexit"
         if echo "$INPUT" | grep -q '"ExitPlanMode"' 2>/dev/null; then
             if echo "$RESPONSE" | grep -q '"allow"' 2>/dev/null; then
-                PLOG="$HOME/.afk-agent/run/plan-hook-debug.log"
+                PLOG="$HOME/\(configDir)/run/plan-hook-debug.log"
                 # Clean up the PostToolUse flag file (PostToolUse doesn't fire for ExitPlanMode)
                 _SID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
-                rm -f "$HOME/.afk-agent/run/plan-approved-${_SID:-}" 2>/dev/null
+                rm -f "$HOME/\(configDir)/run/plan-approved-${_SID:-}" 2>/dev/null
                 if [ -f "$PLAN_AUTOEXIT" ]; then
                     echo "$(date '+%H:%M:%S') ExitPlanMode allowed — spawning Shift+Tab injector" >> "$PLOG" 2>/dev/null
                     # Spawn detached background process — MUST close inherited pipes so

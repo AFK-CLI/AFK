@@ -7,7 +7,7 @@ import Foundation
 import Security
 
 struct KeychainStore: Sendable {
-    private static let serviceName = "com.afk.agent"
+    private static let serviceName = BuildEnvironment.keychainServiceName
 
     func saveToken(_ token: String, forKey key: String) throws {
         guard let data = token.data(using: .utf8) else {

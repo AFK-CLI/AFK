@@ -8,7 +8,7 @@ final class AuthService {
     var accessToken: String?
     private var refreshToken: String?
 
-    private let baseURL: String
+    private var baseURL: String { AppConfig.apiBaseURL }
     private let keychain = KeychainService()
 
     /// Called after sign-out to let the app clear caches (sessions, events, E2EE keys).
@@ -21,10 +21,6 @@ final class AuthService {
     // Legacy UserDefaults keys used before Keychain migration
     private static let legacyAccessTokenKey = "afk_access_token"
     private static let legacyRefreshTokenKey = "afk_refresh_token"
-
-    init(baseURL: String = AppConfig.apiBaseURL) {
-        self.baseURL = baseURL
-    }
 
     func handleSignInWithApple(result: Result<ASAuthorization, any Error>) async {
         #if DEBUG
@@ -293,7 +289,7 @@ final class AuthService {
 
         keychain.delete(forKey: Self.accessTokenKey)
         keychain.delete(forKey: Self.refreshTokenKey)
-        UserDefaults.standard.removeObject(forKey: Self.userDataKey)
+        BuildEnvironment.userDefaults.removeObject(forKey: Self.userDataKey)
         isAuthenticated = false
         currentUser = nil
         accessToken = nil
@@ -313,7 +309,7 @@ final class AuthService {
         accessToken = access
         refreshToken = refresh
 
-        if let userData = UserDefaults.standard.data(forKey: Self.userDataKey) {
+        if let userData = BuildEnvironment.userDefaults.data(forKey: Self.userDataKey) {
             currentUser = try? JSONDecoder().decode(User.self, from: userData)
         }
 
@@ -332,12 +328,12 @@ final class AuthService {
     }
 
     private func migrateFromUserDefaults() {
-        if let legacyAccess = UserDefaults.standard.string(forKey: Self.legacyAccessTokenKey),
-           let legacyRefresh = UserDefaults.standard.string(forKey: Self.legacyRefreshTokenKey) {
+        if let legacyAccess = BuildEnvironment.userDefaults.string(forKey: Self.legacyAccessTokenKey),
+           let legacyRefresh = BuildEnvironment.userDefaults.string(forKey: Self.legacyRefreshTokenKey) {
             try? keychain.save(legacyAccess, forKey: Self.accessTokenKey)
             try? keychain.save(legacyRefresh, forKey: Self.refreshTokenKey)
-            UserDefaults.standard.removeObject(forKey: Self.legacyAccessTokenKey)
-            UserDefaults.standard.removeObject(forKey: Self.legacyRefreshTokenKey)
+            BuildEnvironment.userDefaults.removeObject(forKey: Self.legacyAccessTokenKey)
+            BuildEnvironment.userDefaults.removeObject(forKey: Self.legacyRefreshTokenKey)
         }
     }
 
@@ -346,7 +342,7 @@ final class AuthService {
         try? keychain.save(refresh, forKey: Self.refreshTokenKey)
 
         if let user = currentUser, let data = try? JSONEncoder().encode(user) {
-            UserDefaults.standard.set(data, forKey: Self.userDataKey)
+            BuildEnvironment.userDefaults.set(data, forKey: Self.userDataKey)
         }
     }
 }

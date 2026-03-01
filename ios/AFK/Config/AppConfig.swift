@@ -4,7 +4,7 @@ enum AppConfig {
     private static let apiBaseURLKey = "afk_api_base_url"
 
     static var isConfigured: Bool {
-        if UserDefaults.standard.string(forKey: apiBaseURLKey) != nil { return true }
+        if BuildEnvironment.userDefaults.string(forKey: apiBaseURLKey) != nil { return true }
         if let bundled = Bundle.main.infoDictionary?["AFKAPIBaseURL"] as? String, !bundled.isEmpty { return true }
         #if targetEnvironment(simulator)
         return true
@@ -14,14 +14,14 @@ enum AppConfig {
     }
 
     static var apiBaseURL: String {
-        if let stored = UserDefaults.standard.string(forKey: apiBaseURLKey) {
+        if let stored = BuildEnvironment.userDefaults.string(forKey: apiBaseURLKey) {
             return stored
         }
         if let bundled = Bundle.main.infoDictionary?["AFKAPIBaseURL"] as? String, !bundled.isEmpty {
             return bundled
         }
         #if targetEnvironment(simulator)
-        return "http://localhost:9847"
+        return "https://afk-dev.ahmetbirinci.dev"
         #else
         return ""
         #endif
@@ -40,7 +40,7 @@ enum AppConfig {
             #endif
             return
         }
-        UserDefaults.standard.set(apiURL, forKey: apiBaseURLKey)
+        BuildEnvironment.userDefaults.set(apiURL, forKey: apiBaseURLKey)
     }
 
     /// Validates that a URL uses HTTPS, or HTTP only for localhost/127.0.0.1 (development).
@@ -56,7 +56,7 @@ enum AppConfig {
     }
 
     static func reset() {
-        UserDefaults.standard.removeObject(forKey: apiBaseURLKey)
+        BuildEnvironment.userDefaults.removeObject(forKey: apiBaseURLKey)
     }
 
     /// Shared JSON decoder that handles Go's RFC3339 dates (with fractional seconds).

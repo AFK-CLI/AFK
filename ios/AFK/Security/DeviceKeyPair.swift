@@ -46,7 +46,7 @@ struct DeviceKeyPair {
 
         // Step 2: Integrity check against last-registered fingerprint
         if let loaded = loadedPair {
-            if let storedFingerprint = UserDefaults.standard.string(forKey: "afk_last_registered_ka_fingerprint") {
+            if let storedFingerprint = BuildEnvironment.userDefaults.string(forKey: "afk_last_registered_ka_fingerprint") {
                 let loadedFingerprint = E2EEService.fingerprint(of: loaded.publicKeyBase64)
                 if loadedFingerprint != storedFingerprint {
                     print("[DeviceKeyPair] INTEGRITY CHECK FAILED: loaded=\(loadedFingerprint) registered=\(storedFingerprint)")
@@ -75,7 +75,7 @@ struct DeviceKeyPair {
         }
 
         // Step 3: No key or integrity failed — generate new one
-        let hadDeviceId = UserDefaults.standard.string(forKey: "afk_ios_device_id") != nil
+        let hadDeviceId = BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id") != nil
         if hadDeviceId {
             print("[DeviceKeyPair] WARNING: Neither primary nor backup key found! Device was previously enrolled.")
             print("[DeviceKeyPair] All previously encrypted content will become permanently unreadable.")

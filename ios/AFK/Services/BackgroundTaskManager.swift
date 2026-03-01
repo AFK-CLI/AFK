@@ -4,7 +4,7 @@ import UIKit
 
 @MainActor
 final class BackgroundTaskManager {
-    static let sessionRefreshIdentifier = "com.afk.app.session-refresh"
+    static let sessionRefreshIdentifier = (Bundle.main.bundleIdentifier ?? "com.afk.app") + ".session-refresh"
 
     private let syncService: SyncService
     private var onSessionsRefreshed: (([Session]) -> Void)?

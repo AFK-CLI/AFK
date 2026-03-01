@@ -11,7 +11,7 @@
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.afk.app.session-refresh</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER).session-refresh</string>
 	</array>
 </dict>
 </plist>

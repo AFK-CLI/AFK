@@ -177,8 +177,9 @@ struct ServerSetupView: View {
             do {
                 let (_, response) = try await URLSession.shared.data(from: healthURL)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
                     await MainActor.run {
-                        errorMessage = "Server returned an unexpected response"
+                        errorMessage = "Server returned HTTP \(code) — expected 200"
                         isValidating = false
                     }
                     return

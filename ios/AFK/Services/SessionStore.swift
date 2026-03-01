@@ -57,8 +57,8 @@ final class SessionStore {
         self.localStore = localStore
         self.syncService = syncService
         self.e2eeService = E2EEService()
-        self.myDeviceId = UserDefaults.standard.string(forKey: "afk_ios_device_id")
-        self.myKeyVersion = UserDefaults.standard.object(forKey: "afk_my_key_version") as? Int
+        self.myDeviceId = BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id")
+        self.myKeyVersion = BuildEnvironment.userDefaults.object(forKey: "afk_my_key_version") as? Int
         loadCachedSessions()
         setupWebSocketHandlers()
         setupE2EEDecryptor()
@@ -575,7 +575,7 @@ final class SessionStore {
                 if device.id == myDeviceId {
                     // Update our own key version and persist
                     myKeyVersion = device.keyVersion
-                    UserDefaults.standard.set(device.keyVersion ?? 1, forKey: "afk_my_key_version")
+                    BuildEnvironment.userDefaults.set(device.keyVersion ?? 1, forKey: "afk_my_key_version")
                 }
                 if let kaKey = device.keyAgreementPublicKey, !kaKey.isEmpty {
                     newKeys[device.id] = kaKey

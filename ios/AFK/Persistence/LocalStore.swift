@@ -22,7 +22,7 @@ final class LocalStore {
             CachedTask.self,
         ])
         let config = ModelConfiguration(
-            "AFK",
+            BuildEnvironment.swiftDataName,
             schema: schema,
             isStoredInMemoryOnly: false,
             allowsSave: true

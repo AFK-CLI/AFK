@@ -4,7 +4,7 @@ import Foundation
 final class WebSocketService {
     var isConnected = false
     private var webSocketTask: URLSessionWebSocketTask?
-    private let baseURL: String
+    private var baseURL: String { AppConfig.wsBaseURL }
     private var token: String?
     private var apiClient: APIClient?
 
@@ -43,9 +43,7 @@ final class WebSocketService {
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
     var contentDecryptor: (([String: String], String) -> [String: String])?
 
-    init(baseURL: String = AppConfig.wsBaseURL) {
-        self.baseURL = baseURL
-    }
+    init() {}
 
     func connect(token: String, apiClient: APIClient? = nil) {
         self.token = token

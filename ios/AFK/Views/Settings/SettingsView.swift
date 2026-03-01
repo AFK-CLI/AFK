@@ -6,8 +6,8 @@ struct SettingsView: View {
     let sessionStore: SessionStore
     let wsService: WebSocketService
     let subscriptionManager: SubscriptionManager
-    @AppStorage("timelineNewestFirst") private var timelineNewestFirst = true
-    @AppStorage("biometricGateEnabled") private var biometricEnabled = false
+    @AppStorage("timelineNewestFirst", store: BuildEnvironment.userDefaults) private var timelineNewestFirst = true
+    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricEnabled = false
 
     var body: some View {
         NavigationStack {

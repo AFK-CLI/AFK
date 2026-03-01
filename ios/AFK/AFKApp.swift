@@ -297,7 +297,7 @@ struct AFKApp: App {
 
     private func enrollIOSDeviceIfNeeded() async {
         let keyPair = DeviceKeyPair.loadOrCreate()
-        let myDeviceId = UserDefaults.standard.string(forKey: Self.iosDeviceIdKey)
+        let myDeviceId = BuildEnvironment.userDefaults.string(forKey: Self.iosDeviceIdKey)
         let currentFingerprint = E2EEService.fingerprint(of: keyPair.publicKeyBase64)
         print("[App] Own KA key fingerprint: \(currentFingerprint)")
 
@@ -311,8 +311,8 @@ struct AFKApp: App {
                     keyAgreementPublicKey: keyPair.publicKeyBase64,
                     capabilities: ["e2ee_v2"]
                 )
-                UserDefaults.standard.set(device.id, forKey: Self.iosDeviceIdKey)
-                UserDefaults.standard.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
+                BuildEnvironment.userDefaults.set(device.id, forKey: Self.iosDeviceIdKey)
+                BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                 sessionStore.myDeviceId = device.id
                 print("[App] iOS device enrolled: \(device.id.prefix(8))")
             } catch {
@@ -321,7 +321,7 @@ struct AFKApp: App {
         } else {
             sessionStore.myDeviceId = myDeviceId
             // Already enrolled — only re-register KA key if it changed
-            let lastFingerprint = UserDefaults.standard.string(forKey: Self.lastRegisteredKAFingerprintKey)
+            let lastFingerprint = BuildEnvironment.userDefaults.string(forKey: Self.lastRegisteredKAFingerprintKey)
             if lastFingerprint != currentFingerprint {
                 print("[App] WARNING: KA key fingerprint changed (\(lastFingerprint ?? "nil") -> \(currentFingerprint)) — re-registering")
                 print("[App] This means the Keychain key was lost. Historical E2EE content may be unreadable.")
@@ -331,7 +331,7 @@ struct AFKApp: App {
 
                 do {
                     try await apiClient.registerKeyAgreement(deviceId: myDeviceId!, publicKey: keyPair.publicKeyBase64)
-                    UserDefaults.standard.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
+                    BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                     print("[App] KA key re-registered (fingerprint: \(currentFingerprint))")
                 } catch {
                     print("[App] KA key registration update failed: \(error)")
@@ -343,7 +343,7 @@ struct AFKApp: App {
 
         // List all devices and cache agent device KA keys for E2EE decryption
         do {
-            let storedId = UserDefaults.standard.string(forKey: Self.iosDeviceIdKey)
+            let storedId = BuildEnvironment.userDefaults.string(forKey: Self.iosDeviceIdKey)
             let devices = try await apiClient.listDevices()
             var ownDevice: Device?
             for device in devices {
@@ -369,15 +369,15 @@ struct AFKApp: App {
                         capabilities: ["e2ee_v2"],
                         deviceId: storedId
                     )
-                    UserDefaults.standard.set(device.id, forKey: Self.iosDeviceIdKey)
-                    UserDefaults.standard.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
+                    BuildEnvironment.userDefaults.set(device.id, forKey: Self.iosDeviceIdKey)
+                    BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                     sessionStore.myDeviceId = device.id
                     print("[App] Re-enrolled as \(device.id.prefix(8)) with KA key")
                 } else if ownDevice?.keyAgreementPublicKey == nil || ownDevice?.keyAgreementPublicKey?.isEmpty == true {
                     // Device exists but backend lost our KA key.
                     print("[App] Backend missing our KA key — re-registering")
                     try await apiClient.registerKeyAgreement(deviceId: storedId, publicKey: keyPair.publicKeyBase64)
-                    UserDefaults.standard.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
+                    BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                     print("[App] KA key re-registered (fingerprint: \(currentFingerprint))")
                 }
             }

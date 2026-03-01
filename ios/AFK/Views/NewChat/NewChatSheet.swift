@@ -5,7 +5,7 @@ struct NewChatSheet: View {
     let commandStore: CommandStore
     let sessionStore: SessionStore
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("biometricGateEnabled") private var biometricGateEnabled = false
+    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
 
     @State private var prompt = ""
     @State private var selectedDeviceId: String?
@@ -20,7 +20,7 @@ struct NewChatSheet: View {
     @State private var isLoadingDevices = true
 
     private var myDeviceId: String? {
-        UserDefaults.standard.string(forKey: "afk_ios_device_id")
+        BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id")
     }
 
     /// Mac devices that are online (excluding this iOS device).

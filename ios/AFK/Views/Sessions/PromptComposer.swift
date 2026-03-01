@@ -5,7 +5,7 @@ struct PromptComposer: View {
     let commandStore: CommandStore
     let apiClient: APIClient
     var isDisabled: Bool = false
-    @AppStorage("biometricGateEnabled") private var biometricGateEnabled = false
+    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
     @State private var prompt = ""
     @State private var isSending = false
     @State private var errorMessage: String?

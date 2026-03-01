@@ -37,7 +37,7 @@ struct AgentConfig: Sendable {
 
     static func load() -> AgentConfig {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let configPath = "\(home)/.afk-agent/config.json"
+        let configPath = BuildEnvironment.configDirectoryPath + "/config.json"
 
         // Default from xcconfig (generated at build time)
         let defaultServerURL = GeneratedConfig.serverURL
@@ -104,8 +104,7 @@ struct AgentConfig: Sendable {
 
     func save() {
         let fm = FileManager.default
-        let home = fm.homeDirectoryForCurrentUser.path
-        let configDir = "\(home)/.afk-agent"
+        let configDir = BuildEnvironment.configDirectoryPath
         let configPath = "\(configDir)/config.json"
 
         try? fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)

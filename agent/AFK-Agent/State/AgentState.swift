@@ -23,8 +23,7 @@ struct AgentState: Codable {
     // MARK: - Persistence
 
     private static var stateDirectoryURL: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".afk-agent")
+        URL(fileURLWithPath: BuildEnvironment.configDirectoryPath)
     }
 
     private static var stateFileURL: URL {

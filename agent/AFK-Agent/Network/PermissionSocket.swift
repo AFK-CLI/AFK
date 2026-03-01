@@ -17,8 +17,7 @@ import CryptoKit
 
 actor PermissionSocket {
     static var socketPath: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/.afk-agent/run/agent.sock"
+        BuildEnvironment.configDirectoryPath + "/run/agent.sock"
     }
     private let timeout: TimeInterval
     private let deviceId: String
@@ -54,7 +53,7 @@ actor PermissionSocket {
     private var pendingRestarts: [String: RestartIntent] = [:]
 
     func recordRestartIntent(sessionId: String, planContent: String) {
-        let plansDir = FileManager.default.homeDirectoryForCurrentUser.path + "/.afk-agent/plans"
+        let plansDir = BuildEnvironment.configDirectoryPath + "/plans"
         try? FileManager.default.createDirectory(atPath: plansDir, withIntermediateDirectories: true)
         let planPath = "\(plansDir)/\(sessionId).md"
         try? planContent.write(toFile: planPath, atomically: true, encoding: .utf8)
@@ -266,8 +265,7 @@ actor PermissionSocket {
 
     /// Remove leftover plan-approved-* flag files from the run directory.
     nonisolated static func cleanStalePlanFlags() {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let runDir = "\(home)/.afk-agent/run"
+        let runDir = BuildEnvironment.configDirectoryPath + "/run"
         if let files = try? FileManager.default.contentsOfDirectory(atPath: runDir) {
             for f in files where f.hasPrefix("plan-approved-") {
                 try? FileManager.default.removeItem(atPath: "\(runDir)/\(f)")
@@ -629,8 +627,7 @@ actor PermissionSocket {
 
     /// Create a flag file for the PostToolUse hook to detect, and schedule cleanup.
     private nonisolated func createPlanApprovedFlag(sessionId: String) {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let flagPath = "\(home)/.afk-agent/run/plan-approved-\(sessionId)"
+        let flagPath = BuildEnvironment.configDirectoryPath + "/run/plan-approved-\(sessionId)"
         FileManager.default.createFile(atPath: flagPath, contents: nil)
         // Clean stale flag after 10s if PostToolUse didn't consume it
         DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
@@ -754,8 +751,7 @@ actor PermissionSocket {
         latency: TimeInterval = 0,
         note: String = ""
     ) {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let logDir = "\(home)/.afk-agent"
+        let logDir = BuildEnvironment.configDirectoryPath
         let logPath = "\(logDir)/permission-audit.log"
 
         // Ensure directory exists

@@ -4,7 +4,6 @@
 //
 
 import SwiftUI
-import AuthenticationServices
 
 // MARK: - Starfield Background
 
@@ -251,32 +250,6 @@ struct AgentSignInView: View {
                 .padding(.top, 32)
                 .padding(.bottom, 24)
 
-                // MARK: Sign In with Apple
-                SignInWithAppleButton(.signIn) { request in
-                    request.requestedScopes = [.email, .fullName]
-                } onCompletion: { result in
-                    handleAppleSignIn(result: result)
-                }
-                .signInWithAppleButtonStyle(.whiteOutline)
-                .frame(height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .padding(.horizontal, 32)
-
-                // MARK: Divider
-                HStack(spacing: 12) {
-                    Rectangle()
-                        .fill(Color.white.opacity(0.15))
-                        .frame(height: 0.5)
-                    Text("or")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
-                    Rectangle()
-                        .fill(Color.white.opacity(0.15))
-                        .frame(height: 0.5)
-                }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 16)
-
                 // MARK: Text fields
                 VStack(spacing: 12) {
                     if isRegistering {
@@ -395,57 +368,15 @@ struct AgentSignInView: View {
                     .easeInOut(duration: 3).repeatForever(autoreverses: true),
                     value: animating
                 )
-                .onAppear { animating = true }
+                .task {
+                    // Defer to avoid layout recursion with NSHostingView
+                    try? await Task.sleep(for: .milliseconds(100))
+                    animating = true
+                }
         }
     }
 
     // MARK: - Apple Sign-In
-
-    private func handleAppleSignIn(result: Result<ASAuthorization, Error>) {
-        switch result {
-        case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-                  let tokenData = credential.identityToken,
-                  let identityToken = String(data: tokenData, encoding: .utf8) else {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    errorMessage = "Failed to get Apple identity token"
-                }
-                return
-            }
-
-            let appleEmail = credential.email ?? ""
-            withAnimation(.easeInOut(duration: 0.25)) { errorMessage = "" }
-            isLoading = true
-
-            Task {
-                do {
-                    let resp = try await APIClient.appleAuth(
-                        baseURL: httpBaseURL,
-                        identityToken: identityToken
-                    )
-                    let userEmail = appleEmail.isEmpty ? resp.user.displayName : appleEmail
-                    await MainActor.run {
-                        onAuthenticated(resp.accessToken, resp.refreshToken, resp.user.id, userEmail)
-                    }
-                } catch {
-                    await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            errorMessage = error.localizedDescription
-                        }
-                        isLoading = false
-                    }
-                }
-            }
-
-        case .failure(let error):
-            if let asError = error as? ASAuthorizationError, asError.code == .canceled {
-                return
-            }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
 
     // MARK: - Email/Password Submit
 

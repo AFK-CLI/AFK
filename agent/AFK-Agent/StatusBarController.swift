@@ -29,8 +29,7 @@ final class StatusBarController: NSObject {
 
     /// Runtime directory for flag files and sockets.
     static var runDir: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let dir = "\(home)/.afk-agent/run"
+        let dir = BuildEnvironment.configDirectoryPath + "/run"
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir
     }

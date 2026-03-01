@@ -5,7 +5,7 @@ struct PermissionOverlay: View {
     let onApprove: () -> Void
     let onDeny: () -> Void
 
-    @AppStorage("biometricGateEnabled") private var biometricGateEnabled = false
+    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
     @State private var biometricError: String?
 
     private var requiresBiometric: Bool {

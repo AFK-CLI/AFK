@@ -113,8 +113,8 @@ actor Agent {
         print("[Agent] Watching: \(config.claudeProjectsPath)")
 
         // Initialize disk-backed offline queue
-        let queueDir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".afk-agent/offline-queue")
+        let queueDir = URL(fileURLWithPath: BuildEnvironment.configDirectoryPath)
+            .appendingPathComponent("offline-queue")
         let queue = DiskQueue(directory: queueDir)
         self.diskQueue = queue
         if queue.count > 0 {
@@ -229,7 +229,7 @@ actor Agent {
             }
         } else {
             print("[Agent] No auth token or device ID found. Running in local-only mode.")
-            print("[Agent] Configure ~/.afk-agent/config.json or sign in to connect.")
+            print("[Agent] Configure \(BuildEnvironment.configDirectoryPath)/config.json or sign in to connect.")
         }
 
         // Start timeout checker
@@ -756,7 +756,7 @@ actor Agent {
             print("[Agent] Cannot restart \(sessionId.prefix(8)) — no project path")
             return
         }
-        let planPath = FileManager.default.homeDirectoryForCurrentUser.path + "/.afk-agent/plans/\(sessionId).md"
+        let planPath = BuildEnvironment.configDirectoryPath + "/plans/\(sessionId).md"
         let prompt = "Read and implement the plan at \(planPath). Begin immediately."
         do {
             let claudePath = try CommandValidator.resolveClaudePath()
@@ -1227,8 +1227,7 @@ actor Agent {
         let mode = payload.permissionMode.isEmpty ? "acceptEdits" : payload.permissionMode
 
         // Read the saved plan file
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let planPath = "\(home)/.afk-agent/plans/\(sessionId).md"
+        let planPath = BuildEnvironment.configDirectoryPath + "/plans/\(sessionId).md"
 
         guard FileManager.default.fileExists(atPath: planPath) else {
             print("[Agent] No plan file found at \(planPath)")

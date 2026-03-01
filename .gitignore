@@ -53,6 +53,7 @@ secrets/
 
 # Nginx (user config, certs)
 nginx/afk.conf
+nginx/afk-dev.conf
 certs/
 !backend/internal/auth/certs/
 certbot-www/

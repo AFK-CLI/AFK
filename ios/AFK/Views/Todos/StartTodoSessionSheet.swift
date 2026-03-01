@@ -16,7 +16,7 @@ struct StartTodoSessionSheet: View {
     @State private var errorMessage: String?
 
     private var myDeviceId: String? {
-        UserDefaults.standard.string(forKey: "afk_ios_device_id")
+        BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id")
     }
 
     private var onlineMacs: [Device] {

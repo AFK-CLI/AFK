@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 struct KeychainService: Sendable {
-    private static let serviceName = "com.afk.app"
+    private static let serviceName = BuildEnvironment.keychainServiceName
     /// Serializes all Keychain operations to prevent race conditions.
     /// The "delete then add" pattern in save() has a window where load() returns nil
     /// if called between delete and SecItemAdd. This lock prevents that.
