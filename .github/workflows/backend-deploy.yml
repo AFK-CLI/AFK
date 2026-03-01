@@ -30,7 +30,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new "root@${DEPLOY_HOST}" << DEPLOY_SCRIPT
             set -euo pipefail
             cd /opt/AFK
-            git fetch origin --tags
+            git fetch origin --tags --force
             git checkout "$TAG"
             docker compose --profile prod build afk-cloud
             docker compose --profile prod up -d afk-cloud
