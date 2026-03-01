@@ -13,10 +13,11 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: read
-    env:
-      KEYCHAIN_PATH: ${{ runner.temp }}/build-${{ github.run_id }}.keychain-db
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set keychain path
+        run: echo "KEYCHAIN_PATH=$RUNNER_TEMP/build-${{ github.run_id }}.keychain-db" >> "$GITHUB_ENV"
 
       - name: Import signing certificate
         env:
