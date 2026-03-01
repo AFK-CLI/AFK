@@ -32,6 +32,8 @@ jobs:
             cd /opt/AFK
             git fetch origin --tags --force
             git checkout "$TAG"
+            VERSION="\${TAG#backend-v}"
+            export AFK_VERSION="\$VERSION"
             docker compose --profile prod build afk-cloud
             docker compose --profile prod up -d afk-cloud
           DEPLOY_SCRIPT
