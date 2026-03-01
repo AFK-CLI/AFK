@@ -72,20 +72,6 @@ jobs:
         run: |
           echo "$IOS_SECRETS_XCCONFIG" | base64 --decode > config/Secrets.xcconfig
 
-      - name: Archive
-        run: |
-          xcodebuild archive \
-            -project ios/AFK.xcodeproj \
-            -scheme AFK \
-            -configuration Release \
-            -archivePath "$RUNNER_TEMP/AFK.xcarchive" \
-            -destination "generic/platform=iOS" \
-            CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            DEVELOPMENT_TEAM="${{ secrets.TEAM_ID }}" \
-            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
-            MARKETING_VERSION="${{ steps.version.outputs.version }}"
-
       - name: Write App Store Connect API key
         env:
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
@@ -94,32 +80,50 @@ jobs:
           mkdir -p "$RUNNER_TEMP/private_keys"
           echo "$APP_STORE_CONNECT_KEY" | base64 --decode > "$RUNNER_TEMP/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
+      - name: Archive
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -project ios/AFK.xcodeproj \
+            -scheme AFK \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/AFK.xcarchive" \
+            -destination "generic/platform=iOS" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8" \
+            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
+            -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
+            MARKETING_VERSION="${{ steps.version.outputs.version }}"
+
       - name: Export and upload to TestFlight
         env:
           TEAM_ID: ${{ secrets.TEAM_ID }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" << PLIST
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-            <key>method</key>
-            <string>app-store-connect</string>
-            <key>teamID</key>
-            <string>${TEAM_ID}</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>dev.ahmetbirinci.AFK</key>
-              <string>AFK App Store</string>
-              <key>dev.ahmetbirinci.AFK.AFKWidgets</key>
-              <string>AFK Widgets App Store</string>
-            </dict>
-            <key>uploadSymbols</key>
-            <true/>
+          	<key>method</key>
+          	<string>app-store-connect</string>
+          	<key>teamID</key>
+          	<string>${TEAM_ID}</string>
+          	<key>signingStyle</key>
+          	<string>manual</string>
+          	<key>provisioningProfiles</key>
+          	<dict>
+          		<key>dev.ahmetbirinci.AFK</key>
+          		<string>AFK App Store</string>
+          		<key>dev.ahmetbirinci.AFK.AFKWidgets</key>
+          		<string>AFK Widgets App Store</string>
+          	</dict>
+          	<key>uploadSymbols</key>
+          	<true/>
           </dict>
           </plist>
           PLIST
