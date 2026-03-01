@@ -17,17 +17,10 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
             return
         }
 
-        let signInView = AgentSignInView(serverURL: serverURL) { [weak self] token, refreshToken, userId, email in
-            self?.window?.close()
-            self?.window = nil
-            NSApp.setActivationPolicy(.accessory)
-            completion(token, refreshToken, userId, email)
-        }
-
-        let hostingView = NSHostingView(rootView: signInView)
+        let contentSize = NSSize(width: 380, height: 540)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 540),
+            contentRect: NSRect(origin: .zero, size: contentSize),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -36,6 +29,18 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         window.backgroundColor = NSColor(red: 0.043, green: 0.102, blue: 0.18, alpha: 1)
+        window.contentMinSize = contentSize
+        window.contentMaxSize = contentSize
+
+        let signInView = AgentSignInView(serverURL: serverURL) { [weak self] token, refreshToken, userId, email in
+            self?.window?.close()
+            self?.window = nil
+            NSApp.setActivationPolicy(.accessory)
+            completion(token, refreshToken, userId, email)
+        }
+
+        let hostingView = NSHostingView(rootView: signInView)
+        hostingView.frame = NSRect(origin: .zero, size: contentSize)
         window.contentView = hostingView
         window.center()
         window.delegate = self

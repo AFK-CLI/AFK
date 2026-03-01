@@ -189,31 +189,6 @@ struct APIClient: Sendable {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
-    static func appleAuth(baseURL: String, identityToken: String) async throws -> AuthResponse {
-        guard let url = URL(string: "\(baseURL)/v1/auth/apple") else {
-            throw URLError(.badURL)
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let body = ["identityToken": identityToken]
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
-        guard (200...299).contains(http.statusCode) else {
-            let code = http.statusCode
-            let message: String
-            switch code {
-            case 401: message = "Invalid Apple identity token"
-            default: message = "Apple sign in failed: HTTP \(code)"
-            }
-            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: message])
-        }
-        return try JSONDecoder().decode(AuthResponse.self, from: data)
-    }
 }
 
 struct AuthResponse: Codable, Sendable {

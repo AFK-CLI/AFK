@@ -1,5 +1,4 @@
 import SwiftUI
-import AuthenticationServices
 
 // MARK: - Starfield Background
 
@@ -275,40 +274,6 @@ struct SignInView: View {
                     }
                     .padding(.top, 48)
                     .padding(.bottom, 28)
-
-                    // MARK: Apple Sign In
-                    SignInWithAppleButton(.signIn) { request in
-                        request.requestedScopes = [.email, .fullName]
-                    } onCompletion: { result in
-                        switch result {
-                        case .success:
-                            print("[SignIn] Apple Sign-In dialog succeeded")
-                        case .failure(let error):
-                            print("[SignIn] Apple Sign-In dialog failed — \(error.localizedDescription)")
-                        }
-                        Task {
-                            await authService.handleSignInWithApple(result: result)
-                        }
-                    }
-                    .signInWithAppleButtonStyle(.whiteOutline)
-                    .frame(height: 50)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal, 32)
-
-                    // MARK: Divider
-                    HStack(spacing: 12) {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.15))
-                            .frame(height: 0.5)
-                        Text("or")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
-                        Rectangle()
-                            .fill(Color.white.opacity(0.15))
-                            .frame(height: 0.5)
-                    }
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 16)
 
                     // MARK: Text Fields
                     VStack(spacing: 12) {
