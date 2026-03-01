@@ -62,9 +62,12 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          VERSION="${GITHUB_REF#refs/tags/ios-v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Releasing iOS v$VERSION"
+          TAG_VERSION="${GITHUB_REF#refs/tags/ios-v}"
+          # Strip pre-release suffix (-rc1, -beta2, etc.) for App Store
+          MARKETING="${TAG_VERSION%%-*}"
+          echo "marketing=$MARKETING" >> "$GITHUB_OUTPUT"
+          echo "build=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Releasing iOS v$MARKETING (build ${{ github.run_number }})"
 
       - name: Write Secrets.xcconfig
         env:
@@ -95,8 +98,8 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8" \
             -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" \
             -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
-            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.version }}" \
-            MARKETING_VERSION="${{ steps.version.outputs.version }}"
+            CURRENT_PROJECT_VERSION="${{ steps.version.outputs.build }}" \
+            MARKETING_VERSION="${{ steps.version.outputs.marketing }}"
 
       - name: Export and upload to TestFlight
         env:
