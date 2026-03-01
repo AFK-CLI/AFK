@@ -16,31 +16,23 @@ struct PromptComposer: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            #if compiler(>=6.2)
-            if #unavailable(iOS 26) {
-                Divider()
-            }
-            #else
-            Divider()
-            #endif
+        GlassEffectContainer {
+            VStack(spacing: 0) {
+                if let error = errorMessage {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.horizontal)
+                        .padding(.top, 4)
+                }
 
-            if let error = errorMessage {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal)
-                    .padding(.top, 4)
-            }
+                if prompt.isEmpty && !isDisabled {
+                    quickActionButtons
+                }
 
-            if prompt.isEmpty && !isDisabled {
-                quickActionButtons
+                inputField
             }
-
-            inputField
         }
-        .background { composerBackground }
-        .modifier(GlassContainerModifier())
         .sheet(isPresented: $showTemplates) {
             NavigationStack {
                 List {
@@ -79,14 +71,14 @@ struct PromptComposer: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 36, height: 36)
             }
-            .modifier(GlassButtonModifier())
+            .glassEffect(.regular.interactive(), in: .circle)
 
             TextField("Send a message...", text: $prompt, axis: .vertical)
                 .textFieldStyle(.plain)
                 .lineLimit(1...5)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .modifier(GlassFieldModifier())
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
 
             Button {
                 Task { await send() }
@@ -97,23 +89,10 @@ struct PromptComposer: View {
                     .frame(width: 36, height: 36)
             }
             .disabled(!canSend)
-            .modifier(GlassButtonModifier())
+            .glassEffect(.regular.interactive(), in: .circle)
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-    }
-
-    @ViewBuilder
-    private var composerBackground: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26, *) {
-            Color.clear
-        } else {
-            Color(UIColor.systemGroupedBackground)
-        }
-        #else
-        Color(UIColor.systemGroupedBackground)
-        #endif
     }
 
     private var quickActionButtons: some View {
@@ -159,54 +138,6 @@ struct PromptComposer: View {
     }
 }
 
-// MARK: - Glass Modifiers
-
-private struct GlassContainerModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26, *) {
-            GlassEffectContainer { content }
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-private struct GlassButtonModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26, *) {
-            content.glassEffect(.regular.interactive(), in: .circle)
-        } else {
-            content
-        }
-        #else
-        content
-        #endif
-    }
-}
-
-private struct GlassFieldModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26, *) {
-            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
-        } else {
-            content
-                .background(Color(UIColor.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-        }
-        #else
-        content
-            .background(Color(UIColor.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-        #endif
-    }
-}
-
 // MARK: - Quick Action Pill
 
 struct QuickActionPill: View {
@@ -215,31 +146,13 @@ struct QuickActionPill: View {
     let action: () -> Void
 
     var body: some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26, *) {
-            Button(action: action) {
-                Label(title, systemImage: icon)
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
-        } else {
-            fallbackButton
-        }
-        #else
-        fallbackButton
-        #endif
-    }
-
-    private var fallbackButton: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
                 .font(.caption.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.capsule)
-        .controlSize(.small)
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
     }
 }
