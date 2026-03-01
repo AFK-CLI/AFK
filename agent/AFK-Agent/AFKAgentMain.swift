@@ -17,10 +17,6 @@ private var setupController: SetupWindowController?
 private var updaterController: SPUStandardUpdaterController?
 #endif
 
-// TODO: Add Sparkle SPM dependency via Xcode:
-// File → Add Package Dependencies → https://github.com/sparkle-project/Sparkle (version 2.x)
-// All Sparkle code is behind #if canImport(Sparkle), so the project builds without it.
-
 @main
 struct AFKAgentMain {
     static func main() {
@@ -32,7 +28,7 @@ struct AFKAgentMain {
 
         #if canImport(Sparkle)
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: false,
+            startingUpdater: true,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
