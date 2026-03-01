@@ -649,10 +649,12 @@ final class SessionStore {
 
     /// Load cached sessions from local DB for instant cold start.
     private func loadCachedSessions() {
-        let cached = localStore.cachedSessions()
-        if !cached.isEmpty {
-            sessions = cached
-            print("[SessionStore] Loaded \(cached.count) sessions from cache")
+        MainActor.assumeIsolated {
+            let cached = localStore.cachedSessions()
+            if !cached.isEmpty {
+                sessions = cached
+                print("[SessionStore] Loaded \(cached.count) sessions from cache")
+            }
         }
     }
 
