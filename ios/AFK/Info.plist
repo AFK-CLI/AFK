@@ -13,5 +13,7 @@
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER).session-refresh</string>
 	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
