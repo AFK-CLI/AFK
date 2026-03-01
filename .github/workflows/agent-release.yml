@@ -15,7 +15,7 @@ jobs:
       contents: write
       pull-requests: write
     env:
-      KEYCHAIN_PATH: build-${{ github.run_id }}.keychain-db
+      KEYCHAIN_PATH: ${{ runner.temp }}/build-${{ github.run_id }}.keychain-db
     steps:
       - uses: actions/checkout@v4
 
