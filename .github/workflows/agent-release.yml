@@ -13,7 +13,6 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -105,30 +104,25 @@ jobs:
           "$RUNNER_TEMP/bin/generate_appcast" agent/build/release/
           cp agent/build/release/appcast.xml appcast.xml || true
 
-      - name: Create appcast PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Commit appcast to main
         run: |
           if [ ! -f appcast.xml ]; then
             echo "No appcast.xml generated, skipping"
             exit 0
           fi
-          BRANCH="chore/appcast-${{ github.ref_name }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
+          git stash --include-untracked
+          git fetch origin main
+          git checkout main
+          git stash pop
           git add appcast.xml
           if git diff --cached --quiet; then
             echo "No appcast changes, skipping"
             exit 0
           fi
           git commit -m "chore: update appcast.xml for ${{ github.ref_name }}"
-          git push origin "$BRANCH"
-          gh pr create \
-            --title "chore: update appcast.xml for ${{ github.ref_name }}" \
-            --body "Auto-generated appcast update from agent release workflow." \
-            --base main \
-            --head "$BRANCH"
+          git push origin main
 
       - name: Cleanup keychain
         if: always()
