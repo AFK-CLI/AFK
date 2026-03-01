@@ -99,7 +99,7 @@ jobs:
         env:
           SPARKLE_VERSION: "2.9.0"
         run: |
-          SPARKLE_URL="https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-2.tar.xz"
+          SPARKLE_URL="https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
           curl -sL "$SPARKLE_URL" -o "$RUNNER_TEMP/sparkle.tar.xz"
           tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP" bin/generate_appcast
           "$RUNNER_TEMP/bin/generate_appcast" agent/build/release/
