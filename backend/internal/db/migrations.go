@@ -309,6 +309,26 @@ CREATE TABLE IF NOT EXISTS todos (
 CREATE INDEX IF NOT EXISTS idx_todos_user_id ON todos(user_id);
 `
 
+const m11SecurityHardeningSQL = `__NEEDS_FK_OFF__
+CREATE TABLE IF NOT EXISTS refresh_tokens_new (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    token_hash TEXT UNIQUE NOT NULL,
+    family_id TEXT NOT NULL DEFAULT '',
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO refresh_tokens_new (id, user_id, token_hash, family_id, expires_at, created_at, revoked)
+    SELECT id, user_id, token_hash, id, expires_at, created_at, revoked FROM refresh_tokens;
+DROP TABLE refresh_tokens;
+ALTER TABLE refresh_tokens_new RENAME TO refresh_tokens;
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family_id ON refresh_tokens(family_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_revoked ON refresh_tokens(expires_at, revoked);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at_purge ON audit_log(created_at);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -333,6 +353,7 @@ var migrations = []struct {
 	{Name: "018_performance_indexes.up.sql", SQL: m8PerformanceIndexesSQL},
 	{Name: "019_tasks.up.sql", SQL: m9TasksSQL},
 	{Name: "020_todos.up.sql", SQL: m10TodosSQL},
+	{Name: "021_security_hardening.up.sql", SQL: m11SecurityHardeningSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

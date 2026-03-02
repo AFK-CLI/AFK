@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -68,6 +70,12 @@ func main() {
 	hub.Notifier = notifier
 	hub.Decision = push.NewDecisionEngine(notifier, hub.HasActiveIOSConns)
 
+	// Configure trusted proxies for X-Real-IP header trust.
+	middleware.SetTrustedProxies(cfg.TrustedProxies)
+	if len(cfg.TrustedProxies) > 0 {
+		slog.Info("trusted proxies configured", "count", len(cfg.TrustedProxies))
+	}
+
 	// Load or generate server Ed25519 key pair for command signing.
 	var serverPrivateKey ed25519.PrivateKey
 	if cfg.ServerPrivateKey != "" {
@@ -77,7 +85,9 @@ func main() {
 			os.Exit(1)
 		}
 		serverPrivateKey = ed25519.PrivateKey(privBytes)
-		slog.Info("server Ed25519 key pair loaded from config")
+		// Log fingerprint (SHA-256 first 8 bytes) instead of full key.
+		fp := sha256.Sum256(serverPrivateKey.Public().(ed25519.PublicKey))
+		slog.Info("server Ed25519 key pair loaded from config", "fingerprint", hex.EncodeToString(fp[:8]))
 	} else {
 		pub, priv, err := auth.GenerateServerKeyPair()
 		if err != nil {
@@ -85,7 +95,8 @@ func main() {
 			os.Exit(1)
 		}
 		serverPrivateKey = priv
-		slog.Info("generated ephemeral server Ed25519 key pair", "public", hex.EncodeToString(pub))
+		fp := sha256.Sum256(pub)
+		slog.Info("generated ephemeral server Ed25519 key pair", "fingerprint", hex.EncodeToString(fp[:8]))
 		slog.Warn("set AFK_SERVER_PRIVATE_KEY for persistent key across restarts")
 	}
 
@@ -125,6 +136,12 @@ func main() {
 
 	// Stricter IP rate limiter for registration (3 tokens, 3/hour = 1/1200 sec refill).
 	registerIPLimiter := middleware.NewRateLimiter(3, 1.0/1200.0, collector)
+
+	// Admin login limiter (3 tokens, 1/20s = 3/min) — brute-force protection.
+	adminLoginLimiter := middleware.NewRateLimiter(3, 1.0/20.0, collector)
+
+	// Admin read limiter (20 tokens, 2/sec) — prevents scraping.
+	adminReadLimiter := middleware.NewRateLimiter(20, 2, collector)
 
 	authMiddleware := auth.AuthMiddleware(cfg.JWTSecret)
 
@@ -229,32 +246,38 @@ func main() {
 	mux.Handle("POST /v1/subscription/sync", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(subscriptionHandler.HandleSync))))
 
 	// Admin (secret-based auth with rate limiting, not JWT).
-	adminHandler := &handler.AdminHandler{
-		DB:          database,
-		AdminSecret: cfg.AdminSecret,
-		Hub:         hub,
-		Collector:   collector,
-		Version:     Version,
+	var adminSessionStore *handler.AdminSessionStore
+	if cfg.AdminSecret != "" {
+		adminSessionStore = handler.NewAdminSessionStore(cfg.AdminSecret)
 	}
-	mux.Handle("POST /v1/admin/grant-contributor", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleGrantContributor)))
+	adminHandler := &handler.AdminHandler{
+		DB:           database,
+		AdminSecret:  cfg.AdminSecret,
+		Hub:          hub,
+		Collector:    collector,
+		Version:      Version,
+		SessionStore: adminSessionStore,
+	}
+	mux.Handle("POST /v1/admin/grant-contributor", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleGrantContributor)))
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
 	})
 	mux.Handle("/admin/", handler.AdminFileServer())
-	mux.Handle("POST /v1/admin/login", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogin)))
-	// Admin read endpoints — no rate limiting, already behind cookie auth.
-	mux.HandleFunc("GET /v1/admin/dashboard", adminHandler.HandleAdminDashboard)
-	mux.HandleFunc("GET /v1/admin/users", adminHandler.HandleAdminUsers)
-	mux.HandleFunc("GET /v1/admin/timeseries", adminHandler.HandleAdminTimeseries)
-	mux.HandleFunc("GET /v1/admin/audit", adminHandler.HandleAdminAudit)
-	mux.HandleFunc("GET /v1/admin/login-attempts", adminHandler.HandleAdminLoginAttempts)
-	mux.HandleFunc("GET /v1/admin/top-projects", adminHandler.HandleAdminTopProjects)
-	mux.HandleFunc("GET /v1/admin/stale-devices", adminHandler.HandleAdminStaleDevices)
-	mux.HandleFunc("GET /v1/admin/users/{id}", adminHandler.HandleAdminUserDetail)
-	mux.HandleFunc("GET /v1/admin/devices", adminHandler.HandleAdminDevicesList)
-	mux.HandleFunc("GET /v1/admin/sessions", adminHandler.HandleAdminSessionsList)
-	mux.HandleFunc("GET /v1/admin/sessions/{id}", adminHandler.HandleAdminSessionDetail)
-	mux.HandleFunc("GET /v1/admin/commands", adminHandler.HandleAdminCommandsList)
+	mux.Handle("POST /v1/admin/login", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogin)))
+	mux.Handle("POST /v1/admin/logout", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogout)))
+	// Admin read endpoints — rate limited to prevent scraping.
+	mux.Handle("GET /v1/admin/dashboard", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminDashboard)))
+	mux.Handle("GET /v1/admin/users", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUsers)))
+	mux.Handle("GET /v1/admin/timeseries", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTimeseries)))
+	mux.Handle("GET /v1/admin/audit", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminAudit)))
+	mux.Handle("GET /v1/admin/login-attempts", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLoginAttempts)))
+	mux.Handle("GET /v1/admin/top-projects", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTopProjects)))
+	mux.Handle("GET /v1/admin/stale-devices", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminStaleDevices)))
+	mux.Handle("GET /v1/admin/users/{id}", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUserDetail)))
+	mux.Handle("GET /v1/admin/devices", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminDevicesList)))
+	mux.Handle("GET /v1/admin/sessions", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminSessionsList)))
+	mux.Handle("GET /v1/admin/sessions/{id}", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminSessionDetail)))
+	mux.Handle("GET /v1/admin/commands", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminCommandsList)))
 
 	// Admin write endpoints — rate limited to prevent accidental spam.
 	mux.Handle("PUT /v1/admin/users/{id}/tier", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateUserTier)))
@@ -294,6 +317,26 @@ func main() {
 		}
 	}()
 
+	// Data retention cleanup (daily, 30s startup delay).
+	// SA-019: Purge audit logs older than 90 days.
+	// SA-020: Purge expired/revoked refresh tokens with 7-day grace.
+	// SA-021: Purge expired commands older than 7 days.
+	retentionStop := make(chan struct{})
+	go func() {
+		time.Sleep(30 * time.Second)
+		runRetentionCleanup(database)
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				runRetentionCleanup(database)
+			case <-retentionStop:
+				return
+			}
+		}
+	}()
+
 	// Wrap with security headers, request ID, and request logging middleware.
 	wrappedMux := middleware.Logger(middleware.RequestID(middleware.SecurityHeaders(mux)))
 
@@ -322,10 +365,16 @@ func main() {
 	close(ticketStop)
 	close(nonceStop)
 	close(loginCleanupStop)
+	close(retentionStop)
 	rateLimiter.Stop()
 	continueRateLimiter.Stop()
 	authIPLimiter.Stop()
 	registerIPLimiter.Stop()
+	adminLoginLimiter.Stop()
+	adminReadLimiter.Stop()
+	if adminSessionStore != nil {
+		adminSessionStore.Stop()
+	}
 	stuckDetector.Stop()
 	eventPurger.Stop()
 	hub.Shutdown()
@@ -339,4 +388,28 @@ func main() {
 	}
 
 	slog.Info("server stopped")
+}
+
+// runRetentionCleanup performs periodic data retention housekeeping.
+func runRetentionCleanup(database *sql.DB) {
+	// Audit logs: 90-day retention.
+	if n, err := db.PurgeOldAuditLogs(database, time.Now().Add(-90*24*time.Hour)); err != nil {
+		slog.Error("audit log purge failed", "error", err)
+	} else if n > 0 {
+		slog.Info("purged old audit logs", "deleted", n)
+	}
+
+	// Refresh tokens: 7-day grace after expiry/revocation.
+	if n, err := db.PurgeExpiredRefreshTokens(database, time.Now().Add(-7*24*time.Hour)); err != nil {
+		slog.Error("refresh token purge failed", "error", err)
+	} else if n > 0 {
+		slog.Info("purged expired refresh tokens", "deleted", n)
+	}
+
+	// Expired commands: 7-day cutoff.
+	if n, err := db.PurgeExpiredCommands(database, time.Now().Add(-7*24*time.Hour)); err != nil {
+		slog.Error("command purge failed", "error", err)
+	} else if n > 0 {
+		slog.Info("purged expired commands", "deleted", n)
+	}
 }

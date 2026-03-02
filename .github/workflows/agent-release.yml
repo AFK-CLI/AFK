@@ -14,7 +14,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Set keychain path
         run: echo "KEYCHAIN_PATH=$RUNNER_TEMP/build-${{ github.run_id }}.keychain-db" >> "$GITHUB_ENV"
@@ -39,7 +39,7 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
 
-          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> "$GITHUB_ENV"
+          # Keychain is already unlocked; no need to export password to env.
 
       - name: Install provisioning profile
         env:
@@ -88,7 +88,7 @@ jobs:
           cd agent && ./scripts/build-release.sh "${{ steps.version.outputs.version }}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           files: agent/build/release/AFK-Agent-${{ steps.version.outputs.version }}.dmg
           generate_release_notes: true

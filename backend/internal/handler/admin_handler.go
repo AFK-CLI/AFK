@@ -1,14 +1,11 @@
 package handler
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -21,7 +18,6 @@ import (
 )
 
 const adminCookieName = "afk_admin_session"
-const adminCookieMaxAge = 24 * time.Hour
 
 // redactEmail returns a privacy-safe representation: first char + "***@" + domain.
 func redactEmail(email string) string {
@@ -32,15 +28,67 @@ func redactEmail(email string) string {
 	return string(parts[0][0]) + "***@" + parts[1]
 }
 
-type AdminHandler struct {
-	DB          *sql.DB
-	AdminSecret string
-	Hub         *ws.Hub
-	Collector   *metrics.Collector
-	Version     string
+// truncatedAdminIP masks an IP address for privacy in admin logs: IPv4 /24, IPv6 /48.
+func truncatedAdminIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return "invalid"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		v4[3] = 0
+		return v4.String()
+	}
+	full := ip.To16()
+	for i := 6; i < 16; i++ {
+		full[i] = 0
+	}
+	return full.String()
 }
 
-// adminAuth checks admin authentication via X-Admin-Secret header or session cookie.
+// adminClientIP extracts the raw client IP (no port) from the request.
+func adminClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
+// sanitizeSearchQuery caps search input length to prevent abuse.
+func sanitizeSearchQuery(q string) string {
+	if len(q) > 256 {
+		return q[:256]
+	}
+	return q
+}
+
+// validatePathParam validates a path parameter length.
+func validatePathParam(w http.ResponseWriter, value, name string) bool {
+	if value == "" {
+		writeError(w, name+" is required", http.StatusBadRequest)
+		return false
+	}
+	if len(value) > 128 {
+		writeError(w, name+" too long", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+type AdminHandler struct {
+	DB           *sql.DB
+	AdminSecret  string
+	Hub          *ws.Hub
+	Collector    *metrics.Collector
+	Version      string
+	SessionStore *AdminSessionStore
+}
+
+// adminAuth checks admin authentication via X-Admin-Secret header or server-side session cookie.
 // Returns true if authenticated.
 func (h *AdminHandler) adminAuth(r *http.Request) bool {
 	if h.AdminSecret == "" {
@@ -53,57 +101,24 @@ func (h *AdminHandler) adminAuth(r *http.Request) bool {
 		return true
 	}
 
-	// Method 2: session cookie (for browser).
+	// Method 2: server-side session cookie (for browser).
+	if h.SessionStore == nil {
+		return false
+	}
 	cookie, err := r.Cookie(adminCookieName)
 	if err != nil || cookie.Value == "" {
 		return false
 	}
 
-	// Cookie format: base64(timestamp.HMAC-SHA256(adminSecret, timestamp))
-	decoded, err := base64.RawURLEncoding.DecodeString(cookie.Value)
-	if err != nil {
-		return false
-	}
-
-	parts := strings.SplitN(string(decoded), ".", 2)
-	if len(parts) != 2 {
-		return false
-	}
-
-	timestamp := parts[0]
-	signature := parts[1]
-
-	// Verify HMAC.
-	mac := hmac.New(sha256.New, []byte(h.AdminSecret))
-	mac.Write([]byte(timestamp))
-	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if subtle.ConstantTimeCompare([]byte(signature), []byte(expected)) != 1 {
-		return false
-	}
-
-	// Check expiry.
-	ts, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil {
-		return false
-	}
-	if time.Since(time.Unix(ts, 0)) > adminCookieMaxAge {
-		return false
-	}
-
-	return true
+	return h.SessionStore.Validate(cookie.Value, adminClientIP(r))
 }
 
-// makeAdminCookie creates an HMAC-signed session cookie value.
-func (h *AdminHandler) makeAdminCookie() string {
-	timestamp := fmt.Sprintf("%d", time.Now().Unix())
-	mac := hmac.New(sha256.New, []byte(h.AdminSecret))
-	mac.Write([]byte(timestamp))
-	signature := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	raw := timestamp + "." + signature
-	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+// isSecureRequest returns true if the request arrived over TLS or via HTTPS proxy.
+func isSecureRequest(r *http.Request) bool {
+	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
-// HandleAdminLogin validates the admin secret and sets a session cookie.
+// HandleAdminLogin validates the admin secret and creates a server-side session.
 // POST /v1/admin/login
 func (h *AdminHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if h.AdminSecret == "" {
@@ -121,21 +136,50 @@ func (h *AdminHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if subtle.ConstantTimeCompare([]byte(req.Secret), []byte(h.AdminSecret)) != 1 {
+		slog.Warn("admin login failed", "ip", truncatedAdminIP(r))
 		writeError(w, "invalid secret", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID, err := h.SessionStore.Create(adminClientIP(r))
+	if err != nil {
+		slog.Error("failed to create admin session", "error", err)
+		writeError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     adminCookieName,
-		Value:    h.makeAdminCookie(),
+		Value:    sessionID,
 		Path:     "/",
-		MaxAge:   int(adminCookieMaxAge.Seconds()),
+		MaxAge:   int(adminSessionMaxLifetime.Seconds()),
 		HttpOnly: true,
 		SameSite: http.SameSiteStrictMode,
-		Secure:   r.TLS != nil,
+		Secure:   isSecureRequest(r),
 	})
 
-	slog.Info("admin login successful", "ip", r.RemoteAddr)
+	slog.Info("admin login successful", "ip", truncatedAdminIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminLogout revokes the admin session and clears the cookie.
+// POST /v1/admin/logout
+func (h *AdminHandler) HandleAdminLogout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie(adminCookieName)
+	if err == nil && cookie.Value != "" && h.SessionStore != nil {
+		h.SessionStore.Revoke(cookie.Value)
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   isSecureRequest(r),
+	})
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -160,16 +204,16 @@ func (h *AdminHandler) HandleAdminDashboard(w http.ResponseWriter, r *http.Reque
 	response := map[string]interface{}{
 		"stats": stats,
 		"runtime": map[string]interface{}{
-			"version":           h.version(),
-			"uptime":            int64(h.Collector.Uptime().Seconds()),
-			"agentConnections":  agentConns,
-			"iosConnections":    iosConns,
-			"requestsTotal":     h.Collector.RequestsTotal.Load(),
-			"requestErrors":     h.Collector.RequestErrors.Load(),
+			"version":            h.version(),
+			"uptime":             int64(h.Collector.Uptime().Seconds()),
+			"agentConnections":   agentConns,
+			"iosConnections":     iosConns,
+			"requestsTotal":      h.Collector.RequestsTotal.Load(),
+			"requestErrors":      h.Collector.RequestErrors.Load(),
 			"wsMessagesReceived": h.Collector.WSMessagesReceived.Load(),
-			"wsMessagesSent":    h.Collector.WSMessagesSent.Load(),
-			"wsDroppedMessages": h.Collector.WSDroppedMessages.Load(),
-			"rateLimitHits":     h.Collector.RateLimitHits.Load(),
+			"wsMessagesSent":     h.Collector.WSMessagesSent.Load(),
+			"wsDroppedMessages":  h.Collector.WSDroppedMessages.Load(),
+			"rateLimitHits":      h.Collector.RateLimitHits.Load(),
 		},
 	}
 
@@ -190,7 +234,7 @@ func (h *AdminHandler) HandleAdminUsers(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	search := r.URL.Query().Get("search")
+	search := sanitizeSearchQuery(r.URL.Query().Get("search"))
 	limit := parseIntParam(r, "limit", 50)
 	offset := parseIntParam(r, "offset", 0)
 
@@ -221,9 +265,6 @@ func (h *AdminHandler) HandleAdminTimeseries(w http.ResponseWriter, r *http.Requ
 
 	metric := r.URL.Query().Get("metric")
 	days := parseIntParam(r, "days", 30)
-	if days > 365 {
-		days = 365
-	}
 
 	switch metric {
 	case "registrations":
@@ -283,8 +324,8 @@ func (h *AdminHandler) HandleAdminAudit(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	action := r.URL.Query().Get("action")
-	userID := r.URL.Query().Get("user_id")
+	action := sanitizeSearchQuery(r.URL.Query().Get("action"))
+	userID := sanitizeSearchQuery(r.URL.Query().Get("user_id"))
 	limit := parseIntParam(r, "limit", 50)
 	offset := parseIntParam(r, "offset", 0)
 
@@ -330,12 +371,38 @@ func (h *AdminHandler) HandleAdminLoginAttempts(w http.ResponseWriter, r *http.R
 		attempts = []db.AdminLoginAttempt{}
 	}
 
+	// Redact email and IP in the response for privacy (SA-032).
+	for i := range attempts {
+		attempts[i].Email = redactEmail(attempts[i].Email)
+		attempts[i].IPAddress = truncateIPString(attempts[i].IPAddress)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"attempts":           attempts,
-		"total":              total,
-		"failedLastHour":     failedHour,
-		"failedLast24Hours":  failed24h,
+		"attempts":          attempts,
+		"total":             total,
+		"failedLastHour":    failedHour,
+		"failedLast24Hours": failed24h,
 	})
+}
+
+// truncateIPString masks a raw IP string for privacy: IPv4 /24, IPv6 /48.
+func truncateIPString(addr string) string {
+	if addr == "" {
+		return ""
+	}
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return "***"
+	}
+	if v4 := ip.To4(); v4 != nil {
+		v4[3] = 0
+		return v4.String()
+	}
+	full := ip.To16()
+	for i := 6; i < 16; i++ {
+		full[i] = 0
+	}
+	return full.String()
 }
 
 // HandleAdminTopProjects returns projects ranked by session count.
@@ -388,15 +455,8 @@ func (h *AdminHandler) HandleAdminStaleDevices(w http.ResponseWriter, r *http.Re
 
 // HandleGrantContributor grants lifetime contributor tier to a user.
 // POST /v1/admin/grant-contributor
-// Authenticated via X-Admin-Secret header (CLI/curl use, not from iOS app).
 func (h *AdminHandler) HandleGrantContributor(w http.ResponseWriter, r *http.Request) {
-	if h.AdminSecret == "" {
-		writeError(w, "admin API not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	secret := r.Header.Get("X-Admin-Secret")
-	if subtle.ConstantTimeCompare([]byte(secret), []byte(h.AdminSecret)) != 1 {
+	if !h.adminAuth(r) {
 		writeError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -438,10 +498,10 @@ func (h *AdminHandler) HandleGrantContributor(w http.ResponseWriter, r *http.Req
 
 	slog.Info("contributor tier granted", "user_id", user.ID, "email", redactEmail(user.Email))
 
-	// Audit log.
+	// Audit log (redact email in stored details).
 	details, _ := json.Marshal(map[string]string{
 		"user_id": user.ID,
-		"email":   user.Email,
+		"email":   redactEmail(user.Email),
 		"tier":    "contributor",
 	})
 	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
@@ -465,8 +525,7 @@ func (h *AdminHandler) HandleAdminUserDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	userID := r.PathValue("id")
-	if userID == "" {
-		writeError(w, "user id is required", http.StatusBadRequest)
+	if !validatePathParam(w, userID, "user id") {
 		return
 	}
 
@@ -499,7 +558,7 @@ func (h *AdminHandler) HandleAdminDevicesList(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	search := r.URL.Query().Get("search")
+	search := sanitizeSearchQuery(r.URL.Query().Get("search"))
 	limit := parseIntParam(r, "limit", 50)
 	offset := parseIntParam(r, "offset", 0)
 
@@ -558,8 +617,7 @@ func (h *AdminHandler) HandleAdminSessionDetail(w http.ResponseWriter, r *http.R
 	}
 
 	sessionID := r.PathValue("id")
-	if sessionID == "" {
-		writeError(w, "session id is required", http.StatusBadRequest)
+	if !validatePathParam(w, sessionID, "session id") {
 		return
 	}
 
@@ -571,8 +629,7 @@ func (h *AdminHandler) HandleAdminSessionDetail(w http.ResponseWriter, r *http.R
 	}
 
 	// Get user email for the session.
-	var userEmail string
-	_ = h.DB.QueryRow("SELECT email FROM users WHERE id = ?", sess.UserID).Scan(&userEmail)
+	userEmail, _ := db.GetUserEmailByID(h.DB, sess.UserID)
 
 	commands, err := db.AdminListSessionCommands(h.DB, sessionID)
 	if err != nil {
@@ -646,8 +703,7 @@ func (h *AdminHandler) HandleAdminUpdateUserTier(w http.ResponseWriter, r *http.
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	userID := r.PathValue("id")
-	if userID == "" {
-		writeError(w, "user id is required", http.StatusBadRequest)
+	if !validatePathParam(w, userID, "user id") {
 		return
 	}
 
@@ -695,8 +751,7 @@ func (h *AdminHandler) HandleAdminRevokeUser(w http.ResponseWriter, r *http.Requ
 	}
 
 	userID := r.PathValue("id")
-	if userID == "" {
-		writeError(w, "user id is required", http.StatusBadRequest)
+	if !validatePathParam(w, userID, "user id") {
 		return
 	}
 
@@ -712,9 +767,10 @@ func (h *AdminHandler) HandleAdminRevokeUser(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Redact email in stored audit log details.
 	details, _ := json.Marshal(map[string]string{
 		"userId": userID,
-		"email":  user.Email,
+		"email":  redactEmail(user.Email),
 	})
 	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
 		UserID:  userID,
@@ -737,8 +793,7 @@ func (h *AdminHandler) HandleAdminRevokeDevice(w http.ResponseWriter, r *http.Re
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	deviceID := r.PathValue("id")
-	if deviceID == "" {
-		writeError(w, "device id is required", http.StatusBadRequest)
+	if !validatePathParam(w, deviceID, "device id") {
 		return
 	}
 
@@ -788,8 +843,7 @@ func (h *AdminHandler) HandleAdminForceKeyRotation(w http.ResponseWriter, r *htt
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	deviceID := r.PathValue("id")
-	if deviceID == "" {
-		writeError(w, "device id is required", http.StatusBadRequest)
+	if !validatePathParam(w, deviceID, "device id") {
 		return
 	}
 
@@ -846,8 +900,7 @@ func (h *AdminHandler) HandleAdminUpdateSessionStatus(w http.ResponseWriter, r *
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 
 	sessionID := r.PathValue("id")
-	if sessionID == "" {
-		writeError(w, "session id is required", http.StatusBadRequest)
+	if !validatePathParam(w, sessionID, "session id") {
 		return
 	}
 
@@ -890,6 +943,7 @@ func (h *AdminHandler) version() string {
 }
 
 // parseIntParam reads an integer query parameter with a default value.
+// Upper bounds: offset max 100000, limit max 200, days max 365.
 func parseIntParam(r *http.Request, name string, defaultVal int) int {
 	v := r.URL.Query().Get(name)
 	if v == "" {
@@ -899,5 +953,22 @@ func parseIntParam(r *http.Request, name string, defaultVal int) int {
 	if err != nil || n < 0 {
 		return defaultVal
 	}
+
+	// Apply upper bounds based on parameter name.
+	switch name {
+	case "offset":
+		if n > 100000 {
+			n = 100000
+		}
+	case "limit":
+		if n > 200 {
+			n = 200
+		}
+	case "days":
+		if n > 365 {
+			n = 365
+		}
+	}
+
 	return n
 }

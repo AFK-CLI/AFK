@@ -23,6 +23,7 @@ type Config struct {
 	APNsProduction   bool   // true = api.push.apple.com, false = api.sandbox.push.apple.com
 	LogLevel         string
 	AdminSecret      string
+	TrustedProxies   []string
 }
 
 func Load() *Config {
@@ -45,6 +46,7 @@ func Load() *Config {
 		APNsProduction:   getEnv("AFK_APNS_PRODUCTION", "") == "1",
 		LogLevel:         getEnv("AFK_LOG_LEVEL", "info"),
 		AdminSecret:      getEnv("AFK_ADMIN_SECRET", ""),
+		TrustedProxies:   splitCSV(getEnv("AFK_TRUSTED_PROXIES", "")),
 	}
 }
 
@@ -57,6 +59,9 @@ func (c *Config) Validate() error {
 	}
 	if len(c.JWTSecret) < 32 {
 		return fmt.Errorf("AFK_JWT_SECRET must be at least 32 characters — generate one with: openssl rand -hex 32")
+	}
+	if c.AdminSecret != "" && len(c.AdminSecret) < 32 {
+		return fmt.Errorf("AFK_ADMIN_SECRET must be at least 32 characters when set — generate one with: openssl rand -hex 32")
 	}
 	return nil
 }

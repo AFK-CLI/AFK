@@ -1,4 +1,4 @@
-FROM node:22-alpine AS frontend
+FROM node:22-alpine@sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34 AS frontend
 
 WORKDIR /admin
 COPY admin/package.json admin/package-lock.json ./
@@ -24,6 +24,9 @@ FROM alpine:3.19@sha256:6baf43584bcb78f2e5847d1de515f23499913ac9f12bdf834811a314
 
 RUN apk add --no-cache sqlite-libs
 
+RUN addgroup -S afk && adduser -S afk -G afk
+RUN mkdir -p /data && chown afk:afk /data
+
 WORKDIR /app
 COPY --from=builder /app/afk-cloud .
 
@@ -33,5 +36,7 @@ ENV AFK_PORT=9847
 ENV AFK_DB_PATH=/data/afk.db
 
 VOLUME ["/data"]
+
+USER afk
 
 ENTRYPOINT ["./afk-cloud"]

@@ -10,6 +10,28 @@ import (
 	"github.com/AFK/afk-cloud/internal/metrics"
 )
 
+var (
+	trustedProxyMu sync.RWMutex
+	trustedProxies map[string]bool
+)
+
+// SetTrustedProxies configures the set of IPs allowed to set X-Real-IP.
+// Call once at startup. An empty slice means trust all sources (backward compat).
+func SetTrustedProxies(proxies []string) {
+	trustedProxyMu.Lock()
+	defer trustedProxyMu.Unlock()
+	if len(proxies) == 0 {
+		trustedProxies = nil
+		return
+	}
+	trustedProxies = make(map[string]bool, len(proxies))
+	for _, p := range proxies {
+		if p != "" {
+			trustedProxies[p] = true
+		}
+	}
+}
+
 // TokenBucket implements a token bucket rate limiter.
 type TokenBucket struct {
 	tokens     float64
@@ -119,17 +141,26 @@ func (rl *RateLimiter) IPMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP extracts the client IP from the request, preferring X-Real-IP
-// (set by nginx) and falling back to RemoteAddr.
+// clientIP extracts the client IP from the request.
+// Only trusts X-Real-IP if no trusted proxies are configured (backward compat)
+// or if the direct connection comes from a trusted proxy IP.
 func clientIP(r *http.Request) string {
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	directIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		directIP = r.RemoteAddr
 	}
-	return host
+
+	if forwarded := r.Header.Get("X-Real-IP"); forwarded != "" {
+		trustedProxyMu.RLock()
+		tp := trustedProxies
+		trustedProxyMu.RUnlock()
+
+		if tp == nil || tp[directIP] {
+			return forwarded
+		}
+	}
+
+	return directIP
 }
 
 func (rl *RateLimiter) cleanup() {

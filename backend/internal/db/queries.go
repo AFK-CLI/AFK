@@ -817,12 +817,15 @@ func scanEvents(rows *sql.Rows) ([]*model.SessionEvent, error) {
 
 // Refresh Tokens
 
-func StoreRefreshToken(db *sql.DB, userID, tokenHash string, expiresAt time.Time) error {
+func StoreRefreshToken(db *sql.DB, userID, tokenHash, familyID string, expiresAt time.Time) error {
 	id := auth.GenerateID()
+	if familyID == "" {
+		familyID = id
+	}
 	_, err := db.Exec(`
-		INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, revoked)
-		VALUES (?, ?, ?, ?, 0)
-	`, id, userID, tokenHash, expiresAt)
+		INSERT INTO refresh_tokens (id, user_id, token_hash, family_id, expires_at, revoked)
+		VALUES (?, ?, ?, ?, ?, 0)
+	`, id, userID, tokenHash, familyID, expiresAt)
 	if err != nil {
 		return fmt.Errorf("store refresh token: %w", err)
 	}
@@ -854,6 +857,60 @@ func RevokeRefreshToken(db *sql.DB, tokenHash string) error {
 		return fmt.Errorf("revoke refresh token: %w", err)
 	}
 	return nil
+}
+
+// LookupRefreshToken returns the userID, familyID, and status flags for a hashed token.
+func LookupRefreshToken(db *sql.DB, tokenHash string) (userID, familyID string, revoked bool, expired bool, err error) {
+	var revokedInt int
+	var expiresAt time.Time
+	err = db.QueryRow(`
+		SELECT user_id, family_id, revoked, expires_at FROM refresh_tokens WHERE token_hash = ?
+	`, tokenHash).Scan(&userID, &familyID, &revokedInt, &expiresAt)
+	if err != nil {
+		return "", "", false, false, fmt.Errorf("lookup refresh token: %w", err)
+	}
+	return userID, familyID, revokedInt != 0, time.Now().After(expiresAt), nil
+}
+
+// RevokeRefreshTokenFamily revokes all tokens in a family (reuse detection).
+func RevokeRefreshTokenFamily(db *sql.DB, familyID string) error {
+	_, err := db.Exec(`UPDATE refresh_tokens SET revoked = 1 WHERE family_id = ?`, familyID)
+	if err != nil {
+		return fmt.Errorf("revoke refresh token family: %w", err)
+	}
+	return nil
+}
+
+// PurgeExpiredRefreshTokens deletes revoked or expired tokens older than the grace period.
+func PurgeExpiredRefreshTokens(db *sql.DB, graceCutoff time.Time) (int64, error) {
+	result, err := db.Exec(`
+		DELETE FROM refresh_tokens
+		WHERE (revoked = 1 OR expires_at < ?)
+		  AND created_at < ?
+	`, graceCutoff, graceCutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge expired refresh tokens: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+// PurgeOldAuditLogs deletes audit log entries older than the given cutoff.
+func PurgeOldAuditLogs(db *sql.DB, cutoff time.Time) (int64, error) {
+	result, err := db.Exec(`DELETE FROM audit_log WHERE created_at < ?`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("purge old audit logs: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+// GetUserEmailByID returns just the email for a given user ID.
+func GetUserEmailByID(db *sql.DB, userID string) (string, error) {
+	var email string
+	err := db.QueryRow(`SELECT email FROM users WHERE id = ?`, userID).Scan(&email)
+	if err != nil {
+		return "", fmt.Errorf("get user email: %w", err)
+	}
+	return email, nil
 }
 
 // Device Key Agreement

@@ -3,8 +3,8 @@ services:
   afk-cloud:
     profiles: [prod]
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       args:
         VERSION: ${AFK_VERSION:-dev}
     ports:
@@ -50,8 +50,8 @@ services:
   afk-cloud-dev:
     profiles: [dev]
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
       args:
         VERSION: ${AFK_VERSION:-dev}
     ports:

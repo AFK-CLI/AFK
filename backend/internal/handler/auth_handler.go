@@ -85,10 +85,10 @@ func (h *AuthHandler) HandleAppleAuth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store hashed refresh token.
+	// Store hashed refresh token (new family).
 	hash := hashToken(tokenPair.RefreshToken)
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := db.StoreRefreshToken(h.DB, user.ID, hash, expiresAt); err != nil {
+	if err := db.StoreRefreshToken(h.DB, user.ID, hash, "", expiresAt); err != nil {
 		writeError(w, "failed to store refresh token", http.StatusInternalServerError)
 		return
 	}
@@ -121,9 +121,9 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if the hashed token exists and is not revoked.
+	// Look up the hashed token with family tracking.
 	hash := hashToken(req.RefreshToken)
-	storedUserID, err := db.ValidateRefreshToken(h.DB, hash)
+	storedUserID, familyID, revoked, expired, err := db.LookupRefreshToken(h.DB, hash)
 	if err != nil {
 		writeError(w, "refresh token invalid or revoked", http.StatusUnauthorized)
 		return
@@ -134,7 +134,21 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Revoke old token.
+	// Reuse detection: if the token is already revoked, someone is replaying it.
+	// Revoke the entire family to protect the user.
+	if revoked {
+		slog.Warn("refresh token reuse detected, revoking family", "user_id", userID, "family_id", familyID)
+		_ = db.RevokeRefreshTokenFamily(h.DB, familyID)
+		writeError(w, "refresh token reuse detected", http.StatusUnauthorized)
+		return
+	}
+
+	if expired {
+		writeError(w, "refresh token expired", http.StatusUnauthorized)
+		return
+	}
+
+	// Revoke old token (rotation).
 	_ = db.RevokeRefreshToken(h.DB, hash)
 
 	// Issue new pair.
@@ -144,10 +158,10 @@ func (h *AuthHandler) HandleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store new hashed refresh token.
+	// Store new hashed refresh token in the same family.
 	newHash := hashToken(tokenPair.RefreshToken)
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := db.StoreRefreshToken(h.DB, userID, newHash, expiresAt); err != nil {
+	if err := db.StoreRefreshToken(h.DB, userID, newHash, familyID, expiresAt); err != nil {
 		writeError(w, "failed to store refresh token", http.StatusInternalServerError)
 		return
 	}
@@ -231,7 +245,7 @@ func (h *AuthHandler) HandleEmailRegister(w http.ResponseWriter, r *http.Request
 
 	tokenHash := hashToken(tokenPair.RefreshToken)
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := db.StoreRefreshToken(h.DB, user.ID, tokenHash, expiresAt); err != nil {
+	if err := db.StoreRefreshToken(h.DB, user.ID, tokenHash, "", expiresAt); err != nil {
 		writeError(w, "failed to store refresh token", http.StatusInternalServerError)
 		return
 	}
@@ -298,7 +312,7 @@ func (h *AuthHandler) HandleEmailLogin(w http.ResponseWriter, r *http.Request) {
 
 	tokenHash := hashToken(tokenPair.RefreshToken)
 	expiresAt := time.Now().Add(30 * 24 * time.Hour)
-	if err := db.StoreRefreshToken(h.DB, user.ID, tokenHash, expiresAt); err != nil {
+	if err := db.StoreRefreshToken(h.DB, user.ID, tokenHash, "", expiresAt); err != nil {
 		writeError(w, "failed to store refresh token", http.StatusInternalServerError)
 		return
 	}
