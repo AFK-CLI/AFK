@@ -379,6 +379,13 @@ struct AFKApp: App {
                     try await apiClient.registerKeyAgreement(deviceId: storedId, publicKey: keyPair.publicKeyBase64)
                     BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                     print("[App] KA key re-registered (fingerprint: \(currentFingerprint))")
+                } else if let backendKey = ownDevice?.keyAgreementPublicKey, backendKey != keyPair.publicKeyBase64 {
+                    // Backend has a stale key — previous registration likely failed
+                    let backendFP = E2EEService.fingerprint(of: backendKey)
+                    print("[App] Backend KA key mismatch: local=\(currentFingerprint) backend=\(backendFP) — re-registering")
+                    try await apiClient.registerKeyAgreement(deviceId: storedId, publicKey: keyPair.publicKeyBase64)
+                    BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
+                    print("[App] KA key re-registered after mismatch (fingerprint: \(currentFingerprint))")
                 }
             }
         } catch {

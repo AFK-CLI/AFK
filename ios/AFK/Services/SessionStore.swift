@@ -567,6 +567,8 @@ final class SessionStore {
     }
 
     /// Re-fetch device list and update KA public keys, invalidating stale session keys.
+    /// Also self-heals if the backend's key for our own device doesn't match our local key
+    /// (e.g. a previous registerKeyAgreement call failed silently).
     func refreshDeviceKAKeys() async {
         do {
             let devices = try await apiClient.listDevices()
@@ -576,6 +578,25 @@ final class SessionStore {
                     // Update our own key version and persist
                     myKeyVersion = device.keyVersion
                     BuildEnvironment.userDefaults.set(device.keyVersion ?? 1, forKey: "afk_my_key_version")
+
+                    // Self-heal: if the backend has a stale public key for us, re-register
+                    if let service = e2eeService,
+                       let backendKey = device.keyAgreementPublicKey, !backendKey.isEmpty {
+                        let localPub = service.publicKeyBase64
+                        if backendKey != localPub {
+                            let localFP = E2EEService.fingerprint(of: localPub)
+                            let backendFP = E2EEService.fingerprint(of: backendKey)
+                            print("[E2EE] Backend key mismatch for own device: local=\(localFP) backend=\(backendFP) — re-registering")
+                            do {
+                                try await apiClient.registerKeyAgreement(deviceId: device.id, publicKey: localPub)
+                                let fp = E2EEService.fingerprint(of: localPub)
+                                BuildEnvironment.userDefaults.set(fp, forKey: "afk_last_registered_ka_fingerprint")
+                                print("[E2EE] Self-heal: KA key re-registered (fingerprint: \(fp))")
+                            } catch {
+                                print("[E2EE] Self-heal: Failed to re-register KA key: \(error)")
+                            }
+                        }
+                    }
                 }
                 if let kaKey = device.keyAgreementPublicKey, !kaKey.isEmpty {
                     newKeys[device.id] = kaKey
