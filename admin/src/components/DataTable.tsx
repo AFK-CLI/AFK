@@ -10,9 +10,10 @@ interface DataTableProps<T> {
   columns: Column<T>[]
   data: T[]
   emptyText?: string
+  onRowClick?: (row: T) => void
 }
 
-export function DataTable<T>({ columns, data, emptyText = 'No data' }: DataTableProps<T>) {
+export function DataTable<T>({ columns, data, emptyText = 'No data', onRowClick }: DataTableProps<T>) {
   return (
     <table>
       <thead>
@@ -31,7 +32,11 @@ export function DataTable<T>({ columns, data, emptyText = 'No data' }: DataTable
           </tr>
         ) : (
           data.map((row, ri) => (
-            <tr key={ri}>
+            <tr
+              key={ri}
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              className={onRowClick ? 'clickable-row' : undefined}
+            >
               {columns.map((col, ci) => (
                 <td key={ci} style={col.style}>
                   {col.render(row)}

@@ -26,6 +26,29 @@ export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
   return parseJSON(res)
 }
 
+export async function apiPut<T>(path: string, body: unknown): Promise<T> {
+  return api<T>(path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+  const opts: RequestInit = { method: 'DELETE' }
+  if (body) {
+    opts.headers = { 'Content-Type': 'application/json' }
+    opts.body = JSON.stringify(body)
+  }
+  return api<T>(path, opts)
+}
+
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  const opts: RequestInit = { method: 'POST', headers: { 'Content-Type': 'application/json' } }
+  if (body) opts.body = JSON.stringify(body)
+  return api<T>(path, opts)
+}
+
 export async function adminLogin(secret: string): Promise<{ status: string }> {
   const res = await fetch('/v1/admin/login', {
     method: 'POST',
