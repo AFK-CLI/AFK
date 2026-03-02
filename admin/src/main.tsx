@@ -1,4 +1,3 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Chart as ChartJS,
@@ -34,8 +33,4 @@ ChartJS.defaults.font.family = chartDefaults.fontFamily
 ChartJS.defaults.font.size = chartDefaults.fontSize
 ChartJS.defaults.plugins.legend.labels.boxWidth = chartDefaults.legendBoxWidth
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+createRoot(document.getElementById('root')!).render(<App />)

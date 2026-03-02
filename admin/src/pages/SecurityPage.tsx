@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { AuditEntry, LoginAttempt, LoginAttemptsResponse, StaleDevice } from '../types'
 import { api } from '../api'
+import { PageHeader } from '../components/PageHeader'
 import { CardGrid } from '../components/CardGrid'
 import { StatCard } from '../components/StatCard'
 import { DataTable } from '../components/DataTable'
@@ -28,9 +29,7 @@ function AuditTab() {
     load()
   }, [load])
 
-  const doFilter = () => {
-    pag.reset()
-  }
+  const doFilter = () => pag.reset()
 
   const parseDetails = (details: string): string => {
     try {
@@ -135,7 +134,13 @@ function LoginsTab() {
   return (
     <>
       <div className="table-controls">
-        <select value={filter} onChange={(e) => { setFilter(e.target.value); pag.reset(); }}>
+        <select
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value)
+            pag.reset()
+          }}
+        >
           <option value="">All</option>
           <option value="true">Success</option>
           <option value="false">Failed</option>
@@ -199,7 +204,7 @@ function StaleDevicesTab() {
   )
 }
 
-export function Security() {
+export function SecurityPage() {
   const [activeTab, setActiveTab] = useState('audit')
   const [failedLastHour, setFailedLastHour] = useState(0)
   const [failedLast24Hours, setFailedLast24Hours] = useState(0)
@@ -212,8 +217,8 @@ export function Security() {
   }, [])
 
   return (
-    <div className="section">
-      <h2>Security</h2>
+    <div>
+      <PageHeader title="Security" subtitle="Audit logs and login monitoring" />
       <CardGrid>
         <StatCard
           label="Failed Logins (1h)"

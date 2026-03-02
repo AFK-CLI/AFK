@@ -242,13 +242,26 @@ func main() {
 	})
 	mux.Handle("/admin/", handler.AdminFileServer())
 	mux.Handle("POST /v1/admin/login", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogin)))
-	mux.Handle("GET /v1/admin/dashboard", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminDashboard)))
-	mux.Handle("GET /v1/admin/users", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUsers)))
-	mux.Handle("GET /v1/admin/timeseries", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTimeseries)))
-	mux.Handle("GET /v1/admin/audit", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminAudit)))
-	mux.Handle("GET /v1/admin/login-attempts", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLoginAttempts)))
-	mux.Handle("GET /v1/admin/top-projects", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTopProjects)))
-	mux.Handle("GET /v1/admin/stale-devices", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminStaleDevices)))
+	// Admin read endpoints — no rate limiting, already behind cookie auth.
+	mux.HandleFunc("GET /v1/admin/dashboard", adminHandler.HandleAdminDashboard)
+	mux.HandleFunc("GET /v1/admin/users", adminHandler.HandleAdminUsers)
+	mux.HandleFunc("GET /v1/admin/timeseries", adminHandler.HandleAdminTimeseries)
+	mux.HandleFunc("GET /v1/admin/audit", adminHandler.HandleAdminAudit)
+	mux.HandleFunc("GET /v1/admin/login-attempts", adminHandler.HandleAdminLoginAttempts)
+	mux.HandleFunc("GET /v1/admin/top-projects", adminHandler.HandleAdminTopProjects)
+	mux.HandleFunc("GET /v1/admin/stale-devices", adminHandler.HandleAdminStaleDevices)
+	mux.HandleFunc("GET /v1/admin/users/{id}", adminHandler.HandleAdminUserDetail)
+	mux.HandleFunc("GET /v1/admin/devices", adminHandler.HandleAdminDevicesList)
+	mux.HandleFunc("GET /v1/admin/sessions", adminHandler.HandleAdminSessionsList)
+	mux.HandleFunc("GET /v1/admin/sessions/{id}", adminHandler.HandleAdminSessionDetail)
+	mux.HandleFunc("GET /v1/admin/commands", adminHandler.HandleAdminCommandsList)
+
+	// Admin write endpoints — rate limited to prevent accidental spam.
+	mux.Handle("PUT /v1/admin/users/{id}/tier", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateUserTier)))
+	mux.Handle("DELETE /v1/admin/users/{id}", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminRevokeUser)))
+	mux.Handle("DELETE /v1/admin/devices/{id}", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminRevokeDevice)))
+	mux.Handle("POST /v1/admin/devices/{id}/rotate-keys", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminForceKeyRotation)))
+	mux.Handle("PUT /v1/admin/sessions/{id}/status", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateSessionStatus)))
 
 	// Static pages (privacy policy, terms of service).
 	mux.HandleFunc("GET /privacy", handler.HandlePrivacy)

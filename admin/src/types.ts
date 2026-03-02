@@ -109,3 +109,57 @@ export interface StaleDevice {
   lastSeenAt: string
   isRevoked: boolean
 }
+
+export interface AdminDevice {
+  id: string
+  userId: string
+  userEmail: string
+  name: string
+  platform: string
+  isOnline: boolean
+  isRevoked: boolean
+  privacyMode: string
+  e2eeEnabled: boolean
+  lastSeenAt: string
+  createdAt: string
+}
+
+export interface AdminSession {
+  id: string
+  userId: string
+  userEmail: string
+  deviceId: string
+  projectPath: string
+  gitBranch: string
+  cwd: string
+  status: string
+  startedAt: string
+  updatedAt: string
+  tokensIn: number
+  tokensOut: number
+  turnCount: number
+  description: string
+}
+
+export interface AdminCommand {
+  id: string
+  sessionId: string
+  userId: string
+  userEmail: string
+  type: string
+  status: string
+  prompt: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AdminUserDetail {
+  user: AdminUser
+  devices: AdminDevice[]
+  recentSessions: AdminSession[]
+}
+
+export interface AdminSessionDetailResponse {
+  session: AdminSession
+  commands: AdminCommand[]
+}

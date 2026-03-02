@@ -456,6 +456,432 @@ func (h *AdminHandler) HandleGrantContributor(w http.ResponseWriter, r *http.Req
 	writeJSON(w, http.StatusOK, user)
 }
 
+// HandleAdminUserDetail returns user info with their devices and recent sessions.
+// GET /v1/admin/users/{id}
+func (h *AdminHandler) HandleAdminUserDetail(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID := r.PathValue("id")
+	if userID == "" {
+		writeError(w, "user id is required", http.StatusBadRequest)
+		return
+	}
+
+	user, devices, sessions, err := db.AdminGetUserDetail(h.DB, userID)
+	if err != nil {
+		slog.Error("admin get user detail failed", "error", err)
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	if devices == nil {
+		devices = []db.AdminDeviceDetail{}
+	}
+	if sessions == nil {
+		sessions = []db.AdminSessionDetail{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":           user,
+		"devices":        devices,
+		"recentSessions": sessions,
+	})
+}
+
+// HandleAdminDevicesList returns a paginated device list.
+// GET /v1/admin/devices?search=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminDevicesList(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	search := r.URL.Query().Get("search")
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	devices, total, err := db.AdminListDevices(h.DB, search, limit, offset)
+	if err != nil {
+		slog.Error("admin list devices failed", "error", err)
+		writeError(w, "failed to list devices", http.StatusInternalServerError)
+		return
+	}
+
+	if devices == nil {
+		devices = []db.AdminDeviceDetail{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"devices": devices,
+		"total":   total,
+	})
+}
+
+// HandleAdminSessionsList returns a paginated session list.
+// GET /v1/admin/sessions?status=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminSessionsList(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	status := r.URL.Query().Get("status")
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	sessions, total, err := db.AdminListSessions(h.DB, status, limit, offset)
+	if err != nil {
+		slog.Error("admin list sessions failed", "error", err)
+		writeError(w, "failed to list sessions", http.StatusInternalServerError)
+		return
+	}
+
+	if sessions == nil {
+		sessions = []db.AdminSessionDetail{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"sessions": sessions,
+		"total":    total,
+	})
+}
+
+// HandleAdminSessionDetail returns a single session with its commands.
+// GET /v1/admin/sessions/{id}
+func (h *AdminHandler) HandleAdminSessionDetail(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		writeError(w, "session id is required", http.StatusBadRequest)
+		return
+	}
+
+	sess, err := db.GetSession(h.DB, sessionID)
+	if err != nil {
+		slog.Error("admin get session failed", "error", err)
+		writeError(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	// Get user email for the session.
+	var userEmail string
+	_ = h.DB.QueryRow("SELECT email FROM users WHERE id = ?", sess.UserID).Scan(&userEmail)
+
+	commands, err := db.AdminListSessionCommands(h.DB, sessionID)
+	if err != nil {
+		slog.Error("admin list session commands failed", "error", err)
+		writeError(w, "failed to list commands", http.StatusInternalServerError)
+		return
+	}
+
+	if commands == nil {
+		commands = []db.AdminCommandDetail{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"session": db.AdminSessionDetail{
+			ID:          sess.ID,
+			UserID:      sess.UserID,
+			UserEmail:   userEmail,
+			DeviceID:    sess.DeviceID,
+			ProjectPath: sess.ProjectPath,
+			GitBranch:   sess.GitBranch,
+			CWD:         sess.CWD,
+			Status:      string(sess.Status),
+			StartedAt:   sess.StartedAt.Format(time.RFC3339),
+			UpdatedAt:   sess.UpdatedAt.Format(time.RFC3339),
+			TokensIn:    sess.TokensIn,
+			TokensOut:   sess.TokensOut,
+			TurnCount:   sess.TurnCount,
+			Description: sess.Description,
+		},
+		"commands": commands,
+	})
+}
+
+// HandleAdminCommandsList returns a paginated command list.
+// GET /v1/admin/commands?status=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminCommandsList(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	status := r.URL.Query().Get("status")
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	commands, total, err := db.AdminListCommands(h.DB, status, limit, offset)
+	if err != nil {
+		slog.Error("admin list commands failed", "error", err)
+		writeError(w, "failed to list commands", http.StatusInternalServerError)
+		return
+	}
+
+	if commands == nil {
+		commands = []db.AdminCommandDetail{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"commands": commands,
+		"total":    total,
+	})
+}
+
+// HandleAdminUpdateUserTier updates a user's subscription tier.
+// PUT /v1/admin/users/{id}/tier
+func (h *AdminHandler) HandleAdminUpdateUserTier(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
+	userID := r.PathValue("id")
+	if userID == "" {
+		writeError(w, "user id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Tier string `json:"tier"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	validTiers := map[string]bool{"free": true, "pro": true, "contributor": true, "revoked": true}
+	if !validTiers[req.Tier] {
+		writeError(w, "invalid tier: must be free, pro, contributor, or revoked", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.UpdateUserSubscription(h.DB, userID, req.Tier, "", "", nil); err != nil {
+		slog.Error("admin update user tier failed", "error", err)
+		writeError(w, "failed to update tier", http.StatusInternalServerError)
+		return
+	}
+
+	details, _ := json.Marshal(map[string]string{
+		"userId":    userID,
+		"tier":      req.Tier,
+		"changedBy": "admin",
+	})
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		UserID:  userID,
+		Action:  "tier_changed",
+		Details: string(details),
+	})
+
+	slog.Info("admin updated user tier", "user_id", userID, "tier", req.Tier)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminRevokeUser revokes a user and all their devices.
+// DELETE /v1/admin/users/{id}
+func (h *AdminHandler) HandleAdminRevokeUser(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	userID := r.PathValue("id")
+	if userID == "" {
+		writeError(w, "user id is required", http.StatusBadRequest)
+		return
+	}
+
+	user, err := db.GetUser(h.DB, userID)
+	if err != nil {
+		writeError(w, "user not found", http.StatusNotFound)
+		return
+	}
+
+	if err := db.AdminRevokeUser(h.DB, userID); err != nil {
+		slog.Error("admin revoke user failed", "error", err)
+		writeError(w, "failed to revoke user", http.StatusInternalServerError)
+		return
+	}
+
+	details, _ := json.Marshal(map[string]string{
+		"userId": userID,
+		"email":  user.Email,
+	})
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		UserID:  userID,
+		Action:  "user_revoked",
+		Details: string(details),
+	})
+
+	slog.Info("admin revoked user", "user_id", userID, "email", redactEmail(user.Email))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminRevokeDevice revokes a single device.
+// DELETE /v1/admin/devices/{id}
+func (h *AdminHandler) HandleAdminRevokeDevice(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
+	deviceID := r.PathValue("id")
+	if deviceID == "" {
+		writeError(w, "device id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.UserID == "" {
+		writeError(w, "userId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.DeleteDevice(h.DB, deviceID, req.UserID); err != nil {
+		slog.Error("admin revoke device failed", "error", err)
+		writeError(w, "failed to revoke device", http.StatusInternalServerError)
+		return
+	}
+	_ = db.RevokeDeviceKeys(h.DB, deviceID)
+
+	details, _ := json.Marshal(map[string]string{
+		"deviceId": deviceID,
+		"userId":   req.UserID,
+	})
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		UserID:   req.UserID,
+		DeviceID: deviceID,
+		Action:   "device_revoked",
+		Details:  string(details),
+	})
+
+	slog.Info("admin revoked device", "device_id", deviceID, "user_id", req.UserID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminForceKeyRotation forces E2EE key rotation for a device.
+// POST /v1/admin/devices/{id}/rotate-keys
+func (h *AdminHandler) HandleAdminForceKeyRotation(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
+	deviceID := r.PathValue("id")
+	if deviceID == "" {
+		writeError(w, "device id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		UserID string `json:"userId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.UserID == "" {
+		writeError(w, "userId is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.RevokeDeviceKeys(h.DB, deviceID); err != nil {
+		slog.Error("admin force key rotation failed", "error", err)
+		writeError(w, "failed to revoke device keys", http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast key rotation to all user's clients.
+	rotatedMsg, err := ws.NewWSMessage("device.key_rotated", model.DeviceKeyRotated{
+		DeviceID: deviceID,
+	})
+	if err == nil {
+		h.Hub.BroadcastToAll(req.UserID, rotatedMsg)
+	}
+
+	details, _ := json.Marshal(map[string]string{
+		"deviceId": deviceID,
+		"userId":   req.UserID,
+	})
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		UserID:   req.UserID,
+		DeviceID: deviceID,
+		Action:   "keys_force_rotated",
+		Details:  string(details),
+	})
+
+	slog.Info("admin forced key rotation", "device_id", deviceID, "user_id", req.UserID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminUpdateSessionStatus forces a session status change.
+// PUT /v1/admin/sessions/{id}/status
+func (h *AdminHandler) HandleAdminUpdateSessionStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		writeError(w, "session id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Status != "completed" {
+		writeError(w, "only 'completed' status is allowed", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.UpdateSessionStatus(h.DB, sessionID, model.StatusCompleted); err != nil {
+		slog.Error("admin update session status failed", "error", err)
+		writeError(w, "failed to update session status", http.StatusInternalServerError)
+		return
+	}
+
+	details, _ := json.Marshal(map[string]string{
+		"sessionId": sessionID,
+	})
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		Action:  "session_force_ended",
+		Details: string(details),
+	})
+
+	slog.Info("admin force ended session", "session_id", sessionID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *AdminHandler) version() string {
 	if h.Version != "" {
 		return h.Version

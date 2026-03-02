@@ -569,3 +569,373 @@ func joinStrings(parts []string, sep string) string {
 	}
 	return result
 }
+
+// Admin detail types for management endpoints.
+
+type AdminDeviceDetail struct {
+	ID          string `json:"id"`
+	UserID      string `json:"userId"`
+	UserEmail   string `json:"userEmail"`
+	Name        string `json:"name"`
+	Platform    string `json:"platform"`
+	IsOnline    bool   `json:"isOnline"`
+	IsRevoked   bool   `json:"isRevoked"`
+	PrivacyMode string `json:"privacyMode"`
+	E2EEEnabled bool   `json:"e2eeEnabled"`
+	LastSeenAt  string `json:"lastSeenAt"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+type AdminSessionDetail struct {
+	ID          string `json:"id"`
+	UserID      string `json:"userId"`
+	UserEmail   string `json:"userEmail"`
+	DeviceID    string `json:"deviceId"`
+	ProjectPath string `json:"projectPath"`
+	GitBranch   string `json:"gitBranch"`
+	CWD         string `json:"cwd"`
+	Status      string `json:"status"`
+	StartedAt   string `json:"startedAt"`
+	UpdatedAt   string `json:"updatedAt"`
+	TokensIn    int64  `json:"tokensIn"`
+	TokensOut   int64  `json:"tokensOut"`
+	TurnCount   int    `json:"turnCount"`
+	Description string `json:"description"`
+}
+
+type AdminCommandDetail struct {
+	ID        string `json:"id"`
+	SessionID string `json:"sessionId"`
+	UserID    string `json:"userId"`
+	UserEmail string `json:"userEmail"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	Prompt    string `json:"prompt"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// AdminGetUserDetail returns user info, their devices, and recent sessions.
+func AdminGetUserDetail(d *sql.DB, userID string) (*AdminUser, []AdminDeviceDetail, []AdminSessionDetail, error) {
+	// Get user info.
+	var user AdminUser
+	var createdAt time.Time
+	err := d.QueryRow(`
+		SELECT u.id, u.email, u.display_name, u.subscription_tier,
+			CASE
+				WHEN u.apple_user_id IS NOT NULL AND u.apple_user_id != '' THEN 'apple'
+				WHEN u.password_hash IS NOT NULL AND u.password_hash != '' THEN 'email'
+				ELSE 'unknown'
+			END as auth_method,
+			(SELECT COUNT(*) FROM devices WHERE user_id = u.id AND is_revoked = 0) as device_count,
+			(SELECT COUNT(*) FROM sessions WHERE user_id = u.id) as session_count,
+			u.created_at
+		FROM users u WHERE u.id = ?
+	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.SubscriptionTier,
+		&user.AuthMethod, &user.DeviceCount, &user.SessionCount, &createdAt)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get user detail: %w", err)
+	}
+	user.CreatedAt = createdAt.Format(time.RFC3339)
+
+	// Get devices.
+	devRows, err := d.Query(`
+		SELECT d.id, d.user_id, COALESCE(u.email, ''), d.name,
+			COALESCE(d.system_info, ''),
+			d.is_online, d.is_revoked, d.privacy_mode,
+			CASE WHEN d.key_agreement_public_key IS NOT NULL AND d.key_agreement_public_key != '' THEN 1 ELSE 0 END,
+			d.last_seen_at, d.enrolled_at
+		FROM devices d
+		LEFT JOIN users u ON d.user_id = u.id
+		WHERE d.user_id = ?
+		ORDER BY d.enrolled_at DESC
+	`, userID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get user devices: %w", err)
+	}
+	defer devRows.Close()
+
+	var devices []AdminDeviceDetail
+	for devRows.Next() {
+		var dev AdminDeviceDetail
+		var isOnline, isRevoked, e2ee int
+		var lastSeen, enrolled time.Time
+		if err := devRows.Scan(&dev.ID, &dev.UserID, &dev.UserEmail, &dev.Name,
+			&dev.Platform, &isOnline, &isRevoked, &dev.PrivacyMode,
+			&e2ee, &lastSeen, &enrolled); err != nil {
+			return nil, nil, nil, fmt.Errorf("scan user device: %w", err)
+		}
+		dev.IsOnline = isOnline == 1
+		dev.IsRevoked = isRevoked == 1
+		dev.E2EEEnabled = e2ee == 1
+		dev.LastSeenAt = lastSeen.Format(time.RFC3339)
+		dev.CreatedAt = enrolled.Format(time.RFC3339)
+		devices = append(devices, dev)
+	}
+
+	// Get recent 20 sessions.
+	sessRows, err := d.Query(`
+		SELECT s.id, s.user_id, COALESCE(u.email, ''), s.device_id,
+			s.project_path, s.git_branch, s.cwd, s.status,
+			s.started_at, s.updated_at, s.tokens_in, s.tokens_out, s.turn_count, s.description
+		FROM sessions s
+		LEFT JOIN users u ON s.user_id = u.id
+		WHERE s.user_id = ?
+		ORDER BY s.updated_at DESC LIMIT 20
+	`, userID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("get user sessions: %w", err)
+	}
+	defer sessRows.Close()
+
+	var sessions []AdminSessionDetail
+	for sessRows.Next() {
+		var sess AdminSessionDetail
+		var startedAt, updatedAt time.Time
+		if err := sessRows.Scan(&sess.ID, &sess.UserID, &sess.UserEmail, &sess.DeviceID,
+			&sess.ProjectPath, &sess.GitBranch, &sess.CWD, &sess.Status,
+			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
+			return nil, nil, nil, fmt.Errorf("scan user session: %w", err)
+		}
+		sess.StartedAt = startedAt.Format(time.RFC3339)
+		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
+		sessions = append(sessions, sess)
+	}
+
+	return &user, devices, sessions, nil
+}
+
+// AdminListDevices returns a paginated device list with user email.
+func AdminListDevices(d *sql.DB, search string, limit, offset int) ([]AdminDeviceDetail, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	var total int
+	var countQuery string
+	var countArgs []interface{}
+	if search != "" {
+		countQuery = "SELECT COUNT(*) FROM devices d LEFT JOIN users u ON d.user_id = u.id WHERE d.name LIKE ? OR u.email LIKE ?"
+		pattern := "%" + search + "%"
+		countArgs = []interface{}{pattern, pattern}
+	} else {
+		countQuery = "SELECT COUNT(*) FROM devices"
+	}
+	if err := d.QueryRow(countQuery, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count devices: %w", err)
+	}
+
+	query := `
+		SELECT d.id, d.user_id, COALESCE(u.email, ''), d.name,
+			COALESCE(d.system_info, ''),
+			d.is_online, d.is_revoked, d.privacy_mode,
+			CASE WHEN d.key_agreement_public_key IS NOT NULL AND d.key_agreement_public_key != '' THEN 1 ELSE 0 END,
+			d.last_seen_at, d.enrolled_at
+		FROM devices d
+		LEFT JOIN users u ON d.user_id = u.id
+	`
+	var args []interface{}
+	if search != "" {
+		query += " WHERE d.name LIKE ? OR u.email LIKE ?"
+		pattern := "%" + search + "%"
+		args = append(args, pattern, pattern)
+	}
+	query += " ORDER BY d.enrolled_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list devices: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []AdminDeviceDetail
+	for rows.Next() {
+		var dev AdminDeviceDetail
+		var isOnline, isRevoked, e2ee int
+		var lastSeen, enrolled time.Time
+		if err := rows.Scan(&dev.ID, &dev.UserID, &dev.UserEmail, &dev.Name,
+			&dev.Platform, &isOnline, &isRevoked, &dev.PrivacyMode,
+			&e2ee, &lastSeen, &enrolled); err != nil {
+			return nil, 0, fmt.Errorf("scan device: %w", err)
+		}
+		dev.IsOnline = isOnline == 1
+		dev.IsRevoked = isRevoked == 1
+		dev.E2EEEnabled = e2ee == 1
+		dev.LastSeenAt = lastSeen.Format(time.RFC3339)
+		dev.CreatedAt = enrolled.Format(time.RFC3339)
+		devices = append(devices, dev)
+	}
+	return devices, total, nil
+}
+
+// AdminListSessions returns a paginated session list with user email.
+func AdminListSessions(d *sql.DB, status string, limit, offset int) ([]AdminSessionDetail, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	var total int
+	var countWhere string
+	var countArgs []interface{}
+	if status != "" {
+		countWhere = " WHERE s.status = ?"
+		countArgs = []interface{}{status}
+	}
+	if err := d.QueryRow("SELECT COUNT(*) FROM sessions s"+countWhere, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count sessions: %w", err)
+	}
+
+	query := `
+		SELECT s.id, s.user_id, COALESCE(u.email, ''), s.device_id,
+			s.project_path, s.git_branch, s.cwd, s.status,
+			s.started_at, s.updated_at, s.tokens_in, s.tokens_out, s.turn_count, s.description
+		FROM sessions s
+		LEFT JOIN users u ON s.user_id = u.id
+	`
+	var args []interface{}
+	if status != "" {
+		query += " WHERE s.status = ?"
+		args = append(args, status)
+	}
+	query += " ORDER BY s.updated_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []AdminSessionDetail
+	for rows.Next() {
+		var sess AdminSessionDetail
+		var startedAt, updatedAt time.Time
+		if err := rows.Scan(&sess.ID, &sess.UserID, &sess.UserEmail, &sess.DeviceID,
+			&sess.ProjectPath, &sess.GitBranch, &sess.CWD, &sess.Status,
+			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
+			return nil, 0, fmt.Errorf("scan session: %w", err)
+		}
+		sess.StartedAt = startedAt.Format(time.RFC3339)
+		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
+		sessions = append(sessions, sess)
+	}
+	return sessions, total, nil
+}
+
+// AdminListSessionCommands returns commands for a specific session.
+func AdminListSessionCommands(d *sql.DB, sessionID string) ([]AdminCommandDetail, error) {
+	rows, err := d.Query(`
+		SELECT c.id, c.session_id, c.user_id, COALESCE(u.email, ''),
+			CASE WHEN c.prompt_encrypted != '' THEN 'encrypted' ELSE 'continue' END as type,
+			c.status, COALESCE(c.prompt_hash, ''), c.created_at, c.updated_at
+		FROM commands c
+		LEFT JOIN users u ON c.user_id = u.id
+		WHERE c.session_id = ?
+		ORDER BY c.created_at DESC
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list session commands: %w", err)
+	}
+	defer rows.Close()
+
+	var commands []AdminCommandDetail
+	for rows.Next() {
+		var cmd AdminCommandDetail
+		if err := rows.Scan(&cmd.ID, &cmd.SessionID, &cmd.UserID, &cmd.UserEmail,
+			&cmd.Type, &cmd.Status, &cmd.Prompt, &cmd.CreatedAt, &cmd.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan session command: %w", err)
+		}
+		commands = append(commands, cmd)
+	}
+	return commands, nil
+}
+
+// AdminListCommands returns a paginated command list with user email.
+func AdminListCommands(d *sql.DB, status string, limit, offset int) ([]AdminCommandDetail, int, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+
+	var total int
+	var countWhere string
+	var countArgs []interface{}
+	if status != "" {
+		countWhere = " WHERE c.status = ?"
+		countArgs = []interface{}{status}
+	}
+	if err := d.QueryRow("SELECT COUNT(*) FROM commands c"+countWhere, countArgs...).Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count commands: %w", err)
+	}
+
+	query := `
+		SELECT c.id, c.session_id, c.user_id, COALESCE(u.email, ''),
+			CASE WHEN c.prompt_encrypted != '' THEN 'encrypted' ELSE 'continue' END as type,
+			c.status, COALESCE(c.prompt_hash, ''), c.created_at, c.updated_at
+		FROM commands c
+		LEFT JOIN sessions s ON c.session_id = s.id
+		LEFT JOIN users u ON c.user_id = u.id
+	`
+	var args []interface{}
+	if status != "" {
+		query += " WHERE c.status = ?"
+		args = append(args, status)
+	}
+	query += " ORDER BY c.created_at DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list commands: %w", err)
+	}
+	defer rows.Close()
+
+	var commands []AdminCommandDetail
+	for rows.Next() {
+		var cmd AdminCommandDetail
+		if err := rows.Scan(&cmd.ID, &cmd.SessionID, &cmd.UserID, &cmd.UserEmail,
+			&cmd.Type, &cmd.Status, &cmd.Prompt, &cmd.CreatedAt, &cmd.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan command: %w", err)
+		}
+		commands = append(commands, cmd)
+	}
+	return commands, total, nil
+}
+
+// AdminRevokeUser sets a user's tier to "revoked" and revokes all their devices.
+func AdminRevokeUser(d *sql.DB, userID string) error {
+	if err := UpdateUserSubscription(d, userID, "revoked", "", "", nil); err != nil {
+		return fmt.Errorf("revoke user subscription: %w", err)
+	}
+
+	// Revoke all devices.
+	_, err := d.Exec("UPDATE devices SET is_revoked = 1 WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("revoke user devices: %w", err)
+	}
+
+	// Revoke device keys for each device.
+	rows, err := d.Query("SELECT id FROM devices WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("list user devices for key revocation: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var deviceID string
+		if err := rows.Scan(&deviceID); err != nil {
+			continue
+		}
+		_ = RevokeDeviceKeys(d, deviceID)
+	}
+	return nil
+}
