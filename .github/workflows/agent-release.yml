@@ -97,14 +97,18 @@ jobs:
       - name: Generate appcast
         env:
           SPARKLE_VERSION: "2.9.0"
+          SPARKLE_EDDSA_PRIVATE_KEY: ${{ secrets.SPARKLE_EDDSA_PRIVATE_KEY }}
         run: |
           SPARKLE_URL="https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
           curl -sL "$SPARKLE_URL" -o "$RUNNER_TEMP/sparkle.tar.xz"
-          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP" bin/generate_appcast
+          tar -xJf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP" bin/generate_appcast bin/sign_update
+          echo "$SPARKLE_EDDSA_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle_eddsa_key"
           VERSION="${{ steps.version.outputs.version }}"
           "$RUNNER_TEMP/bin/generate_appcast" \
+            --ed-key-file "$RUNNER_TEMP/sparkle_eddsa_key" \
             --download-url-prefix "https://github.com/AFK-CLI/AFK/releases/download/agent-v${VERSION}/" \
             agent/build/release/
+          rm -f "$RUNNER_TEMP/sparkle_eddsa_key"
           cp agent/build/release/appcast.xml appcast.xml || true
 
       - name: Commit appcast to main

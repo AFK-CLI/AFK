@@ -127,6 +127,13 @@ hdiutil create \
     -format UDZO \
     "${DMG_PATH}"
 
+# Notarize the DMG
+echo "==> Notarizing DMG..."
+xcrun notarytool submit "${DMG_PATH}" \
+    --keychain-profile "${NOTARIZE}" \
+    --wait
+xcrun stapler staple "${DMG_PATH}"
+
 # Clean up zip
 rm -f "${APP_ZIP}"
 
