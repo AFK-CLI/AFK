@@ -1,13 +1,22 @@
+FROM node:22-alpine AS frontend
+
+WORKDIR /admin
+COPY admin/package.json admin/package-lock.json ./
+RUN npm ci
+COPY admin/ .
+RUN npm run build
+
 FROM golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191 AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY backend/ .
+COPY --from=frontend /backend/internal/handler/static/admin/ ./internal/handler/static/admin/
 ARG VERSION=dev
 RUN CGO_ENABLED=1 go build -ldflags "-X main.Version=${VERSION}" -o afk-cloud ./cmd/server
 

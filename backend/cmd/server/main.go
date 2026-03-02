@@ -229,8 +229,26 @@ func main() {
 	mux.Handle("POST /v1/subscription/sync", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(subscriptionHandler.HandleSync))))
 
 	// Admin (secret-based auth with rate limiting, not JWT).
-	adminHandler := &handler.AdminHandler{DB: database, AdminSecret: cfg.AdminSecret}
+	adminHandler := &handler.AdminHandler{
+		DB:          database,
+		AdminSecret: cfg.AdminSecret,
+		Hub:         hub,
+		Collector:   collector,
+		Version:     Version,
+	}
 	mux.Handle("POST /v1/admin/grant-contributor", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleGrantContributor)))
+	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/admin/", http.StatusMovedPermanently)
+	})
+	mux.Handle("/admin/", handler.AdminFileServer())
+	mux.Handle("POST /v1/admin/login", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogin)))
+	mux.Handle("GET /v1/admin/dashboard", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminDashboard)))
+	mux.Handle("GET /v1/admin/users", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUsers)))
+	mux.Handle("GET /v1/admin/timeseries", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTimeseries)))
+	mux.Handle("GET /v1/admin/audit", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminAudit)))
+	mux.Handle("GET /v1/admin/login-attempts", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLoginAttempts)))
+	mux.Handle("GET /v1/admin/top-projects", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTopProjects)))
+	mux.Handle("GET /v1/admin/stale-devices", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminStaleDevices)))
 
 	// Static pages (privacy policy, terms of service).
 	mux.HandleFunc("GET /privacy", handler.HandlePrivacy)
