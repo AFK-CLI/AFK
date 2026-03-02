@@ -1,0 +1,44 @@
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb
+}
+
+async function parseJSON(res: Response) {
+  const text = await res.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw new Error(text || `HTTP ${res.status}`)
+  }
+}
+
+export async function api<T>(path: string, opts?: RequestInit): Promise<T> {
+  const res = await fetch(path, opts)
+  if (res.status === 401) {
+    onUnauthorized?.()
+    throw new Error('unauthorized')
+  }
+  if (!res.ok) {
+    const data = await parseJSON(res)
+    throw new Error(data.error || `HTTP ${res.status}`)
+  }
+  return parseJSON(res)
+}
+
+export async function adminLogin(secret: string): Promise<{ status: string }> {
+  const res = await fetch('/v1/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret }),
+  })
+  const data = await parseJSON(res)
+  if (!res.ok) {
+    throw new Error(data.error || 'Login failed')
+  }
+  return data
+}
+
+export function adminLogout() {
+  document.cookie = 'afk_admin_session=; path=/; max-age=0'
+}
