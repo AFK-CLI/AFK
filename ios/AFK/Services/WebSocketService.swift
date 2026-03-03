@@ -8,6 +8,7 @@ final class WebSocketService {
     private var baseURL: String { AppConfig.wsBaseURL }
     private var token: String?
     private var apiClient: APIClient?
+    private var deviceId: String?
 
     // Diagnostics tracking
     private(set) var lastConnectedAt: Date?
@@ -46,9 +47,10 @@ final class WebSocketService {
 
     init() {}
 
-    func connect(token: String, apiClient: APIClient? = nil) {
+    func connect(token: String, apiClient: APIClient? = nil, deviceId: String? = nil) {
         self.token = token
         self.apiClient = apiClient
+        self.deviceId = deviceId
         AppLogger.ws.info("connect() called, baseURL=\(self.baseURL, privacy: .public)")
         Task { await connectWithTicket() }
     }
@@ -59,7 +61,7 @@ final class WebSocketService {
         // Try to fetch a WS ticket; fall back to raw token if ticket fetch fails
         if let apiClient {
             do {
-                let ticket = try await apiClient.getWSTicket()
+                let ticket = try await apiClient.getWSTicket(deviceId: deviceId)
                 components.queryItems = [URLQueryItem(name: "ws_ticket", value: ticket)]
                 AppLogger.ws.info("Got WS ticket, connecting...")
             } catch {

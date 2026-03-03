@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -650,19 +649,16 @@ func (h *AdminHandler) HandleAdminSessionDetail(w http.ResponseWriter, r *http.R
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"session": db.AdminSessionDetail{
-			ID:          sess.ID,
-			UserID:      sess.UserID,
-			UserEmail:   userEmail,
-			DeviceID:    sess.DeviceID,
-			ProjectName: filepath.Base(sess.ProjectPath),
-			GitBranch:   sess.GitBranch,
-			Status:      string(sess.Status),
-			StartedAt:   sess.StartedAt.Format(time.RFC3339),
-			UpdatedAt:   sess.UpdatedAt.Format(time.RFC3339),
-			TokensIn:    sess.TokensIn,
-			TokensOut:   sess.TokensOut,
-			TurnCount:   sess.TurnCount,
-			Description: sess.Description,
+			ID:        sess.ID,
+			UserID:    sess.UserID,
+			UserEmail: userEmail,
+			DeviceID:  sess.DeviceID,
+			Status:    string(sess.Status),
+			StartedAt: sess.StartedAt.Format(time.RFC3339),
+			UpdatedAt: sess.UpdatedAt.Format(time.RFC3339),
+			TokensIn:  sess.TokensIn,
+			TokensOut: sess.TokensOut,
+			TurnCount: sess.TurnCount,
 		},
 		"commands": commands,
 	})

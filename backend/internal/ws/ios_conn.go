@@ -22,7 +22,7 @@ const (
 
 func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.TicketStore) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var userID string
+		var userID, deviceID string
 
 		// Try ws_ticket auth first, fall back to token.
 		if wsTicket := r.URL.Query().Get("ws_ticket"); wsTicket != "" {
@@ -32,6 +32,7 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 				return
 			}
 			userID = ticket.UserID
+			deviceID = ticket.DeviceID
 		} else {
 			// Legacy token auth (deprecated).
 			tokenStr := r.URL.Query().Get("token")
@@ -48,30 +49,65 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
 				return
 			}
+			deviceID = r.URL.Query().Get("deviceId")
 		}
 
-		slog.Info("upgrading iOS connection", "user_id", userID)
+		slog.Info("upgrading iOS connection", "user_id", userID, "device_id", deviceID)
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			slog.Error("iOS ws upgrade failed", "error", err)
 			return
 		}
 
-		slog.Info("iOS app connected", "user_id", userID)
-		ic := hub.RegisterIOS(userID, conn)
+		slog.Info("iOS app connected", "user_id", userID, "device_id", deviceID)
+		ic := hub.RegisterIOS(userID, deviceID, conn)
+
+		// Mark iOS device online.
+		if deviceID != "" {
+			_ = db.UpdateDeviceStatus(database, deviceID, true, time.Now())
+
+			device, _ := db.GetDevice(database, deviceID)
+			deviceName := ""
+			if device != nil {
+				deviceName = device.Name
+			}
+			statusMsg, _ := NewWSMessage("device.status", model.DeviceStatusNotification{
+				DeviceID:   deviceID,
+				DeviceName: deviceName,
+				IsOnline:   true,
+			})
+			hub.BroadcastToUser(userID, statusMsg)
+		}
 
 		// Replay cached agent control states so iOS immediately knows each agent's state.
 		hub.SendCachedControlStates(userID, ic)
 
 		go iosWritePump(ic)
-		go iosReadPump(hub, ic, database, userID)
+		go iosReadPump(hub, ic, database, userID, deviceID)
 	}
 }
 
-func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID string) {
+func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID, deviceID string) {
 	defer func() {
 		hub.UnregisterIOS(userID, ic)
 		ic.Conn.Close()
+
+		// Mark iOS device offline.
+		if deviceID != "" {
+			_ = db.UpdateDeviceStatus(database, deviceID, false, time.Now())
+
+			device, _ := db.GetDevice(database, deviceID)
+			deviceName := ""
+			if device != nil {
+				deviceName = device.Name
+			}
+			statusMsg, _ := NewWSMessage("device.status", model.DeviceStatusNotification{
+				DeviceID:   deviceID,
+				DeviceName: deviceName,
+				IsOnline:   false,
+			})
+			hub.BroadcastToUser(userID, statusMsg)
+		}
 	}()
 
 	ic.Conn.SetReadLimit(maxMessageSize)

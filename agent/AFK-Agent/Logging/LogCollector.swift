@@ -5,6 +5,7 @@ actor LogCollector {
     private var apiClient: APIClient?
     private var deviceId: String = ""
     private(set) var isUploading = false
+    private(set) var bufferedCount = 0
     private var lastShareDate: Date?
 
     func configure(apiClient: APIClient, deviceId: String) {
@@ -38,11 +39,12 @@ actor LogCollector {
         if uploaded > 0 {
             lastShareDate = Date()
         }
+        bufferedCount = 0
         return uploaded
     }
 
-    var bufferedCount: Int {
-        collectFromOSLog().count
+    func refreshBufferedCount() {
+        bufferedCount = collectFromOSLog().count
     }
 
     private func collectFromOSLog() -> [LogUploadEntry] {
@@ -76,7 +78,7 @@ actor LogCollector {
             }
             return result
         } catch {
-            print("[LogCollector] Failed to read OSLogStore: \(error)")
+            AppLogger.agent.error("Failed to read OSLogStore: \(error.localizedDescription)")
             return []
         }
     }

@@ -42,6 +42,7 @@ type AgentConn struct {
 
 type IOSConn struct {
 	UserID        string
+	DeviceID      string
 	Conn          *websocket.Conn
 	Send          chan []byte
 	Subscriptions map[string]bool // sessionID -> subscribed
@@ -115,14 +116,15 @@ func (h *Hub) UnregisterAgent(deviceID string) {
 	delete(h.controlStates, deviceID)
 }
 
-func (h *Hub) RegisterIOS(userID string, conn *websocket.Conn) *IOSConn {
+func (h *Hub) RegisterIOS(userID, deviceID string, conn *websocket.Conn) *IOSConn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	ic := &IOSConn{
-		UserID:       userID,
-		Conn:         conn,
-		Send:         make(chan []byte, 256),
+		UserID:        userID,
+		DeviceID:      deviceID,
+		Conn:          conn,
+		Send:          make(chan []byte, 256),
 		Subscriptions: make(map[string]bool),
 	}
 	h.ios[userID] = append(h.ios[userID], ic)

@@ -85,6 +85,7 @@ struct SettingsView: View {
                         }
                     }
                     .disabled(isSharingLogs || logUploader.bufferedCount == 0)
+                    .task { await logUploader.refreshBufferedCount() }
                 }
 
                 Section("Display") {

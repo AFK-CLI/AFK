@@ -240,7 +240,7 @@ struct AFKApp: App {
                             )
                         }
 
-                        wsService.connect(token: token, apiClient: apiClient)
+                        wsService.connect(token: token, apiClient: apiClient, deviceId: sessionStore.myDeviceId)
                     }
                 } else {
                     wsService.disconnect()
@@ -424,7 +424,7 @@ struct AFKApp: App {
             if oldPhase == .background {
                 AppLogger.app.info("Returning to foreground")
                 if let token = authService.accessToken {
-                    wsService.connect(token: token, apiClient: apiClient)
+                    wsService.connect(token: token, apiClient: apiClient, deviceId: sessionStore.myDeviceId)
                 }
                 Task { await sessionStore.loadSessions() }
                 Task { await taskStore.loadTasks() }

@@ -118,8 +118,12 @@ final class APIClient {
 
     // MARK: - WebSocket Ticket
 
-    func getWSTicket() async throws -> String {
-        let response: TicketResponse = try await request("POST", "/v1/auth/ws-ticket")
+    func getWSTicket(deviceId: String? = nil) async throws -> String {
+        var path = "/v1/auth/ws-ticket"
+        if let deviceId, !deviceId.isEmpty {
+            path += "?deviceId=\(deviceId)"
+        }
+        let response: TicketResponse = try await request("POST", path)
         return response.ticket
     }
 

@@ -9,6 +9,7 @@ final class LogUploader {
     private var deviceId: String = ""
     private(set) var isUploading = false
     private(set) var lastShareCount = 0
+    private(set) var bufferedCount = 0
     /// Timestamp of last successful share so we only upload new entries next time.
     private var lastShareDate: Date?
 
@@ -47,12 +48,14 @@ final class LogUploader {
             lastShareDate = Date()
         }
         lastShareCount = uploaded
+        bufferedCount = 0
         return uploaded
     }
 
-    /// Number of logs available to share (approximate, from OSLog).
-    var bufferedCount: Int {
-        collectFromOSLog().count
+    /// Refresh the buffered log count off the main thread.
+    func refreshBufferedCount() async {
+        let count = collectFromOSLog().count
+        bufferedCount = count
     }
 
     private func collectFromOSLog() -> [AppLogUploadEntry] {

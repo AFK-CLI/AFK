@@ -132,7 +132,13 @@ actor SessionStateManager {
             sessions[sessionId] = SessionInfo()
         }
         guard sessions[sessionId]!.userPrompt.isEmpty else { return }
-        sessions[sessionId]?.userPrompt = prompt
+        // Strip XML/HTML tags (e.g. <local-command-caveat>, <system-reminder>) from prompt
+        let cleaned = prompt.replacingOccurrences(
+            of: "<[^>]+>",
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        sessions[sessionId]?.userPrompt = cleaned
     }
 
     func getInfo(_ sessionId: String) -> SessionInfo? {

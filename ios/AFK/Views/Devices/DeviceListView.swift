@@ -17,8 +17,10 @@ struct DeviceListView: View {
                 } else {
                     ForEach(devices) { device in
                         HStack(spacing: 12) {
-                            Image(systemName: "laptopcomputer")
+                            Image(systemName: Self.sfSymbol(for: device))
+                                .font(.title2)
                                 .foregroundStyle(device.isOnline ? .green : .secondary)
+                                .frame(width: 28)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(device.name)
@@ -59,5 +61,43 @@ struct DeviceListView: View {
         } catch {
             print("Failed to load devices: \(error)")
         }
+    }
+
+    /// Map device name and system info to the appropriate SF Symbol.
+    private static func sfSymbol(for device: Device) -> String {
+        let name = device.name.lowercased()
+        let systemInfo = (device.systemInfo ?? "").lowercased()
+
+        // iOS devices
+        if systemInfo.hasPrefix("ios") || name.contains("iphone") {
+            return "iphone"
+        }
+        if systemInfo.hasPrefix("ipados") || name.contains("ipad") {
+            return "ipad"
+        }
+
+        // Mac models
+        if name.contains("macbook") {
+            return "laptopcomputer"
+        }
+        if name.contains("mac mini") {
+            return "macmini"
+        }
+        if name.contains("mac studio") {
+            return "macstudio"
+        }
+        if name.contains("mac pro") {
+            return "macpro.gen3"
+        }
+        if name.contains("imac") {
+            return "desktopcomputer"
+        }
+
+        // Default: macOS agent
+        if systemInfo.hasPrefix("macos") {
+            return "desktopcomputer"
+        }
+
+        return "desktopcomputer"
     }
 }

@@ -3,7 +3,6 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"path/filepath"
 	"time"
 )
 
@@ -76,7 +75,7 @@ type AdminLoginAttempt struct {
 type AdminProject struct {
 	ID           string `json:"id"`
 	UserID       string `json:"userId"`
-	Name         string `json:"name"`
+	Name         string `json:"-"`
 	Path         string `json:"-"`
 	SessionCount int    `json:"sessionCount"`
 }
@@ -617,9 +616,9 @@ type AdminSessionDetail struct {
 	UserID      string `json:"userId"`
 	UserEmail   string `json:"userEmail"`
 	DeviceID    string `json:"deviceId"`
-	ProjectName string `json:"projectName"`
+	ProjectName string `json:"-"`
 	ProjectPath string `json:"-"`
-	GitBranch   string `json:"gitBranch"`
+	GitBranch   string `json:"-"`
 	CWD         string `json:"-"`
 	Status      string `json:"status"`
 	StartedAt   string `json:"startedAt"`
@@ -627,7 +626,7 @@ type AdminSessionDetail struct {
 	TokensIn    int64  `json:"tokensIn"`
 	TokensOut   int64  `json:"tokensOut"`
 	TurnCount   int    `json:"turnCount"`
-	Description string `json:"description"`
+	Description string `json:"-"`
 }
 
 type AdminCommandDetail struct {
@@ -637,7 +636,7 @@ type AdminCommandDetail struct {
 	UserEmail string `json:"userEmail"`
 	Type      string `json:"type"`
 	Status    string `json:"status"`
-	Prompt    string `json:"prompt"`
+	Prompt    string `json:"-"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
 }
@@ -724,7 +723,6 @@ func AdminGetUserDetail(d *sql.DB, userID string) (*AdminUser, []AdminDeviceDeta
 			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
 			return nil, nil, nil, fmt.Errorf("scan user session: %w", err)
 		}
-		sess.ProjectName = filepath.Base(sess.ProjectPath)
 		sess.StartedAt = startedAt.Format(time.RFC3339)
 		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
 		sessions = append(sessions, sess)
@@ -850,7 +848,6 @@ func AdminListSessions(d *sql.DB, status string, limit, offset int) ([]AdminSess
 			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
 			return nil, 0, fmt.Errorf("scan session: %w", err)
 		}
-		sess.ProjectName = filepath.Base(sess.ProjectPath)
 		sess.StartedAt = startedAt.Format(time.RFC3339)
 		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
 		sessions = append(sessions, sess)

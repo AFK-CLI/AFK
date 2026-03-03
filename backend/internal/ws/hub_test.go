@@ -150,7 +150,7 @@ func TestRegisterIOS_Basic(t *testing.T) {
 	hub := NewHub()
 	conn := serverConn(t)
 
-	ic := hub.RegisterIOS("user-1", conn)
+	ic := hub.RegisterIOS("user-1", "",conn)
 	if ic == nil {
 		t.Fatal("RegisterIOS returned nil")
 	}
@@ -167,8 +167,8 @@ func TestRegisterIOS_MultipleConns(t *testing.T) {
 	conn1 := serverConn(t)
 	conn2 := serverConn(t)
 
-	ic1 := hub.RegisterIOS("user-1", conn1)
-	ic2 := hub.RegisterIOS("user-1", conn2)
+	ic1 := hub.RegisterIOS("user-1", "",conn1)
+	ic2 := hub.RegisterIOS("user-1", "",conn2)
 
 	if ic1 == ic2 {
 		t.Error("two registrations should yield different IOSConn pointers")
@@ -184,7 +184,7 @@ func TestUnregisterIOS(t *testing.T) {
 	hub := NewHub()
 	conn := serverConn(t)
 
-	ic := hub.RegisterIOS("user-1", conn)
+	ic := hub.RegisterIOS("user-1", "",conn)
 	hub.UnregisterIOS("user-1", ic)
 
 	if hub.HasActiveIOSConns("user-1") {
@@ -197,8 +197,8 @@ func TestUnregisterIOS_RemovesCorrectConn(t *testing.T) {
 	conn1 := serverConn(t)
 	conn2 := serverConn(t)
 
-	ic1 := hub.RegisterIOS("user-1", conn1)
-	hub.RegisterIOS("user-1", conn2)
+	ic1 := hub.RegisterIOS("user-1", "",conn1)
+	hub.RegisterIOS("user-1", "",conn2)
 
 	hub.UnregisterIOS("user-1", ic1)
 
@@ -220,8 +220,8 @@ func TestBroadcastToUser_DeliversToAllIOSConns(t *testing.T) {
 	conn1 := serverConn(t)
 	conn2 := serverConn(t)
 
-	ic1 := hub.RegisterIOS("user-1", conn1)
-	ic2 := hub.RegisterIOS("user-1", conn2)
+	ic1 := hub.RegisterIOS("user-1", "",conn1)
+	ic2 := hub.RegisterIOS("user-1", "",conn2)
 
 	msg := testMsg("test.event")
 	hub.BroadcastToUser("user-1", msg)
@@ -367,7 +367,7 @@ func TestBroadcastToUser_EvictsSlowClient(t *testing.T) {
 	hub := NewHub()
 	conn := serverConn(t)
 
-	ic := hub.RegisterIOS("user-1", conn)
+	ic := hub.RegisterIOS("user-1", "",conn)
 
 	// Artificially set consecutive drops just below threshold.
 	ic.droppedConsec.Store(maxConsecutiveDrops - 1)
@@ -395,7 +395,7 @@ func TestBroadcastToAll_SendsToIOSAndAgents(t *testing.T) {
 	iosConn := serverConn(t)
 
 	ac := hub.RegisterAgent("dev-1", "user-1", agentConn)
-	ic := hub.RegisterIOS("user-1", iosConn)
+	ic := hub.RegisterIOS("user-1", "",iosConn)
 
 	hub.BroadcastToAll("user-1", testMsg("device.key_rotated"))
 
@@ -450,7 +450,7 @@ func TestCacheControlState_And_Replay(t *testing.T) {
 
 	// Create an iOS conn and replay cached states.
 	iosConn := serverConn(t)
-	ic := hub.RegisterIOS("user-1", iosConn)
+	ic := hub.RegisterIOS("user-1", "",iosConn)
 	hub.SendCachedControlStates("user-1", ic)
 
 	select {
@@ -469,7 +469,7 @@ func TestCacheControlState_And_Replay(t *testing.T) {
 func TestSendCachedControlStates_NoAgents(t *testing.T) {
 	hub := NewHub()
 	iosConn := serverConn(t)
-	ic := hub.RegisterIOS("user-1", iosConn)
+	ic := hub.RegisterIOS("user-1", "",iosConn)
 
 	// Should not panic when no agents are registered.
 	hub.SendCachedControlStates("user-1", ic)
@@ -493,7 +493,7 @@ func TestSendCachedControlStates_OnlyForSameUser(t *testing.T) {
 	hub.CacheControlState("dev-2", testMsg("state-user2"))
 
 	iosConn := serverConn(t)
-	ic := hub.RegisterIOS("user-1", iosConn)
+	ic := hub.RegisterIOS("user-1", "",iosConn)
 	hub.SendCachedControlStates("user-1", ic)
 
 	// Should only get one message (user-1's agent).
@@ -523,7 +523,7 @@ func TestHasActiveIOSConns(t *testing.T) {
 	}
 
 	conn := serverConn(t)
-	ic := hub.RegisterIOS("user-1", conn)
+	ic := hub.RegisterIOS("user-1", "",conn)
 
 	if !hub.HasActiveIOSConns("user-1") {
 		t.Error("should return true after registration")
@@ -584,8 +584,8 @@ func TestConnectionCounts(t *testing.T) {
 	conn3 := serverConn(t)
 
 	hub.RegisterAgent("dev-1", "user-1", conn1)
-	hub.RegisterIOS("user-1", conn2)
-	hub.RegisterIOS("user-2", conn3)
+	hub.RegisterIOS("user-1", "",conn2)
+	hub.RegisterIOS("user-2", "",conn3)
 
 	agents, ios = hub.ConnectionCounts()
 	if agents != 1 || ios != 2 {
@@ -705,7 +705,7 @@ func TestHub_Shutdown(t *testing.T) {
 	iosConn := serverConn(t)
 
 	hub.RegisterAgent("dev-1", "user-1", agentConn)
-	hub.RegisterIOS("user-1", iosConn)
+	hub.RegisterIOS("user-1", "",iosConn)
 
 	hub.Shutdown()
 
@@ -751,7 +751,7 @@ func TestSendCachedControlStates_AgentWithNoCachedState(t *testing.T) {
 	hub.RegisterAgent("dev-1", "user-1", conn)
 
 	iosConn := serverConn(t)
-	ic := hub.RegisterIOS("user-1", iosConn)
+	ic := hub.RegisterIOS("user-1", "",iosConn)
 	hub.SendCachedControlStates("user-1", ic)
 
 	select {

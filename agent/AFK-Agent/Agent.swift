@@ -379,19 +379,13 @@ actor Agent {
     }
 
     func shareLogs() async {
-        let buffered = await logCollector.bufferedCount
-        if buffered == 0 {
-            AppLogger.agent.info("No buffered logs to share")
-            showNotification(title: "Share Logs", message: "No buffered logs to share.")
-            return
-        }
         let count = await logCollector.shareAll()
         if count > 0 {
             AppLogger.agent.info("Shared \(count, privacy: .public) log entries")
             showNotification(title: "Logs Shared", message: "Uploaded \(count) log entries to the server.")
         } else {
-            AppLogger.agent.error("Failed to share logs")
-            showNotification(title: "Share Logs", message: "Failed to upload logs. Try again later.")
+            AppLogger.agent.info("No buffered logs to share")
+            showNotification(title: "Share Logs", message: "No buffered logs to share.")
         }
     }
 
