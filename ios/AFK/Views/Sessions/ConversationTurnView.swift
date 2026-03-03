@@ -12,9 +12,20 @@ struct ConversationTurnView: View {
                 UserMessageBubble(text: userText)
             }
 
-            // Assistant message bubble or thinking indicator
-            if let assistantText = turn.assistantSnippet, !assistantText.isEmpty {
-                AssistantMessageBubble(text: assistantText)
+            // Assistant content (text interleaved with task/teammate cards)
+            if let blocks = turn.assistantContentBlocks {
+                ForEach(blocks) { block in
+                    switch block {
+                    case .text(let text):
+                        AssistantMessageBubble(text: text)
+                    case .taskNotification(let data):
+                        TaskNotificationCard(data: data)
+                    case .teammateMessage(let data):
+                        if !data.shouldHide {
+                            TeammateMessageCard(data: data)
+                        }
+                    }
+                }
             } else if isActive {
                 ThinkingIndicator()
             }

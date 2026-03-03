@@ -36,6 +36,19 @@ struct ConversationTurn: Identifiable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return cleaned.isEmpty ? nil : cleaned
     }
+
+    /// Parsed assistant content blocks (text interleaved with task/teammate cards).
+    var assistantContentBlocks: [AssistantContentBlock]? {
+        guard let snippet = assistantSnippet else { return nil }
+        let blocks = AssistantContentParser.parse(snippet)
+        let hasContent = blocks.contains { block in
+            switch block {
+            case .text(let t): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .taskNotification, .teammateMessage: return true
+            }
+        }
+        return hasContent ? blocks : nil
+    }
 }
 
 struct ToolCallPair: Identifiable {
