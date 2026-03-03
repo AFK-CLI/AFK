@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -648,9 +649,8 @@ func (h *AdminHandler) HandleAdminSessionDetail(w http.ResponseWriter, r *http.R
 			UserID:      sess.UserID,
 			UserEmail:   userEmail,
 			DeviceID:    sess.DeviceID,
-			ProjectPath: sess.ProjectPath,
+			ProjectName: filepath.Base(sess.ProjectPath),
 			GitBranch:   sess.GitBranch,
-			CWD:         sess.CWD,
 			Status:      string(sess.Status),
 			StartedAt:   sess.StartedAt.Format(time.RFC3339),
 			UpdatedAt:   sess.UpdatedAt.Format(time.RFC3339),

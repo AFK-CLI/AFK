@@ -66,7 +66,7 @@ export function ServerPage() {
         <div className="table-wrap">
           <DataTable
             columns={[
-              { header: 'Project', render: (p: AdminProject) => p.name || p.path || p.id },
+              { header: 'Project', render: (p: AdminProject) => p.name || p.id },
               { header: 'Sessions', render: (p: AdminProject) => p.sessionCount },
             ]}
             data={projects}

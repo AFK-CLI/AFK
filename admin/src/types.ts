@@ -98,7 +98,6 @@ export interface AdminProject {
   id: string
   userId: string
   name: string
-  path: string
   sessionCount: number
 }
 
@@ -129,9 +128,8 @@ export interface AdminSession {
   userId: string
   userEmail: string
   deviceId: string
-  projectPath: string
+  projectName: string
   gitBranch: string
-  cwd: string
   status: string
   startedAt: string
   updatedAt: string

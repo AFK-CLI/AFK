@@ -101,7 +101,7 @@ export function SessionDetailPage() {
         <StatCard label="Tokens Out" value={fmtTokens(s.tokensOut)} />
       </CardGrid>
       <CardGrid>
-        <StatCard label="Project" value={s.projectPath || s.cwd || 'N/A'} />
+        <StatCard label="Project" value={s.projectName || 'N/A'} />
         <StatCard label="Branch" value={s.gitBranch || 'N/A'} />
         <StatCard label="Started" value={fmtDate(s.startedAt)} />
         <StatCard label="Updated" value={fmtDate(s.updatedAt)} />

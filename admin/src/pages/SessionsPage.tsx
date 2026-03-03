@@ -141,7 +141,7 @@ export function SessionsPage() {
                   ) : (
                     projects.map((p) => (
                       <tr key={p.id}>
-                        <td>{p.name || p.path || p.id}</td>
+                        <td>{p.name || p.id}</td>
                         <td>{p.sessionCount}</td>
                       </tr>
                     ))
@@ -178,7 +178,7 @@ export function SessionsPage() {
             },
             { header: 'User', render: (s: AdminSession) => s.userEmail },
             { header: 'Status', render: (s: AdminSession) => statusBadge(s.status) },
-            { header: 'Project', render: (s: AdminSession) => s.projectPath || s.cwd },
+            { header: 'Project', render: (s: AdminSession) => s.projectName || 'N/A' },
             { header: 'Turns', render: (s: AdminSession) => s.turnCount },
             {
               header: 'Tokens',

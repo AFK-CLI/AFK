@@ -192,7 +192,7 @@ export function UserDetailPage() {
                   return <Badge text={s.status} variant={v as 'green' | 'blue' | 'yellow'} />
                 },
               },
-              { header: 'Project', render: (s: AdminSession) => s.projectPath || s.cwd },
+              { header: 'Project', render: (s: AdminSession) => s.projectName || 'N/A' },
               { header: 'Started', render: (s: AdminSession) => fmtDate(s.startedAt) },
               {
                 header: 'Actions',

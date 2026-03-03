@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -76,7 +77,7 @@ type AdminProject struct {
 	ID           string `json:"id"`
 	UserID       string `json:"userId"`
 	Name         string `json:"name"`
-	Path         string `json:"path"`
+	Path         string `json:"-"`
 	SessionCount int    `json:"sessionCount"`
 }
 
@@ -591,9 +592,10 @@ type AdminSessionDetail struct {
 	UserID      string `json:"userId"`
 	UserEmail   string `json:"userEmail"`
 	DeviceID    string `json:"deviceId"`
-	ProjectPath string `json:"projectPath"`
+	ProjectName string `json:"projectName"`
+	ProjectPath string `json:"-"`
 	GitBranch   string `json:"gitBranch"`
-	CWD         string `json:"cwd"`
+	CWD         string `json:"-"`
 	Status      string `json:"status"`
 	StartedAt   string `json:"startedAt"`
 	UpdatedAt   string `json:"updatedAt"`
@@ -697,6 +699,7 @@ func AdminGetUserDetail(d *sql.DB, userID string) (*AdminUser, []AdminDeviceDeta
 			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
 			return nil, nil, nil, fmt.Errorf("scan user session: %w", err)
 		}
+		sess.ProjectName = filepath.Base(sess.ProjectPath)
 		sess.StartedAt = startedAt.Format(time.RFC3339)
 		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
 		sessions = append(sessions, sess)
@@ -822,6 +825,7 @@ func AdminListSessions(d *sql.DB, status string, limit, offset int) ([]AdminSess
 			&startedAt, &updatedAt, &sess.TokensIn, &sess.TokensOut, &sess.TurnCount, &sess.Description); err != nil {
 			return nil, 0, fmt.Errorf("scan session: %w", err)
 		}
+		sess.ProjectName = filepath.Base(sess.ProjectPath)
 		sess.StartedAt = startedAt.Format(time.RFC3339)
 		sess.UpdatedAt = updatedAt.Format(time.RFC3339)
 		sessions = append(sessions, sess)
