@@ -1073,6 +1073,8 @@ actor Agent {
         }
 
         let projectsPath = config.claudeProjectsPath
+        let requestProjectPath = request.projectPath
+        let sbc = statusBarController
         Task { [sessionIndex] in
             let newSessionId = await executor.executeNewChat(
                 request: request,
@@ -1088,6 +1090,13 @@ actor Agent {
                     print("[Agent] Registered new chat session \(newSessionId.prefix(8)) → \(projectPath)")
                 } else {
                     print("[Agent] WARNING: Could not find JSONL for new session \(newSessionId.prefix(8))")
+                }
+
+                // Register in menu bar for easy resume
+                if let sbc {
+                    DispatchQueue.main.async {
+                        sbc.addRemoteSession(sessionId: newSessionId, projectPath: requestProjectPath)
+                    }
                 }
             }
         }
@@ -1284,6 +1293,7 @@ actor Agent {
         print("[Agent] Plan restart for session \(sessionId.prefix(8)) with mode=\(mode)")
 
         let projectsPath = config.claudeProjectsPath
+        let sbc = statusBarController
         Task { [sessionIndex] in
             let newSessionId = await executor.executeNewChat(
                 request: request,
@@ -1296,6 +1306,13 @@ actor Agent {
                 if let jsonlPath = Self.findJSONLFile(sessionId: newSessionId, under: projectsPath) {
                     let (_, projPath) = await sessionIndex.register(filePath: jsonlPath)
                     print("[Agent] Plan restart session \(newSessionId.prefix(8)) → \(projPath)")
+                }
+
+                // Register in menu bar for easy resume
+                if let sbc {
+                    DispatchQueue.main.async {
+                        sbc.addRemoteSession(sessionId: newSessionId, projectPath: projectPath)
+                    }
                 }
             }
         }

@@ -22,6 +22,21 @@ final class StatusBarController: NSObject {
     private var checkForUpdatesMenuItem: NSMenuItem!
     private var accountMenuItem: NSMenuItem!
     private var signInOutMenuItem: NSMenuItem!
+    private var remoteSessionsMenuItem: NSMenuItem!
+    private var remoteSessionsSubmenu: NSMenu!
+
+    /// Tracks sessions started from iOS for the menu bar submenu.
+    /// Must be a class (not struct) so NSMenuItem.representedObject can round-trip via `as?`.
+    class RemoteSession: NSObject {
+        let sessionId: String
+        let projectPath: String
+        init(sessionId: String, projectPath: String) {
+            self.sessionId = sessionId
+            self.projectPath = projectPath
+        }
+    }
+    private var remoteSessions: [RemoteSession] = []
+    private static let maxRemoteSessions = 10
 
     var onSignIn: (() -> Void)?
     var onSignOut: (() -> Void)?
@@ -160,6 +175,17 @@ final class StatusBarController: NSObject {
         )
         checkForUpdatesMenuItem.isEnabled = false
 
+        remoteSessionsSubmenu = NSMenu()
+        remoteSessionsMenuItem = NSMenuItem(
+            title: "Remote Sessions",
+            action: nil,
+            keyEquivalent: ""
+        )
+        remoteSessionsMenuItem.submenu = remoteSessionsSubmenu
+        remoteSessionsMenuItem.isHidden = true  // hidden until first remote session
+
+        menu.addItem(remoteSessionsMenuItem)
+        menu.addItem(.separator())
         menu.addItem(hookMenuItem)
         menu.addItem(planAutoExitMenuItem)
         menu.addItem(loginItemMenuItem)
@@ -294,6 +320,96 @@ final class StatusBarController: NSObject {
         removePlanAutoExitFlag()
         print("[Agent] Shutting down via menu bar...")
         exit(0)
+    }
+
+    // MARK: - Remote session management
+
+    /// Register a session started from the iOS app and post a notification with the resume command.
+    func addRemoteSession(sessionId: String, projectPath: String) {
+        let session = RemoteSession(sessionId: sessionId, projectPath: projectPath)
+        remoteSessions.insert(session, at: 0)
+        if remoteSessions.count > Self.maxRemoteSessions {
+            remoteSessions.removeLast()
+        }
+        rebuildRemoteSessionsSubmenu()
+        copyResumeCommand(sessionId: sessionId, projectPath: projectPath)
+        postResumeNotification(sessionId: sessionId, projectPath: projectPath)
+    }
+
+    /// Remove a remote session (e.g. when it completes).
+    func removeRemoteSession(sessionId: String) {
+        remoteSessions.removeAll { $0.sessionId == sessionId }
+        rebuildRemoteSessionsSubmenu()
+    }
+
+    private func rebuildRemoteSessionsSubmenu() {
+        remoteSessionsSubmenu.removeAllItems()
+        remoteSessionsMenuItem.isHidden = remoteSessions.isEmpty
+
+        for session in remoteSessions {
+            let projectName = (session.projectPath as NSString).lastPathComponent
+            let shortId = String(session.sessionId.prefix(8))
+            let title = "\(projectName) (\(shortId))"
+
+            let item = NSMenuItem(title: title, action: #selector(copySessionCommand(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = session
+            item.toolTip = "Click to copy resume command"
+            remoteSessionsSubmenu.addItem(item)
+        }
+
+        if !remoteSessions.isEmpty {
+            remoteSessionsSubmenu.addItem(.separator())
+            let clearItem = NSMenuItem(title: "Clear All", action: #selector(clearRemoteSessions), keyEquivalent: "")
+            clearItem.target = self
+            remoteSessionsSubmenu.addItem(clearItem)
+        }
+    }
+
+    @objc private func copySessionCommand(_ sender: NSMenuItem) {
+        guard let session = sender.representedObject as? RemoteSession else { return }
+        copyResumeCommand(sessionId: session.sessionId, projectPath: session.projectPath)
+    }
+
+    @objc private func clearRemoteSessions() {
+        remoteSessions.removeAll()
+        rebuildRemoteSessionsSubmenu()
+    }
+
+    private func copyResumeCommand(sessionId: String, projectPath: String) {
+        let command: String
+        if !projectPath.isEmpty {
+            command = "cd \(shellEscape(projectPath)) && claude --resume \(sessionId)"
+        } else {
+            command = "claude --resume \(sessionId)"
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        print("[StatusBar] Copied resume command for session \(sessionId.prefix(8))")
+    }
+
+    private func postResumeNotification(sessionId: String, projectPath: String) {
+        let projectName = projectPath.isEmpty ? "unknown" : (projectPath as NSString).lastPathComponent
+        let shortId = String(sessionId.prefix(8))
+        // Sanitize for AppleScript to prevent injection
+        let safeProject = projectName.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == "." || $0 == " " }
+        let safeId = shortId.filter { $0.isLetter || $0.isNumber || $0 == "-" }
+        guard !safeId.isEmpty else { return }
+        let script = "display notification \"Resume command copied to clipboard (\(safeId))\" with title \"AFK: Remote Session\" subtitle \"\(safeProject)\""
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    /// Shell-escape a path for safe pasting into a terminal.
+    private func shellEscape(_ path: String) -> String {
+        if path.rangeOfCharacter(from: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "/-_.")).inverted) != nil {
+            return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        return path
     }
 
     // MARK: - Flag file management
