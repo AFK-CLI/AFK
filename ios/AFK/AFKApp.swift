@@ -399,6 +399,7 @@ struct AFKApp: App {
         switch newPhase {
         case .background:
             print("[App] Entering background")
+            BiometricService.resetSession()
             backgroundTaskManager.scheduleRefresh()
             wsService.disconnect()
         case .active:

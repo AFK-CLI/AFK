@@ -67,7 +67,7 @@ struct PermissionOverlay: View {
 
                 Button(action: handleApprove) {
                     Label(
-                        requiresBiometric ? "Approve with \(BiometricService.biometricType)" : "Approve",
+                        "Approve",
                         systemImage: requiresBiometric ? "faceid" : "checkmark.circle.fill"
                     )
                     .font(.subheadline.weight(.medium))

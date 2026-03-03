@@ -7,6 +7,18 @@ actor BiometricService {
         case authenticationFailed(String)
     }
 
+    /// Tracks whether the user has authenticated in this app session.
+    /// Cleared when the app enters background.
+    private static var lastAuthenticatedAt: Date?
+
+    static var isSessionAuthenticated: Bool {
+        lastAuthenticatedAt != nil
+    }
+
+    static func resetSession() {
+        lastAuthenticatedAt = nil
+    }
+
     static var isAvailable: Bool {
         let context = LAContext()
         var error: NSError?
@@ -29,6 +41,9 @@ actor BiometricService {
     }
 
     func authenticate(reason: String) async throws {
+        // Skip biometric if already authenticated this session
+        if Self.isSessionAuthenticated { return }
+
         let context = LAContext()
         var error: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
@@ -49,10 +64,12 @@ actor BiometricService {
                 throw BiometricError.authenticationFailed("Cancelled")
             case .userFallback:
                 // User tapped "Enter Password" — allow through
-                return
+                break
             default:
                 throw BiometricError.authenticationFailed(laError.localizedDescription)
             }
         }
+
+        Self.lastAuthenticatedAt = Date()
     }
 }
