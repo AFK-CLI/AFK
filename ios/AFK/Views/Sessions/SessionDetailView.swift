@@ -190,6 +190,7 @@ struct SessionDetailView: View {
             if let activeCmd = commandStore.activeCommand(for: sessionId) {
                 StreamingOutputView(
                     commandState: activeCmd,
+                    sessionId: sessionId,
                     onStop: {
                         Task {
                             try? await apiClient.cancelCommand(sessionId: sessionId, commandId: activeCmd.id)
@@ -203,6 +204,7 @@ struct SessionDetailView: View {
             if let completedCmd = commandStore.completedCommand(for: sessionId) {
                 StreamingOutputView(
                     commandState: completedCmd,
+                    sessionId: sessionId,
                     onStop: {},
                     onDismiss: { commandStore.clearCommand(sessionId: sessionId) },
                     onRetry: completedCmd.prompt != nil ? {

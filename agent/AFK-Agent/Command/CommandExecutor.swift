@@ -11,9 +11,6 @@ actor CommandExecutor {
     private var activeCommandId: String?
     private var isCancelled = false
 
-    /// Maps original session ID → latest fork session ID for chain tracking
-    private var forkChain: [String: String] = [:]
-
     struct CommandRequest: Codable, Sendable {
         let commandId: String
         let sessionId: String
@@ -64,16 +61,13 @@ actor CommandExecutor {
                 print("[CommandExecutor] WARNING: No verifier configured — skipping signature verification")
             }
 
-            // 2. Resolve claude path and build args with --fork-session
+            // 2. Resolve claude path and build args — resume in-place (no forking)
             let claudePath = try CommandValidator.resolveClaudePath()
 
-            // Resume from the latest fork if one exists, otherwise use the original session
-            let targetSessionId = forkChain[request.sessionId] ?? request.sessionId
-
-            let args = [claudePath, "--resume", targetSessionId, "--fork-session", "-p", request.prompt, "--output-format", "json"]
+            let args = [claudePath, "--resume", request.sessionId, "-p", request.prompt, "--output-format", "json"]
             try CommandValidator.validate(args: args)
 
-            print("[CommandExecutor] Target session: \(targetSessionId) (original: \(request.sessionId))")
+            print("[CommandExecutor] Resuming session: \(request.sessionId)")
 
             // 3. Send ack
             let ackMsg = try MessageEncoder.commandAck(
@@ -94,11 +88,8 @@ actor CommandExecutor {
                 wsClient: wsClient
             )
 
-            // Update fork chain for subsequent commands
-            if let forkId = newSessionId {
-                forkChain[request.sessionId] = forkId
-                print("[CommandExecutor] Fork chain updated: \(request.sessionId) → \(forkId)")
-                postMacNotification(forkId: forkId)
+            if let sid = newSessionId {
+                print("[CommandExecutor] Session continued: \(sid.prefix(8))")
             }
 
         } catch {
@@ -141,7 +132,7 @@ actor CommandExecutor {
             // 2. Resolve claude path and build args
             let claudePath = try CommandValidator.resolveClaudePath()
             var args = [claudePath, "-p", request.prompt, "--output-format", "json"]
-            if let mode = request.permissionMode, !mode.isEmpty {
+            if let mode = request.permissionMode, !mode.isEmpty, mode != "default" {
                 args.append(contentsOf: ["--permission-mode", mode])
             }
             if request.useWorktree {
@@ -289,17 +280,4 @@ actor CommandExecutor {
         print("[CommandExecutor] Terminating process for command \(commandId)")
     }
 
-    /// Post a macOS notification with the fork session ID
-    private nonisolated func postMacNotification(forkId: String) {
-        // Sanitize forkId to alphanumeric and hyphens only to prevent AppleScript injection
-        let sanitizedId = String(forkId.prefix(8).filter { $0.isLetter || $0.isNumber || $0 == "-" })
-        guard !sanitizedId.isEmpty else { return }
-        let script = "display notification \"Session forked. Resume: claude -r \(sanitizedId)\" with title \"AFK Remote Command\""
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
-    }
 }

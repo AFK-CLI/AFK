@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StreamingOutputView: View {
     let commandState: CommandStore.CommandState
+    let sessionId: String  // Original session ID to detect actual forks
     let onStop: () -> Void
     let onDismiss: () -> Void
     var onRetry: (() -> Void)?
@@ -49,16 +50,17 @@ struct StreamingOutputView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
-            // Fork session banner
-            if commandState.isComplete, let forkId = commandState.newSessionId {
+            // New session banner — only show when a genuinely different session was created
+            if commandState.isComplete, let newId = commandState.newSessionId,
+               !newId.isEmpty, newId != sessionId {
                 Button {
-                    onViewFork?(forkId)
+                    onViewFork?(newId)
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.triangle.branch")
-                        Text("View forked session")
+                        Text("View new session")
                         Spacer()
-                        Text(String(forkId.prefix(8)))
+                        Text(String(newId.prefix(8)))
                             .font(.caption.monospaced())
                             .foregroundStyle(.secondary)
                         Image(systemName: "chevron.right")

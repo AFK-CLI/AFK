@@ -264,7 +264,9 @@ struct AFKApp: App {
                 }
                 wsService.onCommandDone = { [weak commandStore] sessionId, durationMs, costUsd, newSessionId in
                     commandStore?.completeCommand(sessionId: sessionId, durationMs: durationMs, costUsd: costUsd, newSessionId: newSessionId)
-                    if let newSessionId {
+                    // Only deep-link for genuinely new sessions (new chat where sessionId is empty)
+                    // or when the session actually changed (not just the same ID echoed back)
+                    if let newSessionId, sessionId.isEmpty || newSessionId != sessionId {
                         deepLinkSessionId = newSessionId
                     }
                 }

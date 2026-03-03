@@ -22,12 +22,16 @@ import (
 var worktreeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 
 // validPermissionModes defines the allowed values for permission mode.
+// These map to Claude CLI's --permission-mode flag values.
 var validPermissionModes = map[string]bool{
-	"":            true, // empty is valid (default)
+	"":            true, // empty is valid (uses Claude's default)
+	"default":     true,
 	"ask":         true,
 	"acceptEdits": true,
 	"plan":        true,
 	"autoApprove": true,
+	"dontAsk":     true,
+	"bypassPermissions": true,
 }
 
 func HandleNewChat(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, serverPrivateKey ed25519.PrivateKey) http.HandlerFunc {
