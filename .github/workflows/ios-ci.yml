@@ -37,6 +37,11 @@ jobs:
           EOF
           fi
 
+      - name: SwiftLint
+        run: |
+          brew install swiftlint
+          swiftlint lint --config .swiftlint.yml
+
       - name: Build for simulator
         working-directory: ios
         run: |

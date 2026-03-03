@@ -148,7 +148,9 @@ func (h *Hub) UnregisterIOS(userID string, conn *IOSConn) {
 
 func (h *Hub) BroadcastToUser(userID string, msg *model.WSMessage) {
 	h.mu.RLock()
-	conns := h.ios[userID]
+	original := h.ios[userID]
+	conns := make([]*IOSConn, len(original))
+	copy(conns, original)
 	h.mu.RUnlock()
 
 	if len(conns) == 0 {

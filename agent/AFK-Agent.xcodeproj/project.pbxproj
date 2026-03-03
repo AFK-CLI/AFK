@@ -10,6 +10,16 @@
 		A89EA73B2F4F8ECA00ECCA80 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A89EA73A2F4F8ECA00ECCA80 /* Sparkle */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		AGNTTST0000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A89E9AD12F3FDAE900ECCA80 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A89E9AD82F3FDAE900ECCA80;
+			remoteInfo = "AFK-Agent";
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXCopyFilesBuildPhase section */
 		A89EA7352F4F8C7400ECCA80 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
@@ -26,12 +36,18 @@
 /* Begin PBXFileReference section */
 		A89E9AD92F3FDAE900ECCA80 /* AFK-Agent.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AFK-Agent.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AGNTCFG0000000000000001 /* AgentSecrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = AgentSecrets.xcconfig; sourceTree = "<group>"; };
+		AGNTTST0000000000000001 /* AFK-AgentTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AFK-AgentTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A89E9ADB2F3FDAE900ECCA80 /* AFK-Agent */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "AFK-Agent";
+			sourceTree = "<group>";
+		};
+		AGNTTST0000000000000002 /* AFK-AgentTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "AFK-AgentTests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -45,6 +61,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AGNTTST0000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -53,6 +76,7 @@
 			children = (
 				AGNTCFG0000000000000002 /* Config */,
 				A89E9ADB2F3FDAE900ECCA80 /* AFK-Agent */,
+				AGNTTST0000000000000002 /* AFK-AgentTests */,
 				A89EA72E2F4F8A8500ECCA80 /* Frameworks */,
 				A89E9ADA2F3FDAE900ECCA80 /* Products */,
 			);
@@ -62,6 +86,7 @@
 			isa = PBXGroup;
 			children = (
 				A89E9AD92F3FDAE900ECCA80 /* AFK-Agent.app */,
+				AGNTTST0000000000000001 /* AFK-AgentTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -110,6 +135,29 @@
 			productReference = A89E9AD92F3FDAE900ECCA80 /* AFK-Agent.app */;
 			productType = "com.apple.product-type.application";
 		};
+		AGNTTST0000000000000004 /* AFK-AgentTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AGNTTST0000000000000009 /* Build configuration list for PBXNativeTarget "AFK-AgentTests" */;
+			buildPhases = (
+				AGNTTST0000000000000005 /* Sources */,
+				AGNTTST0000000000000003 /* Frameworks */,
+				AGNTTST0000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AGNTTST0000000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AGNTTST0000000000000002 /* AFK-AgentTests */,
+			);
+			name = "AFK-AgentTests";
+			packageProductDependencies = (
+			);
+			productName = "AFK-AgentTests";
+			productReference = AGNTTST0000000000000001 /* AFK-AgentTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -122,6 +170,10 @@
 				TargetAttributes = {
 					A89E9AD82F3FDAE900ECCA80 = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					AGNTTST0000000000000004 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = A89E9AD82F3FDAE900ECCA80;
 					};
 				};
 			};
@@ -143,12 +195,20 @@
 			projectRoot = "";
 			targets = (
 				A89E9AD82F3FDAE900ECCA80 /* AFK-Agent */,
+				AGNTTST0000000000000004 /* AFK-AgentTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A89E9AD72F3FDAE900ECCA80 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AGNTTST0000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -183,7 +243,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AGNTTST0000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AGNTTST0000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A89E9AD82F3FDAE900ECCA80 /* AFK-Agent */;
+			targetProxy = AGNTTST0000000000000010 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A89E9ADE2F3FDAE900ECCA80 /* Debug */ = {
@@ -345,6 +420,38 @@
 			};
 			name = Release;
 		};
+		AGNTTST0000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.afk.AFK-AgentTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AFK-Agent.app/Contents/MacOS/AFK-Agent";
+			};
+			name = Debug;
+		};
+		AGNTTST0000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.afk.AFK-AgentTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AFK-Agent.app/Contents/MacOS/AFK-Agent";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -362,6 +469,15 @@
 			buildConfigurations = (
 				A89E9AE12F3FDAE900ECCA80 /* Debug */,
 				A89E9AE22F3FDAE900ECCA80 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AGNTTST0000000000000009 /* Build configuration list for PBXNativeTarget "AFK-AgentTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AGNTTST0000000000000007 /* Debug */,
+				AGNTTST0000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

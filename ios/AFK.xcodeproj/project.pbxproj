@@ -20,6 +20,13 @@
 			remoteGlobalIDString = A89E9F722F41E38400ECCA80;
 			remoteInfo = AFKWidgetsExtension;
 		};
+		AFKTST0000000000000010 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A89E9ABA2F3FC18B00ECCA80 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A89E9AC12F3FC18B00ECCA80;
+			remoteInfo = AFK;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +49,7 @@
 		A89E9F752F41E38400ECCA80 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		A89E9F772F41E38400ECCA80 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		AFKC0F1G0000000000000001 /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
+		AFKTST0000000000000001 /* AFKTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AFKTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -78,6 +86,11 @@
 			path = AFKWidgets;
 			sourceTree = "<group>";
 		};
+		AFKTST0000000000000002 /* AFKTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = AFKTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +110,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AFKTST0000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -105,6 +125,7 @@
 			children = (
 				AFKC0F1G0000000000000002 /* Config */,
 				A89E9AC42F3FC18B00ECCA80 /* AFK */,
+				AFKTST0000000000000002 /* AFKTests */,
 				A89E9F792F41E38400ECCA80 /* AFKWidgets */,
 				A89E9F742F41E38400ECCA80 /* Frameworks */,
 				A89E9AC32F3FC18B00ECCA80 /* Products */,
@@ -116,6 +137,7 @@
 			children = (
 				A89E9AC22F3FC18B00ECCA80 /* AFK.app */,
 				A89E9F732F41E38400ECCA80 /* AFKWidgetsExtension.appex */,
+				AFKTST0000000000000001 /* AFKTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -187,6 +209,29 @@
 			productReference = A89E9F732F41E38400ECCA80 /* AFKWidgetsExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		AFKTST0000000000000004 /* AFKTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AFKTST0000000000000009 /* Build configuration list for PBXNativeTarget "AFKTests" */;
+			buildPhases = (
+				AFKTST0000000000000005 /* Sources */,
+				AFKTST0000000000000003 /* Frameworks */,
+				AFKTST0000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AFKTST0000000000000011 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AFKTST0000000000000002 /* AFKTests */,
+			);
+			name = AFKTests;
+			packageProductDependencies = (
+			);
+			productName = AFKTests;
+			productReference = AFKTST0000000000000001 /* AFKTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -202,6 +247,10 @@
 					};
 					A89E9F722F41E38400ECCA80 = {
 						CreatedOnToolsVersion = 26.0.1;
+					};
+					AFKTST0000000000000004 = {
+						CreatedOnToolsVersion = 26.0.1;
+						TestTargetID = A89E9AC12F3FC18B00ECCA80;
 					};
 				};
 			};
@@ -221,6 +270,7 @@
 			targets = (
 				A89E9AC12F3FC18B00ECCA80 /* AFK */,
 				A89E9F722F41E38400ECCA80 /* AFKWidgetsExtension */,
+				AFKTST0000000000000004 /* AFKTests */,
 			);
 		};
 /* End PBXProject section */
@@ -234,6 +284,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A89E9F712F41E38400ECCA80 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AFKTST0000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -257,6 +314,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AFKTST0000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -264,6 +328,11 @@
 			isa = PBXTargetDependency;
 			target = A89E9F722F41E38400ECCA80 /* AFKWidgetsExtension */;
 			targetProxy = A89E9F872F41E38500ECCA80 /* PBXContainerItemProxy */;
+		};
+		AFKTST0000000000000011 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A89E9AC12F3FC18B00ECCA80 /* AFK */;
+			targetProxy = AFKTST0000000000000010 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -530,6 +599,46 @@
 			};
 			name = Release;
 		};
+		AFKTST0000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.afk.AFKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AFK.app/AFK";
+			};
+			name = Debug;
+		};
+		AFKTST0000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.afk.AFKTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AFK.app/AFK";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -556,6 +665,15 @@
 			buildConfigurations = (
 				A89E9F8C2F41E38600ECCA80 /* Debug */,
 				A89E9F8D2F41E38600ECCA80 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AFKTST0000000000000009 /* Build configuration list for PBXNativeTarget "AFKTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AFKTST0000000000000007 /* Debug */,
+				AFKTST0000000000000008 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

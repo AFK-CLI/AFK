@@ -48,6 +48,7 @@ type RateLimiter struct {
 	refillRate float64
 	collector  *metrics.Collector
 	stop       chan struct{}
+	stopOnce   sync.Once
 }
 
 // NewRateLimiter creates a rate limiter with given max tokens and refill rate.
@@ -63,9 +64,9 @@ func NewRateLimiter(maxTokens, refillRate float64, collector *metrics.Collector)
 	return rl
 }
 
-// Stop terminates the cleanup goroutine.
+// Stop terminates the cleanup goroutine. Safe to call multiple times.
 func (rl *RateLimiter) Stop() {
-	close(rl.stop)
+	rl.stopOnce.Do(func() { close(rl.stop) })
 }
 
 // allow checks if a request from the given key should be allowed.
@@ -163,20 +164,25 @@ func clientIP(r *http.Request) string {
 	return directIP
 }
 
+// cleanupStale removes buckets that haven't been accessed in over 10 minutes.
+func (rl *RateLimiter) cleanupStale() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	cutoff := time.Now().Add(-10 * time.Minute)
+	for id, bucket := range rl.buckets {
+		if bucket.lastRefill.Before(cutoff) {
+			delete(rl.buckets, id)
+		}
+	}
+}
+
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			rl.mu.Lock()
-			cutoff := time.Now().Add(-10 * time.Minute)
-			for id, bucket := range rl.buckets {
-				if bucket.lastRefill.Before(cutoff) {
-					delete(rl.buckets, id)
-				}
-			}
-			rl.mu.Unlock()
+			rl.cleanupStale()
 		case <-rl.stop:
 			return
 		}
