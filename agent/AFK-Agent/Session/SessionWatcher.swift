@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 actor SessionWatcher {
     private let projectsPath: String
@@ -28,7 +29,7 @@ actor SessionWatcher {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        print("[Watcher] Watching \(projectsPath)")
+        AppLogger.session.info("Watching \(self.projectsPath, privacy: .public)")
 
         Task { [weak self] in
             while let self, await self.isRunning {

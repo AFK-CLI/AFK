@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -29,14 +30,14 @@ extension Agent {
                     let status = (await stateManager.getInfo(sid))?.status
                     if status == .idle || status == .completed {
                         if let intent = await socket.consumeRestartIntent(sessionId: sid) {
-                            print("[Agent] Session \(sid.prefix(8)) stopped — executing plan restart")
+                            AppLogger.agent.info("Session \(sid.prefix(8), privacy: .public) stopped — executing plan restart")
                             await spawnPlanRestart(sessionId: sid, planContent: intent.planContent)
                         }
                     }
                 }
                 // Stale fallback: force-execute after 5 minutes
                 for (sid, intent) in await socket.consumeStaleRestartIntents(olderThan: 300) {
-                    print("[Agent] Stale restart intent for \(sid.prefix(8)) — force-spawning")
+                    AppLogger.agent.warning("Stale restart intent for \(sid.prefix(8), privacy: .public) — force-spawning")
                     await spawnPlanRestart(sessionId: sid, planContent: intent.planContent)
                 }
             }
@@ -56,7 +57,7 @@ extension Agent {
                         cleanupCompletedSession(event.sessionId)
                     }
                 }
-                print("[\(event.sessionId.prefix(8))] \(event.eventType.rawValue) (timeout)")
+                AppLogger.session.debug("\(event.sessionId.prefix(8), privacy: .public) \(event.eventType.rawValue, privacy: .public) (timeout)")
             }
         }
     }
@@ -74,10 +75,10 @@ extension Agent {
                         let msg = try MessageEncoder.sessionEvent(sessionId: event.sessionId, event: event)
                         try await client.send(msg)
                     } catch {
-                        print("[WS] Failed to send permission stall: \(error.localizedDescription)")
+                        AppLogger.ws.error("Failed to send permission stall: \(error.localizedDescription, privacy: .public)")
                     }
                 }
-                print("[\(event.sessionId.prefix(8))] \(event.eventType.rawValue) (permission stall)")
+                AppLogger.session.debug("\(event.sessionId.prefix(8), privacy: .public) \(event.eventType.rawValue, privacy: .public) (permission stall)")
             }
         }
     }
@@ -87,7 +88,7 @@ extension Agent {
     func spawnPlanRestart(sessionId: String, planContent: String) async {
         let projectPath = await sessionIndex.projectPath(for: sessionId) ?? ""
         guard !projectPath.isEmpty else {
-            print("[Agent] Cannot restart \(sessionId.prefix(8)) — no project path")
+            AppLogger.agent.error("Cannot restart \(sessionId.prefix(8), privacy: .public) — no project path")
             return
         }
         let planPath = BuildEnvironment.configDirectoryPath + "/plans/\(sessionId).md"
@@ -105,9 +106,9 @@ extension Agent {
                 process.currentDirectoryURL = URL(fileURLWithPath: projectPath)
             }
             try process.run()
-            print("[Agent] Spawned plan restart for \(sessionId.prefix(8)) in \(projectPath)")
+            AppLogger.agent.info("Spawned plan restart for \(sessionId.prefix(8), privacy: .public) in \(projectPath, privacy: .public)")
         } catch {
-            print("[Agent] Failed to spawn plan restart: \(error)")
+            AppLogger.agent.error("Failed to spawn plan restart: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

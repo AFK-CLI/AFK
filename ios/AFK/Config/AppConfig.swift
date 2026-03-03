@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 enum AppConfig {
     private static let apiBaseURLKey = "afk_api_base_url"
@@ -28,7 +29,7 @@ enum AppConfig {
     static func configure(apiURL: String) {
         guard isAllowedURL(apiURL) else {
             #if DEBUG
-            print("[AppConfig] Rejected URL: \(apiURL) — HTTPS required (HTTP allowed only for localhost)")
+            AppLogger.app.warning("Rejected URL: \(apiURL, privacy: .public) — HTTPS required (HTTP allowed only for localhost)")
             #endif
             return
         }

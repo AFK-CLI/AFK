@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 final class SyncService {
@@ -21,7 +22,7 @@ final class SyncService {
             localStore.saveSessions(filtered)
             return filtered
         } catch {
-            print("[SyncService] Failed to sync sessions: \(error)")
+            AppLogger.sync.error("Failed to sync sessions: \(error, privacy: .public)")
             // Return cached data on failure
             return localStore.cachedSessions()
         }
@@ -34,7 +35,7 @@ final class SyncService {
             localStore.saveEvents(remote, for: sessionId)
             return (remote, hasMore)
         } catch {
-            print("[SyncService] Failed to sync events for \(sessionId.prefix(8)): \(error)")
+            AppLogger.sync.error("Failed to sync events for \(sessionId.prefix(8), privacy: .public): \(error, privacy: .public)")
             return (localStore.cachedEvents(for: sessionId), false)
         }
     }

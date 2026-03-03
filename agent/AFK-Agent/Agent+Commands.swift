@@ -5,12 +5,13 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 extension Agent {
 
     func handleCommandContinue(_ msg: WSMessage) async {
         guard let executor = commandExecutor, let client = wsClient else {
-            print("[Agent] Command executor not configured")
+            AppLogger.command.error("Command executor not configured")
             return
         }
 
@@ -19,7 +20,7 @@ extension Agent {
             CommandExecutor.CommandRequest.self,
             from: msg.payloadJSON
         ) else {
-            print("[Agent] Failed to parse command request")
+            AppLogger.command.error("Failed to parse command request")
             return
         }
 
@@ -39,7 +40,7 @@ extension Agent {
 
     func handleCommandNew(_ msg: WSMessage) async {
         guard let executor = commandExecutor, let client = wsClient else {
-            print("[Agent] Command executor not configured")
+            AppLogger.command.error("Command executor not configured")
             return
         }
 
@@ -48,7 +49,7 @@ extension Agent {
             CommandExecutor.NewChatRequest.self,
             from: msg.payloadJSON
         ) else {
-            print("[Agent] Failed to parse new chat request")
+            AppLogger.command.error("Failed to parse new chat request")
             return
         }
 
@@ -67,9 +68,9 @@ extension Agent {
             if let newSessionId {
                 if let jsonlPath = Self.findJSONLFile(sessionId: newSessionId, under: projectsPath) {
                     let (_, projectPath) = await sessionIndex.register(filePath: jsonlPath)
-                    print("[Agent] Registered new chat session \(newSessionId.prefix(8)) → \(projectPath)")
+                    AppLogger.command.info("Registered new chat session \(newSessionId.prefix(8), privacy: .public) → \(projectPath, privacy: .public)")
                 } else {
-                    print("[Agent] WARNING: Could not find JSONL for new session \(newSessionId.prefix(8))")
+                    AppLogger.command.warning("Could not find JSONL for new session \(newSessionId.prefix(8), privacy: .public)")
                 }
 
                 // Register in menu bar for easy resume
@@ -96,7 +97,7 @@ extension Agent {
 
     func handlePlanRestart(_ msg: WSMessage) async {
         guard let executor = commandExecutor, let client = wsClient else {
-            print("[Agent] Command executor not configured for plan restart")
+            AppLogger.command.error("Command executor not configured for plan restart")
             return
         }
 
@@ -108,7 +109,7 @@ extension Agent {
 
         let decoder = JSONDecoder()
         guard let payload = try? decoder.decode(PlanRestartPayload.self, from: msg.payloadJSON) else {
-            print("[Agent] Failed to parse plan restart payload")
+            AppLogger.command.error("Failed to parse plan restart payload")
             return
         }
 
@@ -119,7 +120,7 @@ extension Agent {
         let planPath = BuildEnvironment.configDirectoryPath + "/plans/\(sessionId).md"
 
         guard FileManager.default.fileExists(atPath: planPath) else {
-            print("[Agent] No plan file found at \(planPath)")
+            AppLogger.command.error("No plan file found at \(planPath, privacy: .public)")
             if let failMsg = try? MessageEncoder.commandFailed(
                 commandId: "plan-restart-\(sessionId)",
                 sessionId: sessionId,
@@ -133,7 +134,7 @@ extension Agent {
         // Look up project path from SessionIndex
         let projectPath = await sessionIndex.projectPath(for: sessionId) ?? ""
         guard !projectPath.isEmpty else {
-            print("[Agent] No project path found for session \(sessionId)")
+            AppLogger.command.error("No project path found for session \(sessionId.prefix(8), privacy: .public)")
             if let failMsg = try? MessageEncoder.commandFailed(
                 commandId: "plan-restart-\(sessionId)",
                 sessionId: sessionId,
@@ -170,7 +171,7 @@ extension Agent {
             signature: ""  // No verifier needed for plan restart
         )
 
-        print("[Agent] Plan restart for session \(sessionId.prefix(8)) with mode=\(mode)")
+        AppLogger.command.info("Plan restart for session \(sessionId.prefix(8), privacy: .public) with mode=\(mode, privacy: .public)")
 
         let projectsPath = config.claudeProjectsPath
         let sbc = statusBarController
@@ -185,7 +186,7 @@ extension Agent {
             if let newSessionId {
                 if let jsonlPath = Self.findJSONLFile(sessionId: newSessionId, under: projectsPath) {
                     let (_, projPath) = await sessionIndex.register(filePath: jsonlPath)
-                    print("[Agent] Plan restart session \(newSessionId.prefix(8)) → \(projPath)")
+                    AppLogger.command.info("Plan restart session \(newSessionId.prefix(8), privacy: .public) → \(projPath, privacy: .public)")
                 }
 
                 // Register in menu bar for easy resume
@@ -207,7 +208,7 @@ extension Agent {
         }
         let decoder = JSONDecoder()
         guard let payload = try? decoder.decode(TodoAppendPayload.self, from: msg.payloadJSON) else {
-            print("[Agent] Failed to parse todo append payload")
+            AppLogger.agent.error("Failed to parse todo append payload")
             return
         }
         appendToTodoFile(projectPath: payload.projectPath, text: payload.text)
@@ -220,7 +221,7 @@ extension Agent {
 
         if fm.fileExists(atPath: todoPath) {
             guard let handle = FileHandle(forWritingAtPath: todoPath) else {
-                print("[TodoWatcher] Failed to open \(todoPath) for writing")
+                AppLogger.session.error("Failed to open \(todoPath, privacy: .public) for writing")
                 return
             }
             handle.seekToEndOfFile()
@@ -232,7 +233,7 @@ extension Agent {
             let content = "- [ ] \(text)\n"
             fm.createFile(atPath: todoPath, contents: content.data(using: .utf8))
         }
-        print("[TodoWatcher] Appended item to \(todoPath): \(text)")
+        AppLogger.session.debug("Appended item to \(todoPath, privacy: .public): \(text, privacy: .public)")
     }
 
     // MARK: - Todo Toggle
@@ -245,7 +246,7 @@ extension Agent {
         }
         let decoder = JSONDecoder()
         guard let payload = try? decoder.decode(TodoTogglePayload.self, from: msg.payloadJSON) else {
-            print("[Agent] Failed to parse todo toggle payload")
+            AppLogger.agent.error("Failed to parse todo toggle payload")
             return
         }
         toggleTodoLine(projectPath: payload.projectPath, line: payload.line, checked: payload.checked)
@@ -258,14 +259,14 @@ extension Agent {
         guard fm.fileExists(atPath: todoPath),
               let data = fm.contents(atPath: todoPath),
               let content = String(data: data, encoding: .utf8) else {
-            print("[TodoWatcher] Cannot read \(todoPath) for toggle")
+            AppLogger.session.error("Cannot read \(todoPath, privacy: .public) for toggle")
             return
         }
 
         var lines = content.components(separatedBy: "\n")
         let idx = line - 1 // line is 1-based
         guard idx >= 0, idx < lines.count else {
-            print("[TodoWatcher] Line \(line) out of range in \(todoPath)")
+            AppLogger.session.warning("Line \(line, privacy: .public) out of range in \(todoPath, privacy: .public)")
             return
         }
 
@@ -284,6 +285,6 @@ extension Agent {
         lines[idx] = newLine
         let updated = lines.joined(separator: "\n")
         try? updated.write(toFile: todoPath, atomically: true, encoding: .utf8)
-        print("[TodoWatcher] Toggled line \(line) in \(todoPath): checked=\(checked)")
+        AppLogger.session.debug("Toggled line \(line, privacy: .public) in \(todoPath, privacy: .public): checked=\(checked, privacy: .public)")
     }
 }

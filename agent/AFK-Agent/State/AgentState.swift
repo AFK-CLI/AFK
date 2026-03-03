@@ -6,6 +6,7 @@
 //  Saved to ~/.afk-agent/session-state.json
 
 import Foundation
+import OSLog
 
 struct AgentState: Codable {
     struct SessionSnapshot: Codable {
@@ -53,7 +54,7 @@ struct AgentState: Codable {
             _ = try? FileManager.default.removeItem(at: url)
             try FileManager.default.moveItem(at: tmpURL, to: url)
         } catch {
-            print("[State] Failed to save: \(error.localizedDescription)")
+            AppLogger.state.error("Failed to save: \(error.localizedDescription, privacy: .public)")
         }
     }
 

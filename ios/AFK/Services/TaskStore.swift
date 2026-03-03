@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 @Observable
@@ -24,7 +25,7 @@ final class TaskStore {
             tasks = try await apiClient.listTasks()
             localStore.saveTasks(tasks)
         } catch {
-            print("[TaskStore] Failed to load tasks: \(error)")
+            AppLogger.store.error("Failed to load tasks: \(error, privacy: .public)")
             tasks = localStore.cachedTasks()
         }
     }
@@ -37,7 +38,7 @@ final class TaskStore {
             tasks.insert(task, at: 0)
             localStore.saveTask(task)
         } catch {
-            print("[TaskStore] Failed to create task: \(error)")
+            AppLogger.store.error("Failed to create task: \(error, privacy: .public)")
         }
     }
 
@@ -50,7 +51,7 @@ final class TaskStore {
             }
             localStore.saveTask(updated)
         } catch {
-            print("[TaskStore] Failed to toggle task: \(error)")
+            AppLogger.store.error("Failed to toggle task: \(error, privacy: .public)")
         }
     }
 
@@ -61,7 +62,7 @@ final class TaskStore {
             tasks.removeAll { $0.id == task.id }
             localStore.deleteTask(id: task.id)
         } catch {
-            print("[TaskStore] Failed to delete task: \(error)")
+            AppLogger.store.error("Failed to delete task: \(error, privacy: .public)")
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import BackgroundTasks
+import OSLog
 import UIKit
 
 @MainActor
@@ -31,9 +32,9 @@ final class BackgroundTaskManager {
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("[BGTask] Scheduled session refresh")
+            AppLogger.bg.info("Scheduled session refresh")
         } catch {
-            print("[BGTask] Failed to schedule refresh: \(error)")
+            AppLogger.bg.error("Failed to schedule refresh: \(error, privacy: .public)")
         }
     }
 
@@ -46,13 +47,13 @@ final class BackgroundTaskManager {
         scheduleRefresh()
 
         task.expirationHandler = {
-            print("[BGTask] Refresh task expired")
+            AppLogger.bg.warning("Refresh task expired")
         }
 
         let sessions = await syncService.syncSessions()
         onSessionsRefreshed?(sessions)
         syncService.performMaintenance()
         task.setTaskCompleted(success: true)
-        print("[BGTask] Refresh completed with \(sessions.count) sessions")
+        AppLogger.bg.info("Refresh completed with \(sessions.count, privacy: .public) sessions")
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 import StoreKit
 import UserNotifications
 import CryptoKit
+import OSLog
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var onDeviceToken: ((Data) -> Void)?
@@ -20,7 +21,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("Failed to register for push: \(error)")
+        AppLogger.push.error("Failed to register for push: \(error, privacy: .public)")
     }
 
     // Show banner when app is in foreground for permission requests, questions, and errors
@@ -158,6 +159,7 @@ struct AFKApp: App {
     @State private var backgroundTaskManager: BackgroundTaskManager
     @State private var taskStore: TaskStore
     @State private var todoStore: TodoStore
+    @State private var logUploader = LogUploader.shared
 
     init() {
         let auth = AuthService()
@@ -201,8 +203,22 @@ struct AFKApp: App {
                 deepLinkSessionId: $deepLinkSessionId,
                 subscriptionManager: subscriptionManager,
                 taskStore: taskStore,
-                todoStore: todoStore
+                todoStore: todoStore,
+                logUploader: logUploader
             )
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                Text("DEV")
+                    .font(.caption2.bold())
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.red, in: Capsule())
+                    .padding(.leading, 70)
+                    .padding(.top, 2)
+                    .allowsHitTesting(false)
+            }
+            #endif
             .task {
                 await authService.restoreSession()
             }
@@ -301,7 +317,7 @@ struct AFKApp: App {
         let keyPair = DeviceKeyPair.loadOrCreate()
         let myDeviceId = BuildEnvironment.userDefaults.string(forKey: Self.iosDeviceIdKey)
         let currentFingerprint = E2EEService.fingerprint(of: keyPair.publicKeyBase64)
-        print("[App] Own KA key fingerprint: \(currentFingerprint)")
+        AppLogger.app.info("Own KA key fingerprint: \(currentFingerprint, privacy: .public)")
 
         // Enroll if we haven't yet
         if myDeviceId == nil {
@@ -316,17 +332,19 @@ struct AFKApp: App {
                 BuildEnvironment.userDefaults.set(device.id, forKey: Self.iosDeviceIdKey)
                 BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                 sessionStore.myDeviceId = device.id
-                print("[App] iOS device enrolled: \(device.id.prefix(8))")
+                logUploader.configure(apiClient: apiClient, deviceId: device.id)
+                AppLogger.app.info("iOS device enrolled: \(device.id.prefix(8), privacy: .public)")
             } catch {
-                print("[App] iOS device enrollment failed: \(error)")
+                AppLogger.app.error("iOS device enrollment failed: \(error, privacy: .public)")
             }
         } else {
             sessionStore.myDeviceId = myDeviceId
+            logUploader.configure(apiClient: apiClient, deviceId: myDeviceId!)
             // Already enrolled — only re-register KA key if it changed
             let lastFingerprint = BuildEnvironment.userDefaults.string(forKey: Self.lastRegisteredKAFingerprintKey)
             if lastFingerprint != currentFingerprint {
-                print("[App] WARNING: KA key fingerprint changed (\(lastFingerprint ?? "nil") -> \(currentFingerprint)) — re-registering")
-                print("[App] This means the Keychain key was lost. Historical E2EE content may be unreadable.")
+                AppLogger.app.warning("KA key fingerprint changed (\(lastFingerprint ?? "nil", privacy: .public) -> \(currentFingerprint, privacy: .public)) — re-registering")
+                AppLogger.app.warning("This means the Keychain key was lost. Historical E2EE content may be unreadable.")
 
                 // Reinitialize SessionStore's E2EE service with the new key
                 sessionStore.reinitializeE2EE()
@@ -334,12 +352,12 @@ struct AFKApp: App {
                 do {
                     try await apiClient.registerKeyAgreement(deviceId: myDeviceId!, publicKey: keyPair.publicKeyBase64)
                     BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
-                    print("[App] KA key re-registered (fingerprint: \(currentFingerprint))")
+                    AppLogger.app.info("KA key re-registered (fingerprint: \(currentFingerprint, privacy: .public))")
                 } catch {
-                    print("[App] KA key registration update failed: \(error)")
+                    AppLogger.app.error("KA key registration update failed: \(error, privacy: .public)")
                 }
             } else {
-                print("[App] KA key unchanged (\(currentFingerprint)), skipping registration")
+                AppLogger.app.debug("KA key unchanged (\(currentFingerprint, privacy: .public)), skipping registration")
             }
         }
 
@@ -356,13 +374,13 @@ struct AFKApp: App {
                     sessionStore.cacheDeviceKey(deviceId: device.id, publicKey: kaKey)
                 }
             }
-            print("[App] Cached \(sessionStore.deviceKAKeys.count) device KA keys for E2EE")
+            AppLogger.app.info("Cached \(sessionStore.deviceKAKeys.count, privacy: .public) device KA keys for E2EE")
 
             if let storedId {
                 if ownDevice == nil {
                     // Device ID in UserDefaults doesn't exist on backend (DB rebuilt).
                     // Re-enroll to recreate the device record with KA key.
-                    print("[App] Device \(storedId.prefix(8)) not found on backend — re-enrolling")
+                    AppLogger.app.warning("Device \(storedId.prefix(8), privacy: .public) not found on backend — re-enrolling")
                     let device = try await apiClient.enrollDevice(
                         name: UIDevice.current.name,
                         publicKey: keyPair.publicKeyBase64,
@@ -374,37 +392,37 @@ struct AFKApp: App {
                     BuildEnvironment.userDefaults.set(device.id, forKey: Self.iosDeviceIdKey)
                     BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
                     sessionStore.myDeviceId = device.id
-                    print("[App] Re-enrolled as \(device.id.prefix(8)) with KA key")
+                    AppLogger.app.info("Re-enrolled as \(device.id.prefix(8), privacy: .public) with KA key")
                 } else if ownDevice?.keyAgreementPublicKey == nil || ownDevice?.keyAgreementPublicKey?.isEmpty == true {
                     // Device exists but backend lost our KA key.
-                    print("[App] Backend missing our KA key — re-registering")
+                    AppLogger.app.warning("Backend missing our KA key — re-registering")
                     try await apiClient.registerKeyAgreement(deviceId: storedId, publicKey: keyPair.publicKeyBase64)
                     BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
-                    print("[App] KA key re-registered (fingerprint: \(currentFingerprint))")
+                    AppLogger.app.info("KA key re-registered (fingerprint: \(currentFingerprint, privacy: .public))")
                 } else if let backendKey = ownDevice?.keyAgreementPublicKey, backendKey != keyPair.publicKeyBase64 {
                     // Backend has a stale key — previous registration likely failed
                     let backendFP = E2EEService.fingerprint(of: backendKey)
-                    print("[App] Backend KA key mismatch: local=\(currentFingerprint) backend=\(backendFP) — re-registering")
+                    AppLogger.app.warning("Backend KA key mismatch: local=\(currentFingerprint, privacy: .public) backend=\(backendFP, privacy: .public) — re-registering")
                     try await apiClient.registerKeyAgreement(deviceId: storedId, publicKey: keyPair.publicKeyBase64)
                     BuildEnvironment.userDefaults.set(currentFingerprint, forKey: Self.lastRegisteredKAFingerprintKey)
-                    print("[App] KA key re-registered after mismatch (fingerprint: \(currentFingerprint))")
+                    AppLogger.app.info("KA key re-registered after mismatch (fingerprint: \(currentFingerprint, privacy: .public))")
                 }
             }
         } catch {
-            print("[App] Failed to list devices for E2EE: \(error)")
+            AppLogger.app.error("Failed to list devices for E2EE: \(error, privacy: .public)")
         }
     }
 
     private func handleScenePhaseChange(from oldPhase: ScenePhase, to newPhase: ScenePhase) {
         switch newPhase {
         case .background:
-            print("[App] Entering background")
+            AppLogger.app.info("Entering background")
             BiometricService.resetSession()
             backgroundTaskManager.scheduleRefresh()
             wsService.disconnect()
         case .active:
             if oldPhase == .background {
-                print("[App] Returning to foreground")
+                AppLogger.app.info("Returning to foreground")
                 if let token = authService.accessToken {
                     wsService.connect(token: token, apiClient: apiClient)
                 }

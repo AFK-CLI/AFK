@@ -447,6 +447,52 @@ tr.clickable-row:hover td { background: rgba(74, 158, 255, 0.06); }
   gap: 8px;
 }
 
+/* Detail Modal */
+.detail-modal {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.detail-modal h3 {
+  font-size: 18px;
+  margin-bottom: 16px;
+}
+.detail-modal-close {
+  float: right;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.detail-modal-close:hover {
+  color: var(--text);
+}
+.detail-field {
+  margin-bottom: 12px;
+}
+.detail-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.detail-field-value {
+  font-size: 14px;
+  color: var(--text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Toast */
 .toast-container {
   position: fixed;

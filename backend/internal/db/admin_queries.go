@@ -89,6 +89,31 @@ type AdminStaleDevice struct {
 	IsRevoked  bool   `json:"isRevoked"`
 }
 
+type AdminAppLog struct {
+	ID        string `json:"id"`
+	UserID    string `json:"userId"`
+	UserEmail string `json:"userEmail"`
+	DeviceID  string `json:"deviceId"`
+	Source    string `json:"source"`
+	Level     string `json:"level"`
+	Subsystem string `json:"subsystem"`
+	Message   string `json:"message"`
+	Metadata  string `json:"metadata"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type AdminFeedbackEntry struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId"`
+	UserEmail  string `json:"userEmail"`
+	DeviceID   string `json:"deviceId"`
+	Category   string `json:"category"`
+	Message    string `json:"message"`
+	AppVersion string `json:"appVersion"`
+	Platform   string `json:"platform"`
+	CreatedAt  string `json:"createdAt"`
+}
+
 // AdminDashboardStats returns all aggregate metrics for the admin dashboard in a single call.
 func AdminDashboardStats(db *sql.DB) (*AdminStats, error) {
 	s := &AdminStats{
@@ -942,4 +967,122 @@ func AdminRevokeUser(d *sql.DB, userID string) error {
 		_ = RevokeDeviceKeys(d, deviceID)
 	}
 	return nil
+}
+
+// AdminListAppLogs returns a paginated list of app logs with optional filters (all users).
+func AdminListAppLogs(d *sql.DB, level, source, userID, email, subsystem string, limit, offset int) ([]AdminAppLog, int, error) {
+	where := "1=1"
+	args := []interface{}{}
+	needsJoin := false
+
+	if level != "" {
+		where += " AND l.level = ?"
+		args = append(args, level)
+	}
+	if source != "" {
+		where += " AND l.source = ?"
+		args = append(args, source)
+	}
+	if userID != "" {
+		where += " AND l.user_id = ?"
+		args = append(args, userID)
+	}
+	if email != "" {
+		where += " AND u.email LIKE ?"
+		args = append(args, "%"+email+"%")
+		needsJoin = true
+	}
+	if subsystem != "" {
+		where += " AND l.subsystem = ?"
+		args = append(args, subsystem)
+	}
+
+	var total int
+	countArgs := make([]interface{}, len(args))
+	copy(countArgs, args)
+	countJoin := ""
+	if needsJoin {
+		countJoin = " LEFT JOIN users u ON u.id = l.user_id"
+	}
+	err := d.QueryRow("SELECT COUNT(*) FROM app_logs l"+countJoin+" WHERE "+where, countArgs...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count app logs: %w", err)
+	}
+
+	query := `
+		SELECT l.id, l.user_id, COALESCE(u.email, ''), l.device_id, l.source, l.level,
+		       l.subsystem, l.message, l.metadata, l.created_at
+		FROM app_logs l
+		LEFT JOIN users u ON u.id = l.user_id
+		WHERE ` + where + `
+		ORDER BY l.created_at DESC
+		LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list app logs: %w", err)
+	}
+	defer rows.Close()
+
+	var logs []AdminAppLog
+	for rows.Next() {
+		var e AdminAppLog
+		if err := rows.Scan(&e.ID, &e.UserID, &e.UserEmail, &e.DeviceID, &e.Source,
+			&e.Level, &e.Subsystem, &e.Message, &e.Metadata, &e.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan app log: %w", err)
+		}
+		logs = append(logs, e)
+	}
+	return logs, total, rows.Err()
+}
+
+// AdminListFeedback returns a paginated list of feedback entries with optional filters (all users).
+func AdminListFeedback(d *sql.DB, category, userID string, limit, offset int) ([]AdminFeedbackEntry, int, error) {
+	where := "1=1"
+	args := []interface{}{}
+
+	if category != "" {
+		where += " AND f.category = ?"
+		args = append(args, category)
+	}
+	if userID != "" {
+		where += " AND f.user_id = ?"
+		args = append(args, userID)
+	}
+
+	var total int
+	countArgs := make([]interface{}, len(args))
+	copy(countArgs, args)
+	err := d.QueryRow("SELECT COUNT(*) FROM feedback f WHERE "+where, countArgs...).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count feedback: %w", err)
+	}
+
+	query := `
+		SELECT f.id, f.user_id, COALESCE(u.email, ''), f.device_id, f.category,
+		       f.message, f.app_version, f.platform, f.created_at
+		FROM feedback f
+		LEFT JOIN users u ON u.id = f.user_id
+		WHERE ` + where + `
+		ORDER BY f.created_at DESC
+		LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
+
+	rows, err := d.Query(query, args...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list feedback: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []AdminFeedbackEntry
+	for rows.Next() {
+		var e AdminFeedbackEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.UserEmail, &e.DeviceID, &e.Category,
+			&e.Message, &e.AppVersion, &e.Platform, &e.CreatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scan feedback: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, total, rows.Err()
 }

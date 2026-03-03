@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -13,7 +14,7 @@ extension Agent {
         let autoPlanExit = StatusBarController.isPlanAutoExitEnabled
         if let msg = try? MessageEncoder.controlState(deviceID: deviceId, remoteApproval: remoteApproval, autoPlanExit: autoPlanExit) {
             try? await client.send(msg)
-            print("[Agent] Broadcast control state: remoteApproval=\(remoteApproval) autoPlanExit=\(autoPlanExit)")
+            AppLogger.agent.info("Broadcast control state: remoteApproval=\(remoteApproval, privacy: .public) autoPlanExit=\(autoPlanExit, privacy: .public)")
         }
     }
 }

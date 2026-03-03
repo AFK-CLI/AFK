@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -36,29 +37,36 @@ extension Agent {
 
             // Read current token from keychain (may have been refreshed)
             guard let currentToken = try? keychain.loadToken(forKey: "auth-token") else {
-                print("[Agent] No auth token in keychain for ticket fetch")
+                AppLogger.auth.warning("No auth token in keychain for ticket fetch")
                 return nil
             }
 
             let api = APIClient(baseURL: httpBaseURL, token: currentToken)
             do {
                 let ticket = try await api.getWSTicket(deviceId: deviceId)
-                print("[Agent] Obtained WS ticket")
+                AppLogger.ws.info("Obtained WS ticket")
                 return ticket
             } catch {
                 let code = (error as NSError).code
                 if code == 401 {
-                    print("[Agent] WS ticket auth expired, refreshing token...")
+                    AppLogger.auth.warning("WS ticket auth expired, refreshing token...")
                     if let newToken = await self.tryRefreshToken(keychain: keychain) {
                         await self.wsClient?.updateToken(newToken)
                         let freshApi = APIClient(baseURL: httpBaseURL, token: newToken)
                         if let ticket = try? await freshApi.getWSTicket(deviceId: deviceId) {
-                            print("[Agent] Obtained WS ticket after token refresh")
+                            AppLogger.ws.info("Obtained WS ticket after token refresh")
                             return ticket
                         }
                     }
+
+                    // Both tokens expired — trigger re-authentication
+                    return await self.reauthAndFetchTicket(
+                        deviceId: deviceId,
+                        keychain: keychain,
+                        httpBaseURL: httpBaseURL
+                    )
                 }
-                print("[Agent] WS ticket fetch failed: \(error.localizedDescription)")
+                AppLogger.ws.error("WS ticket fetch failed: \(error.localizedDescription, privacy: .public)")
                 return nil
             }
         }
@@ -74,14 +82,47 @@ extension Agent {
         var initialTicket: String?
         do {
             initialTicket = try await api.getWSTicket(deviceId: deviceId)
-            print("[Agent] Obtained initial WS ticket")
+            AppLogger.ws.info("Obtained initial WS ticket")
         } catch {
-            print("[Agent] Initial WS ticket fetch failed: \(error.localizedDescription)")
+            AppLogger.ws.error("Initial WS ticket fetch failed: \(error.localizedDescription, privacy: .public)")
         }
 
-        print("[Agent] Connecting to \(wsURLString)...")
+        AppLogger.ws.info("Connecting to \(wsURLString, privacy: .public)...")
         Task { await client.connect(ticket: initialTicket) }
         return await client.waitForConnection()
+    }
+
+    /// Re-authenticate when both access and refresh tokens have expired.
+    /// Shows the sign-in window, saves new credentials, and returns a fresh WS ticket.
+    /// Disconnects the WebSocket client if the user dismisses the sign-in window.
+    private func reauthAndFetchTicket(deviceId: String, keychain: KeychainStore, httpBaseURL: String) async -> String? {
+        // Clear stale tokens
+        try? keychain.deleteToken(forKey: "auth-token")
+        try? keychain.deleteToken(forKey: "refresh-token")
+
+        AppLogger.auth.warning("Both tokens expired — showing sign-in window...")
+        guard let result = await showSignInWindow(existingDeviceId: deviceId) else {
+            AppLogger.auth.warning("Re-auth dismissed — disconnecting")
+            await wsClient?.disconnect()
+            return nil
+        }
+
+        // Update the WS client's fallback token
+        await wsClient?.updateToken(result.token)
+        self.enrolledDeviceId = result.deviceId
+
+        // Refresh log collector with new token
+        let logApiClient = APIClient(baseURL: httpBaseURL, token: result.token)
+        await logCollector.configure(apiClient: logApiClient, deviceId: result.deviceId)
+
+        // Fetch a ticket with the new token
+        let freshApi = APIClient(baseURL: httpBaseURL, token: result.token)
+        if let ticket = try? await freshApi.getWSTicket(deviceId: result.deviceId) {
+            AppLogger.ws.info("Obtained WS ticket after re-authentication")
+            return ticket
+        }
+
+        return nil
     }
 
     func handleWSMessage(_ msg: WSMessage) async {
@@ -93,7 +134,7 @@ extension Agent {
                 PermissionSocket.PermissionResponsePayload.self,
                 from: msg.payloadJSON
             ) else {
-                print("[Agent] Failed to parse permission response")
+                AppLogger.permission.error("Failed to parse permission response")
                 return
             }
             await socket.handleResponse(response)
@@ -103,19 +144,19 @@ extension Agent {
             guard let socket = permissionSocket,
                   let payload = try? decoder.decode(ModePayload.self, from: msg.payloadJSON),
                   let mode = PermissionSocket.PermissionMode(rawValue: payload.mode) else {
-                print("[Agent] Failed to parse permission mode")
+                AppLogger.permission.error("Failed to parse permission mode")
                 return
             }
             await socket.setMode(mode)
-            print("[Agent] Permission mode changed to: \(payload.mode)")
+            AppLogger.permission.info("Permission mode changed to: \(payload.mode, privacy: .public)")
         case "server.privacy_mode":
             struct PrivacyModePayload: Codable { let mode: String }
             let decoder = JSONDecoder()
             if let payload = try? decoder.decode(PrivacyModePayload.self, from: msg.payloadJSON) {
                 config.defaultPrivacyMode = payload.mode
-                print("[Agent] Privacy mode updated to: \(payload.mode)")
+                AppLogger.agent.info("Privacy mode updated to: \(payload.mode, privacy: .public)")
             } else {
-                print("[Agent] Failed to parse privacy mode update")
+                AppLogger.agent.error("Failed to parse privacy mode update")
             }
         case "server.command.continue":
             await handleCommandContinue(msg)
@@ -138,7 +179,7 @@ extension Agent {
             }
             let decoder = JSONDecoder()
             guard let payload = try? decoder.decode(ControlPayload.self, from: msg.payloadJSON) else {
-                print("[Agent] Failed to parse agent control")
+                AppLogger.agent.error("Failed to parse agent control")
                 return
             }
             if let sbc = statusBarController {

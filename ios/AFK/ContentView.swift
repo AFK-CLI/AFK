@@ -10,6 +10,7 @@ struct ContentView: View {
     let subscriptionManager: SubscriptionManager
     let taskStore: TaskStore
     let todoStore: TodoStore
+    let logUploader: LogUploader
     @State private var selectedTab = "now"
     @State private var serverConfigured = AppConfig.isConfigured
 
@@ -45,7 +46,7 @@ struct ContentView: View {
                 }
 
                 Tab("Settings", systemImage: "gear", value: "settings") {
-                    SettingsView(authService: authService, apiClient: apiClient, sessionStore: sessionStore, wsService: wsService, subscriptionManager: subscriptionManager)
+                    SettingsView(authService: authService, apiClient: apiClient, sessionStore: sessionStore, wsService: wsService, subscriptionManager: subscriptionManager, logUploader: logUploader)
                 }
             }
             .onChange(of: deepLinkSessionId) {

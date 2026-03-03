@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Security
 
 struct KeychainService: Sendable {
@@ -36,7 +37,7 @@ struct KeychainService: Sendable {
 
         if updateStatus != errSecItemNotFound {
             // Unexpected error during update — fall through to delete+add
-            print("[Keychain] SecItemUpdate failed for '\(key)': OSStatus \(updateStatus), trying delete+add")
+            AppLogger.keychain.warning("SecItemUpdate failed for '\(key, privacy: .public)': OSStatus \(updateStatus, privacy: .public), trying delete+add")
         }
 
         // Item doesn't exist — delete any stale entry and add fresh
@@ -52,7 +53,7 @@ struct KeychainService: Sendable {
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
         guard status == errSecSuccess else {
-            print("[Keychain] SecItemAdd failed for '\(key)': OSStatus \(status)")
+            AppLogger.keychain.error("SecItemAdd failed for '\(key, privacy: .public)': OSStatus \(status, privacy: .public)")
             throw KeychainError.unexpectedStatus(status)
         }
     }
@@ -81,7 +82,7 @@ struct KeychainService: Sendable {
 
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
-                print("[Keychain] SecItemCopyMatching failed for '\(key)': OSStatus \(status)")
+                AppLogger.keychain.error("SecItemCopyMatching failed for '\(key, privacy: .public)': OSStatus \(status, privacy: .public)")
             }
             return nil
         }

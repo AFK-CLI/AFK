@@ -171,6 +171,50 @@ struct APIClient: Sendable {
         return try JSONDecoder().decode(PeerKeyAgreementResponse.self, from: data)
     }
 
+    /// Upload a batch of log entries.
+    func uploadLogs(_ entries: [LogUploadEntry]) async throws {
+        guard let url = URL(string: "\(baseURL)/v1/logs") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let body = ["entries": entries]
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Upload logs failed: HTTP \(code)"])
+        }
+    }
+
+    /// Submit user feedback.
+    func submitFeedback(deviceId: String, category: String, message: String, appVersion: String, platform: String = "macos") async throws {
+        guard let url = URL(string: "\(baseURL)/v1/feedback") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let body: [String: String] = [
+            "deviceId": deviceId,
+            "category": category,
+            "message": message,
+            "appVersion": appVersion,
+            "platform": platform
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Submit feedback failed: HTTP \(code)"])
+        }
+    }
+
     private func post<T: Decodable>(_ path: String, body: [String: String]) async throws -> T {
         guard let url = URL(string: "\(baseURL)\(path)") else {
             throw URLError(.badURL)
@@ -229,4 +273,13 @@ struct DeviceListEntry: Codable, Sendable {
     let keyAgreementPublicKey: String?
     let keyVersion: Int?
     let capabilities: [String]?
+}
+
+struct LogUploadEntry: Codable, Sendable {
+    let deviceId: String
+    let source: String
+    let level: String
+    let subsystem: String
+    let message: String
+    let metadata: [String: String]?
 }

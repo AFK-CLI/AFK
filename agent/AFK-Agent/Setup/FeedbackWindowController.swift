@@ -1,28 +1,17 @@
-//
-//  SignInWindowController.swift
-//  AFK-Agent
-//
-
 import AppKit
 import SwiftUI
 
-final class SignInWindowController: NSObject, NSWindowDelegate {
+final class FeedbackWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
-    private var onCancel: (() -> Void)?
-    private var didComplete = false
 
-    func showSignInWindow(serverURL: String, onCancel: (() -> Void)? = nil, completion: @escaping (String, String, String, String) -> Void) {
-        self.onCancel = onCancel
-        self.didComplete = false
-
-        // Prevent duplicate windows
+    func showFeedbackWindow(onSubmit: @escaping (String, String) -> Void) {
         if let existing = window {
             existing.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let contentSize = NSSize(width: 380, height: 540)
+        let contentSize = NSSize(width: 420, height: 380)
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: contentSize),
@@ -36,16 +25,20 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
         window.backgroundColor = NSColor(red: 0.043, green: 0.102, blue: 0.18, alpha: 1)
         window.contentMinSize = contentSize
         window.contentMaxSize = contentSize
+        window.title = "Send Feedback"
 
-        let signInView = AgentSignInView(serverURL: serverURL) { [weak self] token, refreshToken, userId, email in
-            self?.didComplete = true
+        let feedbackView = AgentFeedbackView { [weak self] category, message in
             self?.window?.close()
             self?.window = nil
             NSApp.setActivationPolicy(.accessory)
-            completion(token, refreshToken, userId, email)
+            onSubmit(category, message)
+        } onCancel: { [weak self] in
+            self?.window?.close()
+            self?.window = nil
+            NSApp.setActivationPolicy(.accessory)
         }
 
-        let hostingView = NSHostingView(rootView: signInView)
+        let hostingView = NSHostingView(rootView: feedbackView)
         hostingView.frame = NSRect(origin: .zero, size: contentSize)
         window.contentView = hostingView
         window.center()
@@ -54,20 +47,13 @@ final class SignInWindowController: NSObject, NSWindowDelegate {
 
         self.window = window
 
-        // Show in Dock so the window can receive focus
         NSApp.setActivationPolicy(.regular)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    // MARK: - NSWindowDelegate
-
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         window = nil
-        if !didComplete {
-            onCancel?()
-            onCancel = nil
-        }
     }
 }

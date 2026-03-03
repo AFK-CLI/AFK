@@ -408,3 +408,51 @@ type ServerTodoToggle struct {
 	Line        int    `json:"line"`
 	Checked     bool   `json:"checked"`
 }
+
+// App Logs
+
+type AppLog struct {
+	ID        string `json:"id"`
+	UserID    string `json:"userId"`
+	DeviceID  string `json:"deviceId"`
+	Source    string `json:"source"`
+	Level     string `json:"level"`
+	Subsystem string `json:"subsystem"`
+	Message   string `json:"message"`
+	Metadata  string `json:"metadata"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type AppLogEntry struct {
+	DeviceID  string            `json:"deviceId"`
+	Source    string            `json:"source"`
+	Level     string            `json:"level"`
+	Subsystem string            `json:"subsystem"`
+	Message   string            `json:"message"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+}
+
+type BatchLogRequest struct {
+	Entries []AppLogEntry `json:"entries"`
+}
+
+// Feedback
+
+type Feedback struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId"`
+	DeviceID   string `json:"deviceId"`
+	Category   string `json:"category"`
+	Message    string `json:"message"`
+	AppVersion string `json:"appVersion"`
+	Platform   string `json:"platform"`
+	CreatedAt  string `json:"createdAt"`
+}
+
+type CreateFeedbackRequest struct {
+	DeviceID   string `json:"deviceId"`
+	Category   string `json:"category"`
+	Message    string `json:"message"`
+	AppVersion string `json:"appVersion"`
+	Platform   string `json:"platform"`
+}

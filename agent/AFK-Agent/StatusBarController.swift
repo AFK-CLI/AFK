@@ -10,6 +10,7 @@
 //
 
 import AppKit
+import OSLog
 #if canImport(Sparkle)
 import Sparkle
 #endif
@@ -41,6 +42,8 @@ final class StatusBarController: NSObject {
     var onSignIn: (() -> Void)?
     var onSignOut: (() -> Void)?
     var onControlStateChanged: (() -> Void)?
+    var onSendFeedback: (() -> Void)?
+    var onShareLogs: (() -> Void)?
 
     /// Runtime directory for flag files and sockets.
     static var runDir: String {
@@ -91,7 +94,7 @@ final class StatusBarController: NSObject {
             )
         }
 
-        print("[StatusBar] Remote approval \(bypassed ? "disabled — terminal prompts active" : "enabled — forwarding to iOS") (remote)")
+        AppLogger.statusBar.info("Remote approval \(bypassed ? "disabled — terminal prompts active" : "enabled — forwarding to iOS", privacy: .public) (remote)")
         onControlStateChanged?()
     }
 
@@ -100,11 +103,11 @@ final class StatusBarController: NSObject {
         if enabled {
             createPlanAutoExitFlag()
             planAutoExitMenuItem.state = .on
-            print("[StatusBar] Auto Plan Exit enabled (remote)")
+            AppLogger.statusBar.info("Auto Plan Exit enabled (remote)")
         } else {
             removePlanAutoExitFlag()
             planAutoExitMenuItem.state = .off
-            print("[StatusBar] Auto Plan Exit disabled (remote)")
+            AppLogger.statusBar.info("Auto Plan Exit disabled (remote)")
         }
         onControlStateChanged?()
     }
@@ -127,6 +130,9 @@ final class StatusBarController: NSObject {
                 systemSymbolName: "shield.lefthalf.filled",
                 accessibilityDescription: "AFK Agent"
             )
+            #if DEBUG
+            button.title = " DEV"
+            #endif
             button.target = self
             button.action = #selector(statusBarClicked)
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -189,6 +195,25 @@ final class StatusBarController: NSObject {
         menu.addItem(hookMenuItem)
         menu.addItem(planAutoExitMenuItem)
         menu.addItem(loginItemMenuItem)
+
+        menu.addItem(.separator())
+
+        let feedbackItem = NSMenuItem(
+            title: "Send Feedback\u{2026}",
+            action: #selector(handleSendFeedback),
+            keyEquivalent: ""
+        )
+        feedbackItem.target = self
+        menu.addItem(feedbackItem)
+
+        let shareLogsItem = NSMenuItem(
+            title: "Share Logs\u{2026}",
+            action: #selector(handleShareLogs),
+            keyEquivalent: ""
+        )
+        shareLogsItem.target = self
+        menu.addItem(shareLogsItem)
+
         menu.addItem(.separator())
         menu.addItem(checkForUpdatesMenuItem)
         menu.addItem(.separator())
@@ -235,7 +260,7 @@ final class StatusBarController: NSObject {
             )
         }
 
-        print("[StatusBar] Remote approval \(bypassed ? "disabled — terminal prompts active" : "enabled — forwarding to iOS")")
+        AppLogger.statusBar.info("Remote approval \(bypassed ? "disabled — terminal prompts active" : "enabled — forwarding to iOS", privacy: .public)")
         onControlStateChanged?()
     }
 
@@ -264,11 +289,11 @@ final class StatusBarController: NSObject {
 
             createPlanAutoExitFlag()
             planAutoExitMenuItem.state = .on
-            print("[StatusBar] Auto Plan Exit enabled — keystroke injection active")
+            AppLogger.statusBar.info("Auto Plan Exit enabled — keystroke injection active")
         } else {
             removePlanAutoExitFlag()
             planAutoExitMenuItem.state = .off
-            print("[StatusBar] Auto Plan Exit disabled — no keystroke injection")
+            AppLogger.statusBar.info("Auto Plan Exit disabled — no keystroke injection")
         }
         onControlStateChanged?()
     }
@@ -278,9 +303,9 @@ final class StatusBarController: NSObject {
         do {
             try LoginItemManager.setEnabled(enabling)
             loginItemMenuItem.state = enabling ? .on : .off
-            print("[StatusBar] Start at Login \(enabling ? "enabled" : "disabled")")
+            AppLogger.statusBar.info("Start at Login \(enabling ? "enabled" : "disabled", privacy: .public)")
         } catch {
-            print("[StatusBar] Failed to toggle login item: \(error)")
+            AppLogger.statusBar.error("Failed to toggle login item: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -305,6 +330,14 @@ final class StatusBarController: NSObject {
         }
     }
 
+    @objc private func handleSendFeedback() {
+        onSendFeedback?()
+    }
+
+    @objc private func handleShareLogs() {
+        onShareLogs?()
+    }
+
     func updateAccount(email: String?) {
         if let email {
             accountMenuItem.title = email
@@ -318,7 +351,7 @@ final class StatusBarController: NSObject {
     @objc private func quitApp() {
         removeFlagFile()
         removePlanAutoExitFlag()
-        print("[Agent] Shutting down via menu bar...")
+        AppLogger.agent.info("Shutting down via menu bar...")
         exit(0)
     }
 
@@ -385,7 +418,7 @@ final class StatusBarController: NSObject {
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(command, forType: .string)
-        print("[StatusBar] Copied resume command for session \(sessionId.prefix(8))")
+        AppLogger.statusBar.info("Copied resume command for session \(sessionId.prefix(8), privacy: .public)")
     }
 
     private func postResumeNotification(sessionId: String, projectPath: String) {

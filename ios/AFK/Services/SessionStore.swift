@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import OSLog
 
 struct EventPagination {
     var minSeq: Int = 0
@@ -81,7 +82,7 @@ final class SessionStore {
             }
 
             guard let key = self.e2eeSessionKeys[sessionId] else {
-                print("[E2EE] No session key for \(sessionId.prefix(8)), sanitizing \(extracted.count) field(s)")
+                AppLogger.e2ee.debug("No session key for \(sessionId.prefix(8), privacy: .public), sanitizing \(extracted.count, privacy: .public) field(s)")
                 return Self.sanitizeCiphertext(extracted)
             }
 
@@ -123,7 +124,7 @@ final class SessionStore {
             }
 
             if hasEncrypted {
-                print("[E2EE] WS decryptor: \(result.filter { $0.value == "[encrypted]" }.count) field(s) still encrypted for \(sessionId.prefix(8))")
+                AppLogger.e2ee.debug("WS decryptor: \(result.filter { $0.value == "[encrypted]" }.count, privacy: .public) field(s) still encrypted for \(sessionId.prefix(8), privacy: .public)")
             }
             return result
         }
@@ -137,7 +138,7 @@ final class SessionStore {
         do {
             return try E2EEService.decryptContentVersioned(extracted, key: key)
         } catch {
-            print("[E2EE] Decryption failed: \(error)")
+            AppLogger.e2ee.error("Decryption failed: \(error, privacy: .public)")
             return sanitizeCiphertext(extracted)
         }
     }
@@ -190,7 +191,7 @@ final class SessionStore {
         let oldFingerprint = e2eeService.map { E2EEService.fingerprint(of: $0.publicKeyBase64) } ?? "none"
         e2eeService = E2EEService()
         let newFingerprint = e2eeService.map { E2EEService.fingerprint(of: $0.publicKeyBase64) } ?? "none"
-        print("[E2EE] Reinitialized E2EE service: \(oldFingerprint) -> \(newFingerprint)")
+        AppLogger.e2ee.info("Reinitialized E2EE service: \(oldFingerprint, privacy: .public) -> \(newFingerprint, privacy: .public)")
 
         // Clear ALL derived keys — they were computed from the old private key
         let sessionKeyCount = e2eeSessionKeys.count
@@ -201,7 +202,7 @@ final class SessionStore {
         permissionSigningKeys.removeAll()
         sessionKeyVersions.removeAll()
         sessionPeerDeviceId.removeAll()
-        print("[E2EE] Cleared \(sessionKeyCount) session keys, \(historicalKeyCount) historical keys, \(permKeyCount) permission keys")
+        AppLogger.e2ee.info("Cleared \(sessionKeyCount, privacy: .public) session keys, \(historicalKeyCount, privacy: .public) historical keys, \(permKeyCount, privacy: .public) permission keys")
 
         // Re-wire the content decryptor
         setupE2EEDecryptor()
@@ -214,9 +215,9 @@ final class SessionStore {
             let key = try service.sessionKey(peerPublicKeyBase64: peerPublicKeyBase64, sessionId: sessionId)
             e2eeSessionKeys[sessionId] = key
             let fingerprint = E2EEService.fingerprint(of: peerPublicKeyBase64)
-            print("[E2EE] Cached session key for \(sessionId.prefix(8)) (peer \(fingerprint))")
+            AppLogger.e2ee.info("Cached session key for \(sessionId.prefix(8), privacy: .public) (peer \(fingerprint, privacy: .public))")
         } catch {
-            print("[E2EE] Failed to derive session key: \(error)")
+            AppLogger.e2ee.error("Failed to derive session key: \(error, privacy: .public)")
         }
     }
 
@@ -232,9 +233,9 @@ final class SessionStore {
             e2eeSessionKeys[sessionId] = key
             let fingerprint = E2EEService.fingerprint(of: peerPublicKeyBase64)
             let ephFingerprint = E2EEService.fingerprint(of: ephemeralPublicKeyBase64)
-            print("[E2EE] Cached v2 session key for \(sessionId.prefix(8)) (peer LT \(fingerprint), eph \(ephFingerprint))")
+            AppLogger.e2ee.info("Cached v2 session key for \(sessionId.prefix(8), privacy: .public) (peer LT \(fingerprint, privacy: .public), eph \(ephFingerprint, privacy: .public))")
         } catch {
-            print("[E2EE] Failed to derive v2 session key for \(sessionId): \(error)")
+            AppLogger.e2ee.error("Failed to derive v2 session key for \(sessionId.prefix(8), privacy: .public): \(error, privacy: .public)")
         }
     }
 
@@ -261,7 +262,7 @@ final class SessionStore {
     func cacheDeviceKey(deviceId: String, publicKey: String) {
         deviceKAKeys[deviceId] = publicKey
         let fingerprint = E2EEService.fingerprint(of: publicKey)
-        print("[E2EE] Cached device KA key for \(deviceId.prefix(8)) (fingerprint \(fingerprint))")
+        AppLogger.e2ee.info("Cached device KA key for \(deviceId.prefix(8), privacy: .public) (fingerprint \(fingerprint, privacy: .public))")
 
         // Flush any queued permission requests now that we have the KA key
         flushQueuedPermissions(for: deviceId)
@@ -281,14 +282,14 @@ final class SessionStore {
             if hasEphKey && cachedVersion < 2 {
                 // Upgrade: invalidate V1 key so we re-derive as V2 below
                 e2eeSessionKeys.removeValue(forKey: session.id)
-                print("[E2EE] Upgrading session \(session.id.prefix(8)) key from v1 → v2 (ephemeral key now available)")
+                AppLogger.e2ee.info("Upgrading session \(session.id.prefix(8), privacy: .public) key from v1 to v2 (ephemeral key now available)")
             } else {
                 return true
             }
         }
         guard let peerKey = deviceKAKeys[session.deviceId] else {
             let availableIds = deviceKAKeys.keys.map { $0.prefix(8) }.joined(separator: ", ")
-            print("[E2EE] Warning: no KA key for device \(session.deviceId.prefix(8)) (session \(session.id.prefix(8))). Available devices: [\(availableIds)]")
+            AppLogger.e2ee.warning("No KA key for device \(session.deviceId.prefix(8), privacy: .public) (session \(session.id.prefix(8), privacy: .public)). Available devices: [\(availableIds, privacy: .public)]")
             return false
         }
         sessionPeerDeviceId[session.id] = session.deviceId
@@ -365,13 +366,13 @@ final class SessionStore {
             let peerKeyResp = try await apiClient.getPeerKeyAgreement(deviceId: session.deviceId)
             let currentCachedKey = deviceKAKeys[session.deviceId]
             if currentCachedKey != peerKeyResp.publicKey {
-                print("[E2EE] Stage 2: Peer key changed for device \(session.deviceId.prefix(8)), re-deriving")
+                AppLogger.e2ee.info("Stage 2: Peer key changed for device \(session.deviceId.prefix(8), privacy: .public), re-deriving")
                 deviceKAKeys[session.deviceId] = peerKeyResp.publicKey
                 e2eeSessionKeys.removeValue(forKey: sessionId)
                 cacheE2EEKey(for: sessionId, peerPublicKeyBase64: peerKeyResp.publicKey)
             }
         } catch {
-            print("[E2EE] Stage 2: Failed to refetch peer key: \(error)")
+            AppLogger.e2ee.error("Stage 2: Failed to refetch peer key: \(error, privacy: .public)")
         }
 
         let stage2Result = decryptEvents(events, sessionId: sessionId)
@@ -428,7 +429,7 @@ final class SessionStore {
                     historicalSessionKeys[cacheKeyV1] = keyV1
                     if let plaintext = try? E2EEService.decrypt(blob.ciphertext, key: keyV1) {
                         decrypted[field] = plaintext
-                        print("[E2EE] Stage 3: Decrypted with historical key v\(senderVersion) (v1) for session \(sessionId.prefix(8))")
+                        AppLogger.e2ee.info("Stage 3: Decrypted with historical key v\(senderVersion, privacy: .public) (v1) for session \(sessionId.prefix(8), privacy: .public)")
                         continue
                     }
 
@@ -442,16 +443,16 @@ final class SessionStore {
                         historicalSessionKeys[cacheKeyV2] = keyV2
                         if let plaintext = try? E2EEService.decrypt(blob.ciphertext, key: keyV2) {
                             decrypted[field] = plaintext
-                            print("[E2EE] Stage 3: Decrypted with historical key v\(senderVersion) (v2) for session \(sessionId.prefix(8))")
+                            AppLogger.e2ee.info("Stage 3: Decrypted with historical key v\(senderVersion, privacy: .public) (v2) for session \(sessionId.prefix(8), privacy: .public)")
                             continue
                         }
                     }
 
                     // Both V1 and V2 failed
-                    print("[E2EE] Stage 3: Historical key v\(senderVersion) derived but decryption failed for session \(sessionId.prefix(8))")
+                    AppLogger.e2ee.warning("Stage 3: Historical key v\(senderVersion, privacy: .public) derived but decryption failed for session \(sessionId.prefix(8), privacy: .public)")
                     decrypted[field] = "[encrypted]"
                 } catch {
-                    print("[E2EE] Stage 3: Failed to fetch historical key v\(senderVersion): \(error)")
+                    AppLogger.e2ee.error("Stage 3: Failed to fetch historical key v\(senderVersion, privacy: .public): \(error, privacy: .public)")
                     decrypted[field] = "[encrypted]"
                 }
             }
@@ -465,7 +466,7 @@ final class SessionStore {
         // Log summary of Stage 3 results
         let stage3EncryptedCount = result.filter { $0.content?.values.contains("[encrypted]") == true }.count
         if stage3EncryptedCount > 0 {
-            print("[E2EE] Stage 3: \(stage3EncryptedCount) event(s) still undecryptable for session \(sessionId.prefix(8))")
+            AppLogger.e2ee.warning("Stage 3: \(stage3EncryptedCount, privacy: .public) event(s) still undecryptable for session \(sessionId.prefix(8), privacy: .public)")
         }
 
         // Stage 3b: Receiver historical key fallback (e2 format only).
@@ -532,7 +533,7 @@ final class SessionStore {
                         historicalSessionKeys[recvCacheKey] = sessionKey
                         if let plaintext = try? E2EEService.decrypt(blob.ciphertext, key: sessionKey) {
                             decrypted[field] = plaintext
-                            print("[E2EE] Stage 3b: Decrypted with receiver historical key v\(receiverKeyVer) (v1 derivation) for session \(sessionId.prefix(8))")
+                            AppLogger.e2ee.info("Stage 3b: Decrypted with receiver historical key v\(receiverKeyVer, privacy: .public) (v1 derivation) for session \(sessionId.prefix(8), privacy: .public)")
                             continue
                         }
                     }
@@ -548,7 +549,7 @@ final class SessionStore {
                             historicalSessionKeys[v2CacheKey] = sessionKeyV2
                             if let plaintext = try? E2EEService.decrypt(blob.ciphertext, key: sessionKeyV2) {
                                 decrypted[field] = plaintext
-                                print("[E2EE] Stage 3b: Decrypted with receiver historical key v\(receiverKeyVer) (v2 derivation) for session \(sessionId.prefix(8))")
+                                AppLogger.e2ee.info("Stage 3b: Decrypted with receiver historical key v\(receiverKeyVer, privacy: .public) (v2 derivation) for session \(sessionId.prefix(8), privacy: .public)")
                                 continue
                             }
                         }
@@ -586,14 +587,14 @@ final class SessionStore {
                         if backendKey != localPub {
                             let localFP = E2EEService.fingerprint(of: localPub)
                             let backendFP = E2EEService.fingerprint(of: backendKey)
-                            print("[E2EE] Backend key mismatch for own device: local=\(localFP) backend=\(backendFP) — re-registering")
+                            AppLogger.e2ee.warning("Backend key mismatch for own device: local=\(localFP, privacy: .public) backend=\(backendFP, privacy: .public) — re-registering")
                             do {
                                 try await apiClient.registerKeyAgreement(deviceId: device.id, publicKey: localPub)
                                 let fp = E2EEService.fingerprint(of: localPub)
                                 BuildEnvironment.userDefaults.set(fp, forKey: "afk_last_registered_ka_fingerprint")
-                                print("[E2EE] Self-heal: KA key re-registered (fingerprint: \(fp))")
+                                AppLogger.e2ee.info("Self-heal: KA key re-registered (fingerprint: \(fp, privacy: .public))")
                             } catch {
-                                print("[E2EE] Self-heal: Failed to re-register KA key: \(error)")
+                                AppLogger.e2ee.error("Self-heal: Failed to re-register KA key: \(error, privacy: .public)")
                             }
                         }
                     }
@@ -615,9 +616,9 @@ final class SessionStore {
                 }
             }
             deviceKAKeys = newKeys
-            print("[E2EE] Refreshed \(newKeys.count) device KA keys")
+            AppLogger.e2ee.info("Refreshed \(newKeys.count, privacy: .public) device KA keys")
         } catch {
-            print("[E2EE] Failed to refresh device KA keys: \(error)")
+            AppLogger.e2ee.error("Failed to refresh device KA keys: \(error, privacy: .public)")
         }
     }
 
@@ -632,7 +633,7 @@ final class SessionStore {
         if let peerKey = deviceKAKeys[deviceId] {
             if let key = try? service.derivePermissionKey(peerPublicKeyBase64: peerKey, deviceId: deviceId) {
                 permissionSigningKeys[deviceId] = key
-                print("[E2EE] Derived permission signing key for device \(deviceId.prefix(8)) (fast path)")
+                AppLogger.e2ee.debug("Derived permission signing key for device \(deviceId.prefix(8), privacy: .public) (fast path)")
                 return key
             }
         }
@@ -644,10 +645,10 @@ final class SessionStore {
                 deviceId: deviceId
             )
             permissionSigningKeys[deviceId] = key
-            print("[E2EE] Derived permission signing key for device \(deviceId.prefix(8))")
+            AppLogger.e2ee.debug("Derived permission signing key for device \(deviceId.prefix(8), privacy: .public)")
             return key
         } catch {
-            print("[E2EE] Failed to derive permission key for \(deviceId.prefix(8)): \(error)")
+            AppLogger.e2ee.error("Failed to derive permission key for \(deviceId.prefix(8), privacy: .public): \(error, privacy: .public)")
         }
         return nil
     }
@@ -674,7 +675,7 @@ final class SessionStore {
             let cached = localStore.cachedSessions()
             if !cached.isEmpty {
                 sessions = cached
-                print("[SessionStore] Loaded \(cached.count) sessions from cache")
+                AppLogger.session.info("Loaded \(cached.count, privacy: .public) sessions from cache")
             }
         }
     }
@@ -687,12 +688,12 @@ final class SessionStore {
         if result.isEmpty && !sessions.isEmpty {
             // API failed but we have cached data — mark offline
             isOffline = true
-            print("[SessionStore] Offline — showing \(sessions.count) cached sessions")
+            AppLogger.session.warning("Offline — showing \(self.sessions.count, privacy: .public) cached sessions")
         } else {
             isOffline = result.isEmpty && sessions.isEmpty
             sessions = result
             sessions.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-            print("[SessionStore] Synced \(result.count) sessions")
+            AppLogger.session.info("Synced \(result.count, privacy: .public) sessions")
         }
     }
 
@@ -738,7 +739,7 @@ final class SessionStore {
             let minSeq = olderEvents.first?.seq ?? pagination.minSeq
             eventPagination[sessionId] = EventPagination(minSeq: minSeq, hasMore: hasMore)
         } catch {
-            print("Failed to load more events: \(error)")
+            AppLogger.session.error("Failed to load more events: \(error, privacy: .public)")
         }
     }
 
@@ -821,9 +822,9 @@ final class SessionStore {
                     await self.refreshDeviceKAKeys()
                     let retryResult = self.ensureE2EEKey(for: session)
                     if retryResult {
-                        print("[E2EE] Retry succeeded: derived key for session \(session.id.prefix(8))")
+                        AppLogger.e2ee.info("Retry succeeded: derived key for session \(session.id.prefix(8), privacy: .public)")
                     } else {
-                        print("[E2EE] Retry failed: still no KA key for device \(session.deviceId.prefix(8))")
+                        AppLogger.e2ee.warning("Retry failed: still no KA key for device \(session.deviceId.prefix(8), privacy: .public)")
                     }
                 }
             }
@@ -831,9 +832,9 @@ final class SessionStore {
             // the upgrade and have [encrypted] content will be fixed on REST reload.
             let versionAfter = self.sessionKeyVersions[session.id] ?? 0
             if versionAfter > versionBefore {
-                print("[E2EE] Key upgraded for session \(session.id.prefix(8)): v\(versionBefore) → v\(versionAfter)")
+                AppLogger.e2ee.info("Key upgraded for session \(session.id.prefix(8), privacy: .public): v\(versionBefore, privacy: .public) to v\(versionAfter, privacy: .public)")
             }
-            print("[SessionStore] WS session.update: \(session.id.prefix(8)) status=\(session.status) project=\"\(session.projectPath)\"")
+            AppLogger.session.info("WS session.update: \(session.id.prefix(8), privacy: .public) status=\(session.status.rawValue, privacy: .public) project=\"\(session.projectPath, privacy: .public)\"")
             // If a dismissed session becomes active again, un-dismiss it
             if session.status == .running || session.status == .waitingPermission {
                 self.dismissedFromNow.remove(session.id)
@@ -917,7 +918,7 @@ final class SessionStore {
                             list[idx] = first
                             self.events[event.sessionId] = list
                             await MainActor.run { self.localStore.saveEvent(first) }
-                            print("[E2EE] Async fallback: decrypted event \(first.id.prefix(8)) for session \(event.sessionId.prefix(8))")
+                            AppLogger.e2ee.info("Async fallback: decrypted event \(first.id.prefix(8), privacy: .public) for session \(event.sessionId.prefix(8), privacy: .public)")
                         }
                     }
                 }
@@ -968,7 +969,7 @@ final class SessionStore {
             guard let self else { return }
             let oldFingerprint = self.deviceKAKeys[deviceId].map { E2EEService.fingerprint(of: $0) } ?? "none"
             let newFingerprint = E2EEService.fingerprint(of: newPublicKey)
-            print("[E2EE] Device \(deviceId.prefix(8)) key rotated: \(oldFingerprint) -> \(newFingerprint) (v\(keyVersion))")
+            AppLogger.e2ee.info("Device \(deviceId.prefix(8), privacy: .public) key rotated: \(oldFingerprint, privacy: .public) -> \(newFingerprint, privacy: .public) (v\(keyVersion, privacy: .public))")
 
             // Update the cached KA key
             self.deviceKAKeys[deviceId] = newPublicKey
@@ -1059,7 +1060,7 @@ final class SessionStore {
             var unverified = request
             unverified.isUnverified = true
             self.addPendingPermission(unverified)
-            print("[SessionStore] Permission \(nonce.prefix(8)) promoted to unverified after 30s timeout")
+            AppLogger.session.warning("Permission \(nonce.prefix(8), privacy: .public) promoted to unverified after 30s timeout")
         }
     }
 
@@ -1090,7 +1091,7 @@ final class SessionStore {
                 addPendingPermission(request)
             }
         }
-        print("[SessionStore] Flushed \(matching.count) queued permission(s) for device \(deviceId.prefix(8))")
+        AppLogger.session.info("Flushed \(matching.count, privacy: .public) queued permission(s) for device \(deviceId.prefix(8), privacy: .public)")
     }
 
     func sendPermissionResponse(nonce: String, action: String) async {
@@ -1303,7 +1304,7 @@ final class SessionStore {
         e2eeSessionKeys.removeAll()
         sessionKeyVersions.removeAll()
         historicalSessionKeys.removeAll()
-        print("[E2EE] Diagnostics: Cleared \(count) session keys")
+        AppLogger.e2ee.info("Diagnostics: Cleared \(count, privacy: .public) session keys")
     }
 
     /// Force disconnect and reconnect the WebSocket.

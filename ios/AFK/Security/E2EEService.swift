@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import OSLog
 
 /// End-to-end encryption service for AFK content.
 ///
@@ -129,7 +130,7 @@ struct E2EEService {
                 decrypted[k] = try decrypt(v, key: key)
             } catch {
                 // If decryption fails, show placeholder instead of raw ciphertext
-                print("[E2EE] Failed to decrypt field '\(k)': \(error)")
+                AppLogger.e2ee.warning("Failed to decrypt field '\(k, privacy: .public)': \(error, privacy: .public)")
                 decrypted[k] = looksLikeCiphertext(v) ? "[encrypted]" : v
             }
         }
@@ -243,7 +244,7 @@ struct E2EEService {
         }
         if !failedFields.isEmpty {
             let senderInfo = failureSender.map { " (\($0))" } ?? ""
-            print("[E2EE] Failed to decrypt \(failedFields.count) field(s): \(failedFields.joined(separator: ", "))\(senderInfo)")
+            AppLogger.e2ee.warning("Failed to decrypt \(failedFields.count, privacy: .public) field(s): \(failedFields.joined(separator: ", "), privacy: .public)\(senderInfo, privacy: .public)")
         }
         return decrypted
     }

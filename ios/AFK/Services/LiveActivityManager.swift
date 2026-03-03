@@ -1,5 +1,6 @@
 import ActivityKit
 import Foundation
+import OSLog
 
 @Observable
 final class LiveActivityManager {
@@ -18,7 +19,7 @@ final class LiveActivityManager {
         startTimes.removeAll()
         updateThrottles.removeAll()
         lastStatus.removeAll()
-        print("[LiveActivity] Ended all activities")
+        AppLogger.liveActivity.info("Ended all activities")
     }
 
     func startActivity(sessionId: String, projectName: String, deviceName: String, apiClient: APIClient? = nil) {
@@ -28,7 +29,7 @@ final class LiveActivityManager {
         if activities[sessionId] == nil {
             for activity in Activity<SessionActivityAttributes>.activities {
                 if activity.attributes.sessionId == sessionId {
-                    print("[LiveActivity] Found existing push-started activity for session \(sessionId.prefix(8))")
+                    AppLogger.liveActivity.info("Found existing push-started activity for session \(sessionId.prefix(8), privacy: .public)")
                     activities[sessionId] = activity.id
                     startTimes[sessionId] = Date()
                     return
@@ -65,7 +66,7 @@ final class LiveActivityManager {
                 Task {
                     for await tokenData in activity.pushTokenUpdates {
                         let tokenString = tokenData.map { String(format: "%02x", $0) }.joined()
-                        print("[LiveActivity] Push token for session \(sessionId.prefix(8)): \(tokenString.prefix(16))...")
+                        AppLogger.liveActivity.info("Push token for session \(sessionId.prefix(8), privacy: .public): \(tokenString.prefix(16), privacy: .public)...")
                         try? await apiClient.registerLiveActivityToken(
                             sessionId: sessionId,
                             pushToken: tokenString
@@ -74,7 +75,7 @@ final class LiveActivityManager {
                 }
             }
         } catch {
-            print("Failed to start live activity: \(error)")
+            AppLogger.liveActivity.error("Failed to start live activity: \(error, privacy: .public)")
         }
     }
 
@@ -86,7 +87,7 @@ final class LiveActivityManager {
             Task {
                 for await tokenData in Activity<SessionActivityAttributes>.pushToStartTokenUpdates {
                     let tokenString = tokenData.map { String(format: "%02x", $0) }.joined()
-                    print("[LiveActivity] Push-to-start token: \(tokenString.prefix(16))...")
+                    AppLogger.liveActivity.info("Push-to-start token: \(tokenString.prefix(16), privacy: .public)...")
                     try? await apiClient.registerPushToStartToken(tokenString)
                 }
             }
@@ -101,7 +102,7 @@ final class LiveActivityManager {
                     let sessionId = activity.attributes.sessionId
                     // Only track if we don't already know about this activity.
                     if activities[sessionId] == nil {
-                        print("[LiveActivity] Detected push-started activity for session \(sessionId.prefix(8))")
+                        AppLogger.liveActivity.info("Detected push-started activity for session \(sessionId.prefix(8), privacy: .public)")
                         activities[sessionId] = activity.id
                         startTimes[sessionId] = Date()
 
@@ -109,7 +110,7 @@ final class LiveActivityManager {
                         Task {
                             for await tokenData in activity.pushTokenUpdates {
                                 let tokenString = tokenData.map { String(format: "%02x", $0) }.joined()
-                                print("[LiveActivity] Per-activity token for push-started session \(sessionId.prefix(8)): \(tokenString.prefix(16))...")
+                                AppLogger.liveActivity.info("Per-activity token for push-started session \(sessionId.prefix(8), privacy: .public): \(tokenString.prefix(16), privacy: .public)...")
                                 try? await apiClient.registerLiveActivityToken(
                                     sessionId: sessionId,
                                     pushToken: tokenString

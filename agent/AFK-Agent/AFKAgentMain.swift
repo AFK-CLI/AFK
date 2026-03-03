@@ -12,6 +12,7 @@ import Sparkle
 // Keep strong reference so menu item targets don't dangle.
 private var statusBarController: StatusBarController?
 private var setupController: SetupWindowController?
+private var feedbackController: FeedbackWindowController?
 #if canImport(Sparkle)
 // Sparkle updater — must be retained for the lifetime of the app.
 private var updaterController: SPUStandardUpdaterController?
@@ -73,6 +74,17 @@ struct AFKAgentMain {
         }
         statusBarController?.onControlStateChanged = {
             Task { await agent.broadcastControlState() }
+        }
+
+        feedbackController = FeedbackWindowController()
+        statusBarController?.onSendFeedback = {
+            feedbackController?.showFeedbackWindow { category, message in
+                Task { await agent.submitFeedback(category: category, message: message) }
+            }
+        }
+
+        statusBarController?.onShareLogs = {
+            Task { await agent.shareLogs() }
         }
 
         agent.onAccountChanged = { email in

@@ -5,6 +5,7 @@
 
 import Foundation
 import Network
+import OSLog
 
 actor WebSocketClient {
     private let url: URL
@@ -71,20 +72,20 @@ actor WebSocketClient {
         isNetworkAvailable = (path.status == .satisfied)
 
         if isNetworkAvailable && !wasAvailable {
-            print("[WS] Network became available")
+            AppLogger.ws.info("Network became available")
             // Reset backoff since this is a fresh connectivity event
             reconnectDelay = 1.0
             networkContinuation?.resume()
             networkContinuation = nil
         } else if !isNetworkAvailable && wasAvailable {
-            print("[WS] Network lost — pausing reconnect loop")
+            AppLogger.ws.warning("Network lost — pausing reconnect loop")
         }
     }
 
     /// Suspend until the network path is satisfied. Returns immediately if already available.
     private func waitForNetwork() async {
         guard !isNetworkAvailable else { return }
-        print("[WS] Waiting for network...")
+        AppLogger.ws.info("Waiting for network...")
         await withCheckedContinuation { continuation in
             if isNetworkAvailable {
                 // Network came back between guard and here
@@ -147,7 +148,7 @@ actor WebSocketClient {
             isConnected = true
             hasConnectedOnce = true
             reconnectDelay = 1.0
-            print("[WS] Connected to \(url.host ?? "")")
+            AppLogger.ws.info("Connected to \(self.url.host ?? "", privacy: .public)")
             // Resume all waiters
             for cont in connectionContinuations {
                 cont.resume(returning: true)
@@ -158,7 +159,7 @@ actor WebSocketClient {
                 await reconnectHandler?()
             }
         } catch {
-            print("[WS] Handshake failed: \(error.localizedDescription)")
+            AppLogger.ws.error("Handshake failed: \(error.localizedDescription, privacy: .public)")
             isConnected = false
             for cont in connectionContinuations {
                 cont.resume(returning: false)
@@ -185,7 +186,7 @@ actor WebSocketClient {
             if message.type == "agent.heartbeat" { return }
             let data = try message.encode()
             diskQueue.enqueue(data)
-            print("[WS] Queued message (type: \(message.type), depth: \(diskQueue.count))")
+            AppLogger.ws.debug("Queued message (type: \(message.type, privacy: .public), depth: \(self.diskQueue.count, privacy: .public))")
             return
         }
         let data = try message.encode()
@@ -235,7 +236,7 @@ actor WebSocketClient {
                 }
             }
         } catch {
-            print("[WS] Disconnected: \(error.localizedDescription)")
+            AppLogger.ws.warning("Disconnected: \(error.localizedDescription, privacy: .public)")
             isConnected = false
             await reconnect()
         }
@@ -243,7 +244,7 @@ actor WebSocketClient {
 
     private func reconnect() async {
         guard !isCancelled else {
-            print("[WS] Client cancelled — stopping reconnect loop")
+            AppLogger.ws.info("Client cancelled — stopping reconnect loop")
             return
         }
 
@@ -251,20 +252,24 @@ actor WebSocketClient {
         await waitForNetwork()
 
         guard !isCancelled else {
-            print("[WS] Client cancelled while waiting for network — stopping")
+            AppLogger.ws.info("Client cancelled while waiting for network — stopping")
             return
         }
 
-        print("[WS] Reconnecting in \(reconnectDelay)s...")
+        AppLogger.ws.info("Reconnecting in \(self.reconnectDelay, privacy: .public)s...")
         try? await Task.sleep(for: .seconds(reconnectDelay))
         guard !isCancelled else {
-            print("[WS] Client cancelled during backoff — stopping reconnect loop")
+            AppLogger.ws.info("Client cancelled during backoff — stopping reconnect loop")
             return
         }
         reconnectDelay = min(reconnectDelay * 2, maxReconnectDelay)
 
         // Fetch a fresh ticket if a provider is configured; fall back to token auth on failure
         let ticket = await ticketProvider?()
+        guard !isCancelled else {
+            AppLogger.ws.info("Client cancelled after ticket fetch — stopping reconnect loop")
+            return
+        }
         await connect(ticket: ticket)
     }
 }

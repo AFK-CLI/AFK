@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import OSLog
 
 /// Manages the device's Curve25519 KeyAgreement key pair for E2EE.
 /// The private key is stored in the iOS Keychain with a backup copy
@@ -28,18 +29,18 @@ struct DeviceKeyPair {
         var loadedPair: DeviceKeyPair? = nil
         if let existing = load() {
             let fp = E2EEService.fingerprint(of: existing.publicKeyBase64)
-            print("[DeviceKeyPair] Key loaded from primary: fingerprint=\(fp)")
+            AppLogger.e2ee.info("DeviceKeyPair: Key loaded from primary: fingerprint=\(fp, privacy: .public)")
             loadedPair = existing
         } else if let backup = loadBackup() {
             // Primary key missing — try to recover from backup
             let fp = E2EEService.fingerprint(of: backup.publicKeyBase64)
-            print("[DeviceKeyPair] Key loaded from backup (primary missing): fingerprint=\(fp)")
+            AppLogger.e2ee.warning("DeviceKeyPair: Key loaded from backup (primary missing): fingerprint=\(fp, privacy: .public)")
             // Restore primary from backup
             do {
                 try keychain.save(backup.privateKey.rawRepresentation, forKey: keychainKey)
-                print("[DeviceKeyPair] Restored primary key from backup")
+                AppLogger.e2ee.info("DeviceKeyPair: Restored primary key from backup")
             } catch {
-                print("[DeviceKeyPair] WARNING: Failed to restore primary from backup: \(error)")
+                AppLogger.e2ee.error("DeviceKeyPair: Failed to restore primary from backup: \(error, privacy: .public)")
             }
             loadedPair = backup
         }
@@ -49,21 +50,21 @@ struct DeviceKeyPair {
             if let storedFingerprint = BuildEnvironment.userDefaults.string(forKey: "afk_last_registered_ka_fingerprint") {
                 let loadedFingerprint = E2EEService.fingerprint(of: loaded.publicKeyBase64)
                 if loadedFingerprint != storedFingerprint {
-                    print("[DeviceKeyPair] INTEGRITY CHECK FAILED: loaded=\(loadedFingerprint) registered=\(storedFingerprint)")
+                    AppLogger.e2ee.error("DeviceKeyPair: INTEGRITY CHECK FAILED: loaded=\(loadedFingerprint, privacy: .public) registered=\(storedFingerprint, privacy: .public)")
                     // Try backup
                     if let backupPair = loadBackup() {
                         let backupFingerprint = E2EEService.fingerprint(of: backupPair.publicKeyBase64)
                         if backupFingerprint == storedFingerprint {
-                            print("[DeviceKeyPair] Key restored from backup after integrity failure")
+                            AppLogger.e2ee.info("DeviceKeyPair: Key restored from backup after integrity failure")
                             backupPair.save()
                             return backupPair
                         }
                     }
                     // Both corrupted — must regenerate
-                    print("[DeviceKeyPair] Both primary and backup keys corrupted — regenerating")
+                    AppLogger.e2ee.error("DeviceKeyPair: Both primary and backup keys corrupted — regenerating")
                     // Fall through to generation below
                 } else {
-                    print("[DeviceKeyPair] Key integrity check passed: fingerprint=\(loadedFingerprint)")
+                    AppLogger.e2ee.info("DeviceKeyPair: Key integrity check passed: fingerprint=\(loadedFingerprint, privacy: .public)")
                     ensureBackup(loaded)
                     return loaded
                 }
@@ -77,19 +78,19 @@ struct DeviceKeyPair {
         // Step 3: No key or integrity failed — generate new one
         let hadDeviceId = BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id") != nil
         if hadDeviceId {
-            print("[DeviceKeyPair] WARNING: Neither primary nor backup key found! Device was previously enrolled.")
-            print("[DeviceKeyPair] All previously encrypted content will become permanently unreadable.")
+            AppLogger.e2ee.error("DeviceKeyPair: Neither primary nor backup key found! Device was previously enrolled.")
+            AppLogger.e2ee.error("DeviceKeyPair: All previously encrypted content will become permanently unreadable.")
         } else {
-            print("[DeviceKeyPair] No existing key — first-time enrollment")
+            AppLogger.e2ee.info("DeviceKeyPair: No existing key — first-time enrollment")
         }
         let kp = DeviceKeyPair(privateKey: Curve25519.KeyAgreement.PrivateKey())
         do {
             try keychain.save(kp.privateKey.rawRepresentation, forKey: keychainKey)
             let fp = E2EEService.fingerprint(of: kp.publicKeyBase64)
-            print("[DeviceKeyPair] New key generated: fingerprint=\(fp)")
+            AppLogger.e2ee.info("DeviceKeyPair: New key generated: fingerprint=\(fp, privacy: .public)")
         } catch {
-            print("[DeviceKeyPair] CRITICAL: Failed to save key to Keychain: \(error)")
-            print("[DeviceKeyPair] Key exists only in memory — will be lost on next app launch!")
+            AppLogger.e2ee.error("DeviceKeyPair: CRITICAL: Failed to save key to Keychain: \(error, privacy: .public)")
+            AppLogger.e2ee.error("DeviceKeyPair: Key exists only in memory — will be lost on next app launch!")
         }
         // Save backup copy
         ensureBackup(kp)
@@ -102,7 +103,7 @@ struct DeviceKeyPair {
             return nil
         }
         guard let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) else {
-            print("[DeviceKeyPair] Keychain data (\(data.count) bytes) is not a valid Curve25519 key")
+            AppLogger.e2ee.error("DeviceKeyPair: Keychain data (\(data.count, privacy: .public) bytes) is not a valid Curve25519 key")
             return nil
         }
         return DeviceKeyPair(privateKey: key)
@@ -122,7 +123,7 @@ struct DeviceKeyPair {
             do {
                 try keychain.save(kp.privateKey.rawRepresentation, forKey: backupKeychainKey)
             } catch {
-                print("[DeviceKeyPair] WARNING: Failed to save backup key: \(error)")
+                AppLogger.e2ee.error("DeviceKeyPair: Failed to save backup key: \(error, privacy: .public)")
             }
         }
     }
@@ -131,9 +132,9 @@ struct DeviceKeyPair {
     func save() {
         do {
             try Self.keychain.save(privateKey.rawRepresentation, forKey: Self.keychainKey)
-            print("[DeviceKeyPair] Key saved to keychain")
+            AppLogger.e2ee.info("DeviceKeyPair: Key saved to keychain")
         } catch {
-            print("[DeviceKeyPair] ERROR: Failed to save key to Keychain: \(error)")
+            AppLogger.e2ee.error("DeviceKeyPair: Failed to save key to Keychain: \(error, privacy: .public)")
         }
     }
 
@@ -148,7 +149,7 @@ struct DeviceKeyPair {
     /// Archive the current key before rotation.
     static func archiveCurrentKey(version: Int) {
         guard let currentKeyData = keychain.load(forKey: keychainKey) else {
-            print("[DeviceKeyPair] No current key to archive")
+            AppLogger.e2ee.warning("DeviceKeyPair: No current key to archive")
             return
         }
         let archiveKey = "\(keychainKey)-v\(version)"
@@ -157,9 +158,9 @@ struct DeviceKeyPair {
             let fingerprint = E2EEService.fingerprint(
                 of: (try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: currentKeyData))?.publicKey.rawRepresentation.base64EncodedString() ?? ""
             )
-            print("[DeviceKeyPair] Key archived: version=\(version) fingerprint=\(fingerprint)")
+            AppLogger.e2ee.info("DeviceKeyPair: Key archived: version=\(version, privacy: .public) fingerprint=\(fingerprint, privacy: .public)")
         } catch {
-            print("[DeviceKeyPair] Failed to archive key v\(version): \(error)")
+            AppLogger.e2ee.error("DeviceKeyPair: Failed to archive key v\(version, privacy: .public): \(error, privacy: .public)")
         }
     }
 
@@ -167,14 +168,14 @@ struct DeviceKeyPair {
     static func loadHistorical(version: Int) -> Curve25519.KeyAgreement.PrivateKey? {
         let archiveKey = "\(keychainKey)-v\(version)"
         guard let data = keychain.load(forKey: archiveKey) else {
-            print("[DeviceKeyPair] No archived key for version \(version)")
+            AppLogger.e2ee.debug("DeviceKeyPair: No archived key for version \(version, privacy: .public)")
             return nil
         }
         guard let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) else {
-            print("[DeviceKeyPair] Archived key v\(version) corrupted")
+            AppLogger.e2ee.error("DeviceKeyPair: Archived key v\(version, privacy: .public) corrupted")
             return nil
         }
-        print("[DeviceKeyPair] Loaded archived key: version=\(version)")
+        AppLogger.e2ee.info("DeviceKeyPair: Loaded archived key: version=\(version, privacy: .public)")
         return key
     }
 
@@ -186,7 +187,7 @@ struct DeviceKeyPair {
         for v in max(1, oldestToKeep - 5)...oldestToKeep {
             let archiveKey = "\(keychainKey)-v\(v)"
             keychain.delete(forKey: archiveKey)
-            print("[DeviceKeyPair] Pruned archived key: version=\(v)")
+            AppLogger.e2ee.debug("DeviceKeyPair: Pruned archived key: version=\(v, privacy: .public)")
         }
     }
 
@@ -203,7 +204,7 @@ struct DeviceKeyPair {
         // 4. Prune old archives
         pruneArchivedKeys(currentVersion: currentVersion)
         let fingerprint = E2EEService.fingerprint(of: newPair.publicKeyBase64)
-        print("[DeviceKeyPair] Key rotated: new fingerprint=\(fingerprint)")
+        AppLogger.e2ee.info("DeviceKeyPair: Key rotated: new fingerprint=\(fingerprint, privacy: .public)")
         return newPair
     }
 }

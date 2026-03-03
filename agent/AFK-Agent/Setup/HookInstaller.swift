@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import OSLog
 
 struct HookInstaller {
     private let hookInstallDir: String   // e.g. ~/.claude/hooks
@@ -118,8 +119,8 @@ struct HookInstaller {
         settings["hooks"] = hooks
         try saveSettings(settings)
 
-        print("[HookInstaller] Installed \(hookScriptName) at \(installedHookPath)")
-        print("[HookInstaller] Installed \(postToolHookScriptName) at \(installedPostToolHookPath)")
+        AppLogger.hook.info("Installed \(hookScriptName, privacy: .public) at \(installedHookPath, privacy: .public)")
+        AppLogger.hook.info("Installed \(postToolHookScriptName, privacy: .public) at \(installedPostToolHookPath, privacy: .public)")
     }
 
     /// Remove the hook script and unregister from Claude Code settings.
@@ -173,7 +174,7 @@ struct HookInstaller {
             try saveSettings(settings)
         }
 
-        print("[HookInstaller] Uninstalled \(hookScriptName) and \(postToolHookScriptName)")
+        AppLogger.hook.info("Uninstalled \(hookScriptName, privacy: .public) and \(postToolHookScriptName, privacy: .public)")
     }
 
     var isInstalled: Bool {

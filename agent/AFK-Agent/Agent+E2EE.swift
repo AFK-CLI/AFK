@@ -5,6 +5,7 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 /// Thread-safe cache of per-session E2EE symmetric keys for multiple peers.
 final class SessionKeyCache: @unchecked Sendable {
@@ -89,7 +90,7 @@ extension Agent {
     func setupE2EEEncryptor(deviceId: String) async {
         let keychain = KeychainStore()
         guard let kaIdentity = try? KeyAgreementIdentity.load(from: keychain) else {
-            print("[Agent] No KA identity — E2EE content encryption disabled")
+            AppLogger.e2ee.warning("No KA identity — E2EE content encryption disabled")
             return
         }
         let token = config.authToken ?? (try? keychain.loadToken(forKey: "auth-token"))
@@ -100,7 +101,7 @@ extension Agent {
 
         // Log own KA key fingerprint
         let ownFingerprint = E2EEncryption.fingerprint(of: kaIdentity.publicKeyBase64)
-        print("[Agent] Own KA key fingerprint: \(ownFingerprint)")
+        AppLogger.e2ee.info("Own KA key fingerprint: \(ownFingerprint, privacy: .public)")
 
         // Collect ALL peer devices with KA public keys for multi-peer encryption
         var peerKeys: [String: String] = [:]
@@ -112,7 +113,7 @@ extension Agent {
             let peerDevices = devices.filter { $0.id != deviceId }
             let peersWithoutKA = peerDevices.filter { $0.keyAgreementPublicKey == nil || $0.keyAgreementPublicKey?.isEmpty == true }
             if !peersWithoutKA.isEmpty {
-                print("[Agent] \(peersWithoutKA.count) peer(s) missing KA key: \(peersWithoutKA.map { $0.id.prefix(8) }.joined(separator: ", "))")
+                AppLogger.e2ee.warning("\(peersWithoutKA.count, privacy: .public) peer(s) missing KA key: \(peersWithoutKA.map { String($0.id.prefix(8)) }.joined(separator: ", "), privacy: .public)")
             }
             for device in devices {
                 if device.id == deviceId {
@@ -129,14 +130,14 @@ extension Agent {
                 }
                 let peerFingerprint = E2EEncryption.fingerprint(of: peerKey)
                 let capsStr = (device.capabilities ?? []).joined(separator: ",")
-                print("[Agent] Peer \(device.id.prefix(8)) KA fingerprint: \(peerFingerprint) (v\(device.keyVersion ?? 1)) caps=[\(capsStr)]")
+                AppLogger.e2ee.debug("Peer \(device.id.prefix(8), privacy: .public) KA fingerprint: \(peerFingerprint, privacy: .public) (v\(device.keyVersion ?? 1, privacy: .public)) caps=[\(capsStr, privacy: .public)]")
             }
         } catch {
-            print("[Agent] Failed to list devices for E2EE: \(error)")
+            AppLogger.e2ee.error("Failed to list devices for E2EE: \(error.localizedDescription, privacy: .public)")
         }
 
         guard !peerKeys.isEmpty else {
-            print("[Agent] No peers with KA keys found — E2EE encryption disabled")
+            AppLogger.e2ee.warning("No peers with KA keys found — E2EE encryption disabled")
             return
         }
 
@@ -174,7 +175,7 @@ extension Agent {
             }
             return encrypted.isEmpty ? nil : encrypted
         }
-        print("[Agent] E2EE content encryptor wired for \(peerKeys.count) peer(s) (own key v\(myKeyVersion)) — privacy mode: \(config.defaultPrivacyMode)")
+        AppLogger.e2ee.info("E2EE content encryptor wired for \(peerKeys.count, privacy: .public) peer(s) (own key v\(myKeyVersion, privacy: .public)) — privacy mode: \(self.config.defaultPrivacyMode, privacy: .public)")
     }
 
     // MARK: - Device Key Rotation
@@ -187,11 +188,11 @@ extension Agent {
         }
         let decoder = JSONDecoder()
         guard let payload = try? decoder.decode(KeyRotatedPayload.self, from: msg.payloadJSON) else {
-            print("[Agent] Failed to parse device.key_rotated payload")
+            AppLogger.e2ee.error("Failed to parse device.key_rotated payload")
             return
         }
         let fingerprint = E2EEncryption.fingerprint(of: payload.publicKey)
-        print("[Agent] Peer \(payload.deviceId.prefix(8)) rotated KA key to v\(payload.keyVersion) (fingerprint: \(fingerprint))")
+        AppLogger.e2ee.info("Peer \(payload.deviceId.prefix(8), privacy: .public) rotated KA key to v\(payload.keyVersion, privacy: .public) (fingerprint: \(fingerprint, privacy: .public))")
 
         guard let deviceId = enrolledDeviceId else { return }
 
@@ -202,7 +203,7 @@ extension Agent {
             if previousVersion >= 1 {
                 KeyAgreementIdentity.archiveCurrentKey(version: previousVersion, keychain: keychain)
                 KeyAgreementIdentity.pruneArchivedKeys(currentVersion: payload.keyVersion, keychain: keychain)
-                print("[Agent] Archived own key v\(previousVersion) before rotation to v\(payload.keyVersion)")
+                AppLogger.e2ee.info("Archived own key v\(previousVersion, privacy: .public) before rotation to v\(payload.keyVersion, privacy: .public)")
             }
         }
 

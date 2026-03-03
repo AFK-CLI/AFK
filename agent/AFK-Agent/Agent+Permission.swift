@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -37,14 +38,14 @@ extension Agent {
             // Start socket (creates /tmp/afk-agent.sock)
             try await socket.start()
         } catch {
-            print("[Agent] Failed to start permission socket: \(error)")
+            AppLogger.permission.error("Failed to start permission socket: \(error.localizedDescription, privacy: .public)")
         }
     }
 
     func setupPermissionSigningKeys(socket: PermissionSocket, deviceId: String) async {
         let keychain = KeychainStore()
         guard let kaIdentity = try? KeyAgreementIdentity.load(from: keychain) else {
-            print("[Agent] No KA identity — permission HMAC verification disabled")
+            AppLogger.permission.warning("No KA identity — permission HMAC verification disabled")
             return
         }
         let token = config.authToken ?? (try? keychain.loadToken(forKey: "auth-token"))
@@ -65,11 +66,11 @@ extension Agent {
                     )
                     await socket.addPermissionSigningKey(key, for: device.id)
                 } catch {
-                    print("[Agent] Failed to derive permission key for peer \(device.id.prefix(8)): \(error)")
+                    AppLogger.permission.error("Failed to derive permission key for peer \(device.id.prefix(8), privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
             }
         } catch {
-            print("[Agent] Failed to list devices for permission keys: \(error)")
+            AppLogger.permission.error("Failed to list devices for permission keys: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -78,9 +79,9 @@ extension Agent {
         do {
             let msg = try MessageEncoder.permissionRequest(event: event)
             try await client.send(msg)
-            print("[Agent] Forwarded permission request for \(event.toolName) (nonce: \(event.nonce.prefix(8)))")
+            AppLogger.permission.info("Forwarded permission request for \(event.toolName, privacy: .public) (nonce: \(event.nonce.prefix(8), privacy: .public))")
         } catch {
-            print("[Agent] Failed to forward permission request: \(error)")
+            AppLogger.permission.error("Failed to forward permission request: \(error.localizedDescription, privacy: .public)")
         }
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 
 struct SessionDetailView: View {
     let sessionId: String
@@ -224,7 +225,7 @@ struct SessionDetailView: View {
                 let response = try await apiClient.continueSession(sessionId: sessionId, prompt: prompt)
                 commandStore.startCommand(id: response.commandId, sessionId: sessionId, prompt: prompt)
             } catch {
-                print("[SessionDetail] Retry failed: \(error)")
+                AppLogger.session.error("Retry failed: \(error, privacy: .public)")
             }
         }
     }

@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Disk-backed FIFO queue for offline WebSocket messages.
 ///
@@ -39,7 +40,7 @@ final class DiskQueue: @unchecked Sendable {
             _count = recovered.count
             _fileSize = recovered.fileSize
             if recovered.truncated {
-                print("[DiskQueue] Truncated partial trailing record during recovery")
+                AppLogger.queue.warning("Truncated partial trailing record during recovery")
             }
         } else {
             FileManager.default.createFile(atPath: filePath.path, contents: nil)
@@ -51,7 +52,7 @@ final class DiskQueue: @unchecked Sendable {
         fileHandle?.seekToEndOfFile()
 
         if _count > 0 {
-            print("[DiskQueue] Recovered \(_count) pending messages (\(ByteCountFormatter.string(fromByteCount: Int64(_fileSize), countStyle: .file)))")
+            AppLogger.queue.info("Recovered \(self._count, privacy: .public) pending messages (\(ByteCountFormatter.string(fromByteCount: Int64(self._fileSize), countStyle: .file), privacy: .public))")
         }
     }
 
@@ -90,7 +91,7 @@ final class DiskQueue: @unchecked Sendable {
         guard !records.isEmpty else { return 0 }
 
         let total = records.count
-        print("[DiskQueue] Flushing \(total) queued messages from disk...")
+        AppLogger.queue.info("Flushing \(total, privacy: .public) queued messages from disk...")
 
         var sent = 0
         for (index, record) in records.enumerated() {
@@ -98,7 +99,7 @@ final class DiskQueue: @unchecked Sendable {
                 try await send(record)
                 sent += 1
             } catch {
-                print("[DiskQueue] Flush interrupted after \(sent)/\(total): \(error.localizedDescription)")
+                AppLogger.queue.error("Flush interrupted after \(sent, privacy: .public)/\(total, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 // Rewrite file with remaining unsent records
                 let remaining = Array(records[index...])
                 rewriteFile(with: remaining)
@@ -113,7 +114,7 @@ final class DiskQueue: @unchecked Sendable {
 
         // All sent — compact (delete and recreate empty file)
         compact()
-        print("[DiskQueue] Flushed all \(sent) queued messages")
+        AppLogger.queue.info("Flushed all \(sent, privacy: .public) queued messages")
         return sent
     }
 
@@ -127,7 +128,7 @@ final class DiskQueue: @unchecked Sendable {
         fileHandle = FileHandle(forUpdatingAtPath: filePath.path)
         _count = 0
         _fileSize = 0
-        print("[DiskQueue] Purged")
+        AppLogger.queue.info("Purged")
     }
 
     /// Close the file handle (call on shutdown).
@@ -207,7 +208,7 @@ final class DiskQueue: @unchecked Sendable {
 
         let dropCount = min(n, records.count)
         let remaining = Array(records.dropFirst(dropCount))
-        print("[DiskQueue] Overflow: dropping \(dropCount) oldest messages")
+        AppLogger.queue.warning("Overflow: dropping \(dropCount, privacy: .public) oldest messages")
         rewriteFile(with: remaining)
     }
 

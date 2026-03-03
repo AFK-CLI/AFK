@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 
 struct SubscriptionStatusView: View {
     let subscriptionManager: SubscriptionManager
@@ -92,7 +93,7 @@ struct SubscriptionStatusView: View {
             tier = status.tier
             expiresAt = status.expiresAt
         } catch {
-            print("[Subscription] Failed to fetch status: \(error)")
+            AppLogger.subscription.error("Failed to fetch status: \(error, privacy: .public)")
         }
     }
 

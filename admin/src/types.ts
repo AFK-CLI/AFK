@@ -161,3 +161,28 @@ export interface AdminSessionDetailResponse {
   session: AdminSession
   commands: AdminCommand[]
 }
+
+export interface AdminAppLog {
+  id: string
+  userId: string
+  userEmail: string
+  deviceId: string
+  source: string
+  level: string
+  subsystem: string
+  message: string
+  metadata: string
+  createdAt: string
+}
+
+export interface AdminFeedback {
+  id: string
+  userId: string
+  userEmail: string
+  deviceId: string
+  category: string
+  message: string
+  appVersion: string
+  platform: string
+  createdAt: string
+}

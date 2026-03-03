@@ -16,13 +16,12 @@ const navItems = [
   { to: '/sessions', label: 'Sessions' },
   { to: '/commands', label: 'Commands' },
   { to: '/security', label: 'Security' },
+  { to: '/logs', label: 'Logs' },
+  { to: '/feedback', label: 'Feedback' },
   { to: '/server', label: 'Server' },
 ]
 
-const futureItems = [
-  { to: '/logs', label: 'Logs', soon: true },
-  { to: '/feedback', label: 'Feedback', soon: true },
-]
+const futureItems: { to: string; label: string; soon?: boolean }[] = []
 
 export function Sidebar({ version, uptime, onLogout, open, onClose }: Props) {
   return (

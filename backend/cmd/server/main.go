@@ -210,6 +210,16 @@ func main() {
 	mux.Handle("POST /v1/todos/toggle", authMiddleware(http.HandlerFunc(todoHandler.HandleToggle)))
 	mux.Handle("POST /v1/todos/start-session", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(todoHandler.HandleStartSession))))
 
+	// App logs (with auth).
+	logHandler := &handler.LogHandler{DB: database}
+	mux.Handle("GET /v1/logs", authMiddleware(http.HandlerFunc(logHandler.HandleList)))
+	mux.Handle("POST /v1/logs", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(logHandler.HandleBatch))))
+
+	// Feedback (with auth).
+	feedbackHandler := &handler.FeedbackHandler{DB: database}
+	mux.Handle("GET /v1/feedback", authMiddleware(http.HandlerFunc(feedbackHandler.HandleList)))
+	mux.Handle("POST /v1/feedback", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(feedbackHandler.HandleCreate))))
+
 	// Push tokens (with auth).
 	pushHandler := &handler.PushHandler{DB: database}
 	mux.Handle("POST /v1/push-tokens", authMiddleware(http.HandlerFunc(pushHandler.HandleRegister)))
@@ -278,6 +288,9 @@ func main() {
 	mux.Handle("GET /v1/admin/sessions", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminSessionsList)))
 	mux.Handle("GET /v1/admin/sessions/{id}", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminSessionDetail)))
 	mux.Handle("GET /v1/admin/commands", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminCommandsList)))
+	mux.Handle("GET /v1/admin/logs", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogs)))
+	mux.Handle("GET /v1/admin/logs/export", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogsExport)))
+	mux.Handle("GET /v1/admin/feedback", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminFeedback)))
 
 	// Admin write endpoints — rate limited to prevent accidental spam.
 	mux.Handle("PUT /v1/admin/users/{id}/tier", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateUserTier)))
@@ -411,5 +424,12 @@ func runRetentionCleanup(database *sql.DB) {
 		slog.Error("command purge failed", "error", err)
 	} else if n > 0 {
 		slog.Info("purged expired commands", "deleted", n)
+	}
+
+	// App logs: 30-day retention.
+	if n, err := db.PurgeOldAppLogs(database, time.Now().Add(-30*24*time.Hour)); err != nil {
+		slog.Error("app log purge failed", "error", err)
+	} else if n > 0 {
+		slog.Info("purged old app logs", "deleted", n)
 	}
 }

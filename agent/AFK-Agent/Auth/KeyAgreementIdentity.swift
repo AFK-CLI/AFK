@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import OSLog
 
 /// Manages the agent's Curve25519 KeyAgreement key pair for E2EE.
 /// Separate from the Ed25519 signing key in DeviceIdentity.
@@ -24,7 +25,7 @@ struct KeyAgreementIdentity: Sendable {
             // Ensure backup exists
             if (try? keychain.loadData(forKey: backupKeychainKey)) == nil {
                 try? keychain.saveData(key.rawRepresentation, forKey: backupKeychainKey)
-                print("[KeyAgreementIdentity] Backup created for primary key")
+                AppLogger.e2ee.info("KA backup created for primary key")
             }
 
             // Integrity check against stored fingerprint
@@ -32,25 +33,25 @@ struct KeyAgreementIdentity: Sendable {
                let storedFP = String(data: storedFPData, encoding: .utf8) {
                 let loadedFP = fingerprint(of: key.publicKey.rawRepresentation.base64EncodedString())
                 if loadedFP != storedFP {
-                    print("[KeyAgreementIdentity] INTEGRITY CHECK FAILED: loaded=\(loadedFP) registered=\(storedFP)")
+                    AppLogger.e2ee.error("KA INTEGRITY CHECK FAILED: loaded=\(loadedFP, privacy: .public) registered=\(storedFP, privacy: .public)")
                     // Try backup
                     if let backupData = try? keychain.loadData(forKey: backupKeychainKey),
                        let backupKey = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: backupData) {
                         let backupFP = fingerprint(of: backupKey.publicKey.rawRepresentation.base64EncodedString())
                         if backupFP == storedFP {
                             try keychain.saveData(backupData, forKey: keychainKey)
-                            print("[KeyAgreementIdentity] Key restored from backup after integrity failure")
+                            AppLogger.e2ee.warning("KA key restored from backup after integrity failure")
                             return KeyAgreementIdentity(privateKey: backupKey)
                         }
                     }
-                    print("[KeyAgreementIdentity] Both primary and backup corrupted — caller must regenerate")
+                    AppLogger.e2ee.error("KA both primary and backup corrupted — caller must regenerate")
                     return nil
                 } else {
-                    print("[KeyAgreementIdentity] Key integrity check passed: fingerprint=\(loadedFP)")
+                    AppLogger.e2ee.debug("KA key integrity check passed: fingerprint=\(loadedFP, privacy: .public)")
                 }
             }
 
-            print("[KeyAgreementIdentity] Key loaded from primary")
+            AppLogger.e2ee.debug("KA key loaded from primary")
             return identity
         }
 
@@ -59,7 +60,7 @@ struct KeyAgreementIdentity: Sendable {
             let key = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: backupData)
             // Restore primary
             try keychain.saveData(backupData, forKey: keychainKey)
-            print("[KeyAgreementIdentity] Key recovered from backup — primary was missing")
+            AppLogger.e2ee.warning("KA key recovered from backup — primary was missing")
             return KeyAgreementIdentity(privateKey: key)
         }
 
@@ -77,7 +78,7 @@ struct KeyAgreementIdentity: Sendable {
         let data = privateKey.rawRepresentation
         try keychain.saveData(data, forKey: Self.keychainKey)
         try keychain.saveData(data, forKey: Self.backupKeychainKey)
-        print("[KeyAgreementIdentity] Key saved to primary + backup")
+        AppLogger.e2ee.info("KA key saved to primary + backup")
     }
 
     // MARK: - Key Archival
@@ -85,7 +86,7 @@ struct KeyAgreementIdentity: Sendable {
     /// Archive the current key before rotation.
     static func archiveCurrentKey(version: Int, keychain: KeychainStore) {
         guard let data = try? keychain.loadData(forKey: keychainKey) else {
-            print("[KeyAgreementIdentity] No current key to archive")
+            AppLogger.e2ee.warning("KA no current key to archive")
             return
         }
         let archiveKey = "\(keychainKey)-v\(version)"
@@ -93,10 +94,10 @@ struct KeyAgreementIdentity: Sendable {
             try keychain.saveData(data, forKey: archiveKey)
             if let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) {
                 let fp = fingerprint(of: key.publicKey.rawRepresentation.base64EncodedString())
-                print("[KeyAgreementIdentity] Key archived: version=\(version) fingerprint=\(fp)")
+                AppLogger.e2ee.info("KA key archived: version=\(version, privacy: .public) fingerprint=\(fp, privacy: .public)")
             }
         } catch {
-            print("[KeyAgreementIdentity] Failed to archive key v\(version): \(error)")
+            AppLogger.e2ee.error("KA failed to archive key v\(version, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -104,14 +105,14 @@ struct KeyAgreementIdentity: Sendable {
     static func loadHistorical(version: Int, from keychain: KeychainStore) -> Curve25519.KeyAgreement.PrivateKey? {
         let archiveKey = "\(keychainKey)-v\(version)"
         guard let data = try? keychain.loadData(forKey: archiveKey) else {
-            print("[KeyAgreementIdentity] No archived key for version \(version)")
+            AppLogger.e2ee.debug("KA no archived key for version \(version, privacy: .public)")
             return nil
         }
         guard let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) else {
-            print("[KeyAgreementIdentity] Archived key v\(version) corrupted")
+            AppLogger.e2ee.error("KA archived key v\(version, privacy: .public) corrupted")
             return nil
         }
-        print("[KeyAgreementIdentity] Loaded archived key: version=\(version)")
+        AppLogger.e2ee.debug("KA loaded archived key: version=\(version, privacy: .public)")
         return key
     }
 
@@ -122,7 +123,7 @@ struct KeyAgreementIdentity: Sendable {
         for v in max(1, oldestToKeep - 5)...oldestToKeep {
             let archiveKey = "\(keychainKey)-v\(v)"
             try? keychain.deleteToken(forKey: archiveKey)
-            print("[KeyAgreementIdentity] Pruned archived key: version=\(v)")
+            AppLogger.e2ee.debug("KA pruned archived key: version=\(v, privacy: .public)")
         }
     }
 

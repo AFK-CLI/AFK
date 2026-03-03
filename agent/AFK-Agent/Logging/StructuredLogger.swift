@@ -10,10 +10,12 @@ enum LogLevel: String, Sendable {
 struct StructuredLogger: Sendable {
     let subsystem: String
     let minLevel: LogLevel
+    let sink: (@Sendable (LogLevel, String, String, [String: String]) -> Void)?
 
-    init(subsystem: String, minLevel: LogLevel = .info) {
+    init(subsystem: String, minLevel: LogLevel = .info, sink: (@Sendable (LogLevel, String, String, [String: String]) -> Void)? = nil) {
         self.subsystem = subsystem
         self.minLevel = minLevel
+        self.sink = sink
     }
 
     func debug(_ message: String, fields: [String: String] = [:]) {
@@ -52,6 +54,8 @@ struct StructuredLogger: Sendable {
         } else {
             print("[\(subsystem)] [\(level.rawValue)] \(message)")
         }
+
+        sink?(level, subsystem, message, fields)
     }
 
     private func levelValue(_ level: LogLevel) -> Int {

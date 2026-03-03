@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import StoreKit
 
 @Observable
@@ -29,7 +30,7 @@ final class SubscriptionManager {
             products = storeProducts.sorted { $0.price < $1.price }
         } catch {
             errorMessage = "Failed to load products: \(error.localizedDescription)"
-            print("[Subscription] Failed to load products: \(error)")
+            AppLogger.subscription.error("Failed to load products: \(error, privacy: .public)")
         }
     }
 
@@ -62,7 +63,7 @@ final class SubscriptionManager {
             await updatePurchasedProducts()
         } catch {
             errorMessage = "Failed to restore purchases: \(error.localizedDescription)"
-            print("[Subscription] Failed to restore: \(error)")
+            AppLogger.subscription.error("Failed to restore: \(error, privacy: .public)")
         }
     }
 

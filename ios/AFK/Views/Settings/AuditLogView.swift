@@ -1,4 +1,5 @@
 import SwiftUI
+import OSLog
 
 struct AuditLogView: View {
     let apiClient: APIClient
@@ -95,7 +96,7 @@ struct AuditLogView: View {
             offset = entries.count
             hasMore = entries.count >= 50
         } catch {
-            print("[AuditLog] Failed to load: \(error)")
+            AppLogger.ui.error("AuditLog: Failed to load: \(error, privacy: .public)")
         }
     }
 
@@ -106,7 +107,7 @@ struct AuditLogView: View {
             offset += more.count
             hasMore = more.count >= 50
         } catch {
-            print("[AuditLog] Failed to load more: \(error)")
+            AppLogger.ui.error("AuditLog: Failed to load more: \(error, privacy: .public)")
         }
     }
 }

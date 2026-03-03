@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @MainActor
 @Observable
@@ -22,7 +23,7 @@ final class TodoStore {
             let raw = try await apiClient.listTodos()
             todos = Self.deduplicateByProject(raw)
         } catch {
-            print("[TodoStore] Failed to load todos: \(error)")
+            AppLogger.store.error("Failed to load todos: \(error, privacy: .public)")
         }
     }
 
@@ -58,7 +59,7 @@ final class TodoStore {
         do {
             try await apiClient.appendTodo(projectId: projectId, text: text)
         } catch {
-            print("[TodoStore] Failed to append todo: \(error)")
+            AppLogger.store.error("Failed to append todo: \(error, privacy: .public)")
             await loadTodos()
         }
     }
@@ -85,7 +86,7 @@ final class TodoStore {
         do {
             try await apiClient.toggleTodo(projectId: projectId, line: item.line, checked: newChecked)
         } catch {
-            print("[TodoStore] Failed to toggle todo: \(error)")
+            AppLogger.store.error("Failed to toggle todo: \(error, privacy: .public)")
             await loadTodos()
         }
     }

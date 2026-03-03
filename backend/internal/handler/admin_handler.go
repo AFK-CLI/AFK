@@ -59,6 +59,11 @@ func adminClientIP(r *http.Request) string {
 	return host
 }
 
+// csvEscape wraps a value in double quotes and escapes any inner double quotes.
+func csvEscape(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+}
+
 // sanitizeSearchQuery caps search input length to prevent abuse.
 func sanitizeSearchQuery(q string) string {
 	if len(q) > 256 {
@@ -933,6 +938,118 @@ func (h *AdminHandler) HandleAdminUpdateSessionStatus(w http.ResponseWriter, r *
 
 	slog.Info("admin force ended session", "session_id", sessionID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminLogs returns a paginated list of app logs with optional filters.
+// GET /v1/admin/logs?level=&source=&user_id=&email=&subsystem=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminLogs(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	level := sanitizeSearchQuery(r.URL.Query().Get("level"))
+	source := sanitizeSearchQuery(r.URL.Query().Get("source"))
+	userID := sanitizeSearchQuery(r.URL.Query().Get("user_id"))
+	email := sanitizeSearchQuery(r.URL.Query().Get("email"))
+	subsystem := sanitizeSearchQuery(r.URL.Query().Get("subsystem"))
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	logs, total, err := db.AdminListAppLogs(h.DB, level, source, userID, email, subsystem, limit, offset)
+	if err != nil {
+		slog.Error("admin list app logs failed", "error", err)
+		writeError(w, "failed to list logs", http.StatusInternalServerError)
+		return
+	}
+
+	if logs == nil {
+		logs = []db.AdminAppLog{}
+	}
+
+	// Redact emails for privacy.
+	for i := range logs {
+		logs[i].UserEmail = redactEmail(logs[i].UserEmail)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"logs":  logs,
+		"total": total,
+	})
+}
+
+// HandleAdminLogsExport returns all matching logs as CSV.
+// GET /v1/admin/logs/export?level=&source=&email=&subsystem=
+func (h *AdminHandler) HandleAdminLogsExport(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	level := sanitizeSearchQuery(r.URL.Query().Get("level"))
+	source := sanitizeSearchQuery(r.URL.Query().Get("source"))
+	userID := sanitizeSearchQuery(r.URL.Query().Get("user_id"))
+	email := sanitizeSearchQuery(r.URL.Query().Get("email"))
+	subsystem := sanitizeSearchQuery(r.URL.Query().Get("subsystem"))
+
+	logs, _, err := db.AdminListAppLogs(h.DB, level, source, userID, email, subsystem, 10000, 0)
+	if err != nil {
+		slog.Error("admin export logs failed", "error", err)
+		writeError(w, "failed to export logs", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=logs_export.csv")
+
+	// Write CSV header
+	_, _ = w.Write([]byte("Time,Level,Source,Subsystem,User,Device,Message,Metadata\n"))
+	for _, l := range logs {
+		line := csvEscape(l.CreatedAt) + "," +
+			csvEscape(l.Level) + "," +
+			csvEscape(l.Source) + "," +
+			csvEscape(l.Subsystem) + "," +
+			csvEscape(l.UserEmail) + "," +
+			csvEscape(l.DeviceID) + "," +
+			csvEscape(l.Message) + "," +
+			csvEscape(l.Metadata) + "\n"
+		_, _ = w.Write([]byte(line))
+	}
+}
+
+// HandleAdminFeedback returns a paginated list of feedback entries with optional filters.
+// GET /v1/admin/feedback?category=&user_id=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminFeedback(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	category := sanitizeSearchQuery(r.URL.Query().Get("category"))
+	userID := sanitizeSearchQuery(r.URL.Query().Get("user_id"))
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	feedback, total, err := db.AdminListFeedback(h.DB, category, userID, limit, offset)
+	if err != nil {
+		slog.Error("admin list feedback failed", "error", err)
+		writeError(w, "failed to list feedback", http.StatusInternalServerError)
+		return
+	}
+
+	if feedback == nil {
+		feedback = []db.AdminFeedbackEntry{}
+	}
+
+	// Redact emails for privacy.
+	for i := range feedback {
+		feedback[i].UserEmail = redactEmail(feedback[i].UserEmail)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"feedback": feedback,
+		"total":    total,
+	})
 }
 
 func (h *AdminHandler) version() string {

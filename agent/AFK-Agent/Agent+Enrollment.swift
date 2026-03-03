@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -14,21 +15,31 @@ extension Agent {
 
     /// Show the sign-in window and enroll the device after successful authentication.
     func showSignInWindow(existingDeviceId: String? = nil) async -> EnrollResult? {
+        // Prevent duplicate sign-in windows
+        if signInController != nil { return nil }
+
         let serverURL = config.serverURL
         return await withCheckedContinuation { continuation in
             DispatchQueue.main.async {
                 let controller = SignInWindowController()
-                controller.showSignInWindow(serverURL: serverURL) { token, refreshToken, userId, email in
-                    Task {
-                        let result = await self.emailEnroll(
-                            token: token,
-                            refreshToken: refreshToken,
-                            email: email,
-                            existingDeviceId: existingDeviceId
-                        )
-                        continuation.resume(returning: result)
+                controller.showSignInWindow(
+                    serverURL: serverURL,
+                    onCancel: {
+                        Task { await self.setSignInController(nil) }
+                        continuation.resume(returning: nil)
+                    },
+                    completion: { token, refreshToken, userId, email in
+                        Task {
+                            let result = await self.emailEnroll(
+                                token: token,
+                                refreshToken: refreshToken,
+                                email: email,
+                                existingDeviceId: existingDeviceId
+                            )
+                            continuation.resume(returning: result)
+                        }
                     }
-                }
+                )
                 // Store the controller reference to keep it alive
                 Task {
                     await self.setSignInController(controller)
@@ -49,7 +60,7 @@ extension Agent {
             let connected = await setupWebSocket(token: result.token, deviceId: result.deviceId, keychain: keychain)
             self.enrolledDeviceId = result.deviceId
             if connected {
-                print("[Agent] Connected after manual sign-in")
+                AppLogger.agent.info("Connected after manual sign-in")
             }
         }
     }
@@ -69,7 +80,7 @@ extension Agent {
         self.sessionKeyCache = nil
         diskQueue?.purge()
         onAccountChanged?(nil)
-        print("[Agent] Signed out — credentials cleared")
+        AppLogger.agent.info("Signed out — credentials cleared")
     }
 
     /// Enroll a device after email/password authentication (already have tokens).
@@ -81,11 +92,11 @@ extension Agent {
             let kaIdentity: KeyAgreementIdentity
             if let existing = try? KeyAgreementIdentity.load(from: keychain) {
                 kaIdentity = existing
-                print("[Agent] Reusing existing KeyAgreement key pair")
+                AppLogger.agent.info("Reusing existing KeyAgreement key pair")
             } else {
                 kaIdentity = KeyAgreementIdentity.generate()
                 try kaIdentity.save(to: keychain)
-                print("[Agent] KeyAgreement key pair generated")
+                AppLogger.agent.info("KeyAgreement key pair generated")
             }
 
             // 2. Enroll this device
@@ -99,7 +110,7 @@ extension Agent {
                 keyAgreementPublicKey: kaIdentity.publicKeyBase64,
                 deviceId: existingDeviceId
             )
-            print("[Agent] Device enrolled: \(device.name) (id: \(device.id))")
+            AppLogger.agent.info("Device enrolled: \(device.name, privacy: .public) (id: \(device.id.prefix(8), privacy: .public))")
 
             // Track registered KA fingerprint
             let enrolledFingerprint = Self.keyFingerprint(kaIdentity.publicKeyBase64)
@@ -112,7 +123,7 @@ extension Agent {
                 if lastRegistered != currentFingerprint {
                     try? await api.registerKeyAgreement(deviceId: device.id, publicKey: kaIdentity.publicKeyBase64)
                     try? keychain.saveToken(currentFingerprint, forKey: "last-registered-ka-fingerprint")
-                    print("[Agent] Re-registered KA key for existing device")
+                    AppLogger.agent.info("Re-registered KA key for existing device")
                 }
             }
 
@@ -121,7 +132,7 @@ extension Agent {
             try keychain.saveToken(refreshToken, forKey: "refresh-token")
             try keychain.saveToken(device.id, forKey: "device-id")
             try keychain.saveToken(email, forKey: "user-email")
-            print("[Agent] Credentials saved to keychain")
+            AppLogger.agent.info("Credentials saved to keychain")
 
             onAccountChanged?(email)
 
@@ -130,7 +141,7 @@ extension Agent {
 
             return EnrollResult(token: token, deviceId: device.id)
         } catch {
-            print("[Agent] Email enrollment failed: \(error)")
+            AppLogger.agent.error("Email enrollment failed: \(error.localizedDescription, privacy: .public)")
             self.signInController = nil
             return nil
         }
@@ -140,17 +151,17 @@ extension Agent {
     /// Returns a new access token on success, or nil if refresh fails.
     func tryRefreshToken(keychain: KeychainStore) async -> String? {
         guard let refreshToken = try? keychain.loadToken(forKey: "refresh-token") else {
-            print("[Agent] No refresh token in keychain")
+            AppLogger.auth.warning("No refresh token in keychain")
             return nil
         }
         do {
             let resp = try await APIClient.refreshToken(baseURL: config.httpBaseURL, refreshToken: refreshToken)
             try keychain.saveToken(resp.accessToken, forKey: "auth-token")
             try keychain.saveToken(resp.refreshToken, forKey: "refresh-token")
-            print("[Agent] Token refreshed successfully")
+            AppLogger.auth.info("Token refreshed successfully")
             return resp.accessToken
         } catch {
-            print("[Agent] Token refresh failed: \(error)")
+            AppLogger.auth.error("Token refresh failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }

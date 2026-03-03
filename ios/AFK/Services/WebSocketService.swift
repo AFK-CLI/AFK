@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @Observable
 final class WebSocketService {
@@ -48,7 +49,7 @@ final class WebSocketService {
     func connect(token: String, apiClient: APIClient? = nil) {
         self.token = token
         self.apiClient = apiClient
-        print("[WS] connect() called, baseURL=\(baseURL)")
+        AppLogger.ws.info("connect() called, baseURL=\(self.baseURL, privacy: .public)")
         Task { await connectWithTicket() }
     }
 
@@ -60,9 +61,9 @@ final class WebSocketService {
             do {
                 let ticket = try await apiClient.getWSTicket()
                 components.queryItems = [URLQueryItem(name: "ws_ticket", value: ticket)]
-                print("[WS] Got WS ticket, connecting...")
+                AppLogger.ws.info("Got WS ticket, connecting...")
             } catch {
-                print("[WS] Ticket fetch failed: \(error), falling back to token")
+                AppLogger.ws.warning("Ticket fetch failed: \(error, privacy: .public), falling back to token")
                 components.queryItems = [URLQueryItem(name: "token", value: token)]
             }
         } else {
@@ -71,7 +72,7 @@ final class WebSocketService {
 
         // Log URL without query parameters to avoid leaking tokens/tickets
         let redactedURL = components.url.map { "\($0.scheme ?? "")://\($0.host ?? "")\($0.port.map { ":\($0)" } ?? "")\($0.path)" } ?? "nil"
-        print("[WS] Connecting to \(redactedURL)")
+        AppLogger.ws.info("Connecting to \(redactedURL, privacy: .public)")
         let task = URLSession.shared.webSocketTask(with: components.url!)
         self.webSocketTask = task
         task.resume()
@@ -144,14 +145,14 @@ final class WebSocketService {
                 }
             }
         } catch {
-            print("[WS] Receive loop error: \(error)")
+            AppLogger.ws.error("Receive loop error: \(error, privacy: .public)")
             isConnected = false
             lastDisconnectedAt = Date()
             consecutiveFailures += 1
 
             guard token != nil, consecutiveFailures <= Self.maxRetries else {
                 if consecutiveFailures > Self.maxRetries {
-                    print("[WS] Max retries (\(Self.maxRetries)) exceeded, stopping reconnect")
+                    AppLogger.ws.error("Max retries (\(Self.maxRetries, privacy: .public)) exceeded, stopping reconnect")
                 }
                 return
             }
@@ -160,7 +161,7 @@ final class WebSocketService {
             let exponentialDelay = min(Self.baseDelay * pow(2.0, Double(consecutiveFailures - 1)), Self.maxDelay)
             let jitter = Double.random(in: 0...1.0)
             let totalDelay = exponentialDelay + jitter
-            print("[WS] Reconnecting in \(String(format: "%.1f", totalDelay))s (attempt \(consecutiveFailures)/\(Self.maxRetries))...")
+            AppLogger.ws.info("Reconnecting in \(String(format: "%.1f", totalDelay), privacy: .public)s (attempt \(self.consecutiveFailures, privacy: .public)/\(Self.maxRetries, privacy: .public))...")
             try? await Task.sleep(for: .seconds(totalDelay))
 
             if token != nil {
@@ -175,11 +176,11 @@ final class WebSocketService {
         guard let envelope = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = envelope["type"] as? String,
               let payloadObj = envelope["payload"] else {
-            print("[WS] Failed to parse envelope")
+            AppLogger.ws.warning("Failed to parse envelope")
             return
         }
 
-        print("[WS] Received: \(type)")
+        AppLogger.ws.debug("Received: \(type, privacy: .public)")
         lastMessageReceivedAt = Date()
 
         let decoder = AppConfig.makeJSONDecoder()
@@ -192,12 +193,12 @@ final class WebSocketService {
                 let payload = try decoder.decode(SessionUpdatePayload.self, from: payloadData)
                 var session = payload.session
                 session.deviceName = payload.deviceName
-                print("[WS] session.update: \(session.id.prefix(8)) status=\(session.status) project=\(session.projectName)")
+                AppLogger.ws.info("session.update: \(session.id.prefix(8), privacy: .public) status=\(session.status.rawValue, privacy: .public) project=\(session.projectName, privacy: .public)")
                 onSessionUpdate?(session)
             } catch {
                 let raw = String(data: payloadData, encoding: .utf8) ?? ""
-                print("[WS] DECODE ERROR session.update: \(error)")
-                print("[WS] Raw payload: \(raw.prefix(500))")
+                AppLogger.ws.error("DECODE ERROR session.update: \(error, privacy: .public)")
+                AppLogger.ws.debug("Raw payload: \(raw.prefix(500))")
             }
         case "session.event":
             do {
@@ -221,8 +222,8 @@ final class WebSocketService {
                 onSessionEvent?(event)
             } catch {
                 let raw = String(data: payloadData, encoding: .utf8) ?? ""
-                print("[WS] DECODE ERROR session.event: \(error)")
-                print("[WS] Raw payload: \(raw.prefix(500))")
+                AppLogger.ws.error("DECODE ERROR session.event: \(error, privacy: .public)")
+                AppLogger.ws.debug("Raw payload: \(raw.prefix(500))")
             }
         case "device.status":
             if let status = try? decoder.decode(DeviceStatusPayload.self, from: payloadData) {
@@ -254,12 +255,12 @@ final class WebSocketService {
             }
         case "device.key_rotated":
             if let payload = try? decoder.decode(DeviceKeyRotatedPayload.self, from: payloadData) {
-                print("[WS] device.key_rotated: \(payload.deviceId.prefix(8)) v\(payload.keyVersion)")
+                AppLogger.ws.info("device.key_rotated: \(payload.deviceId.prefix(8), privacy: .public) v\(payload.keyVersion, privacy: .public)")
                 onDeviceKeyRotated?(payload.deviceId, payload.publicKey, payload.keyVersion)
             }
         case "agent.control_state":
             if let payload = try? decoder.decode(AgentControlStatePayload.self, from: payloadData) {
-                print("[WS] agent.control_state: device=\(payload.deviceId.prefix(8)) remoteApproval=\(payload.remoteApproval) autoPlanExit=\(payload.autoPlanExit)")
+                AppLogger.ws.info("agent.control_state: device=\(payload.deviceId.prefix(8), privacy: .public) remoteApproval=\(payload.remoteApproval, privacy: .public) autoPlanExit=\(payload.autoPlanExit, privacy: .public)")
                 onAgentControlState?(payload.deviceId, payload.remoteApproval, payload.autoPlanExit)
             }
         case "task.updated":

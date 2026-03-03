@@ -6,8 +6,12 @@ struct SettingsView: View {
     let sessionStore: SessionStore
     let wsService: WebSocketService
     let subscriptionManager: SubscriptionManager
+    let logUploader: LogUploader
     @AppStorage("timelineNewestFirst", store: BuildEnvironment.userDefaults) private var timelineNewestFirst = true
     @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricEnabled = false
+    @State private var isSharingLogs = false
+    @State private var showShareLogsResult = false
+    @State private var shareLogsCount = 0
 
     var body: some View {
         NavigationStack {
@@ -50,6 +54,37 @@ struct SettingsView: View {
                     NavigationLink("Diagnostics") {
                         DiagnosticsView(sessionStore: sessionStore, wsService: wsService)
                     }
+                    NavigationLink("Logs") {
+                        LogsView(apiClient: apiClient)
+                    }
+                }
+
+                Section("Support") {
+                    NavigationLink("Send Feedback") {
+                        FeedbackView(apiClient: apiClient, deviceId: sessionStore.myDeviceId ?? "")
+                    }
+                    Button {
+                        Task {
+                            isSharingLogs = true
+                            let count = await logUploader.shareAll()
+                            shareLogsCount = count
+                            isSharingLogs = false
+                            showShareLogsResult = true
+                        }
+                    } label: {
+                        HStack {
+                            Text("Share Logs")
+                            Spacer()
+                            if isSharingLogs {
+                                ProgressView()
+                            } else {
+                                Text("\(logUploader.bufferedCount)")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
+                    .disabled(isSharingLogs || logUploader.bufferedCount == 0)
                 }
 
                 Section("Display") {
@@ -63,6 +98,15 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .alert("Logs Shared", isPresented: $showShareLogsResult) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                if shareLogsCount > 0 {
+                    Text("Uploaded \(shareLogsCount) log entries.")
+                } else {
+                    Text("No logs to share.")
+                }
+            }
         }
     }
 }

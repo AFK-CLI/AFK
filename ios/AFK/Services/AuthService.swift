@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @Observable
 final class AuthService: @unchecked Sendable {
@@ -161,7 +162,7 @@ final class AuthService: @unchecked Sendable {
             try await refreshAccessToken()
         } catch {
             #if DEBUG
-            print("[AuthService] Token refresh failed (offline?): \(error)")
+            AppLogger.auth.warning("Token refresh failed (offline?): \(error, privacy: .public)")
             #endif
             // If refreshAccessToken() signed out (401), tokens are nil — don't restore
             guard accessToken != nil, refreshToken != nil else { return }

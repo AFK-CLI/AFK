@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 @Observable
 final class APIClient {
@@ -248,6 +249,48 @@ final class APIClient {
         ])
     }
 
+    // MARK: - Logs
+
+    func getAppLogs(level: String? = nil, deviceId: String? = nil, source: String? = nil, subsystem: String? = nil, limit: Int = 50, offset: Int = 0) async throws -> [AppLogEntry] {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)")
+        ]
+        if let level { queryItems.append(URLQueryItem(name: "level", value: level)) }
+        if let deviceId { queryItems.append(URLQueryItem(name: "device_id", value: deviceId)) }
+        if let source { queryItems.append(URLQueryItem(name: "source", value: source)) }
+        if let subsystem { queryItems.append(URLQueryItem(name: "subsystem", value: subsystem)) }
+        return try await request("GET", "/v1/logs", queryItems: queryItems)
+    }
+
+    func uploadLogs(_ entries: [AppLogUploadEntry]) async throws {
+        struct Body: Encodable { let entries: [AppLogUploadEntry] }
+        let _: EmptyResponse = try await request("POST", "/v1/logs", body: Body(entries: entries))
+    }
+
+    // MARK: - Feedback
+
+    func listFeedback(limit: Int = 50, offset: Int = 0) async throws -> [FeedbackEntry] {
+        try await request("GET", "/v1/feedback", queryItems: [
+            URLQueryItem(name: "limit", value: "\(limit)"),
+            URLQueryItem(name: "offset", value: "\(offset)")
+        ])
+    }
+
+    func submitFeedback(deviceId: String, category: String, message: String, appVersion: String, platform: String = "ios") async throws -> FeedbackEntry {
+        struct Body: Encodable {
+            let deviceId: String
+            let category: String
+            let message: String
+            let appVersion: String
+            let platform: String
+        }
+        return try await request("POST", "/v1/feedback", body: Body(
+            deviceId: deviceId, category: category, message: message,
+            appVersion: appVersion, platform: platform
+        ))
+    }
+
     // MARK: - Subscription
 
     func getSubscriptionStatus() async throws -> SubscriptionStatusResponse {
@@ -286,7 +329,7 @@ final class APIClient {
         if let token = authService.accessToken {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } else {
-            print("[API] WARNING: No access token for \(method) \(path)")
+            AppLogger.api.warning("No access token for \(method, privacy: .public) \(path, privacy: .public)")
         }
 
         if let body {
@@ -295,19 +338,19 @@ final class APIClient {
             )
         }
 
-        print("[API] \(method) \(components.url?.absoluteString ?? path)")
+        AppLogger.api.debug("\(method, privacy: .public) \(components.url?.absoluteString ?? path, privacy: .public)")
 
         let (data, response) = try await URLSession.shared.data(for: req)
 
         guard let http = response as? HTTPURLResponse else {
-            print("[API] ERROR: not an HTTP response for \(path)")
+            AppLogger.api.error("Not an HTTP response for \(path, privacy: .public)")
             throw URLError(.badServerResponse)
         }
 
-        print("[API] \(method) \(path) -> \(http.statusCode) (\(data.count) bytes)")
+        AppLogger.api.debug("\(method, privacy: .public) \(path, privacy: .public) -> \(http.statusCode, privacy: .public) (\(data.count, privacy: .public) bytes)")
 
         if http.statusCode == 401 && !isRetryAfterRefresh {
-            print("[API] 401 — refreshing token and retrying (once)")
+            AppLogger.api.info("401 — refreshing token and retrying (once)")
             try await authService.refreshAccessToken()
             return try await request(method, path, body: body, queryItems: queryItems, isRetryAfterRefresh: true)
         }
@@ -323,7 +366,7 @@ final class APIClient {
 
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "(binary)"
-            print("[API] ERROR: \(http.statusCode) body: \(body.prefix(500))")
+            AppLogger.api.error("HTTP \(http.statusCode, privacy: .public) body: \(body.prefix(500), privacy: .public)")
             // Try to extract server error message from JSON response
             var message = "Server error \(http.statusCode)"
             if let jsonData = data as Data?,
@@ -344,8 +387,8 @@ final class APIClient {
             return result
         } catch {
             let raw = String(data: data, encoding: .utf8) ?? "(binary)"
-            print("[API] DECODE ERROR for \(path): \(error)")
-            print("[API] Raw response: \(raw.prefix(1000))")
+            AppLogger.api.error("DECODE ERROR for \(path, privacy: .public): \(error, privacy: .public)")
+            AppLogger.api.debug("Raw response: \(raw.prefix(1000))")
             throw error
         }
     }
@@ -474,6 +517,36 @@ enum SubscriptionError: LocalizedError {
             return message
         }
     }
+}
+
+struct AppLogEntry: Codable, Identifiable {
+    let id: String
+    let deviceId: String?
+    let source: String
+    let level: String
+    let subsystem: String
+    let message: String
+    let metadata: [String: String]?
+    let createdAt: String
+}
+
+struct AppLogUploadEntry: Codable {
+    let deviceId: String
+    let source: String
+    let level: String
+    let subsystem: String
+    let message: String
+    let metadata: [String: String]?
+}
+
+struct FeedbackEntry: Codable, Identifiable {
+    let id: String
+    let deviceId: String?
+    let category: String
+    let message: String
+    let appVersion: String?
+    let platform: String?
+    let createdAt: String
 }
 
 struct NotificationPreferences: Codable {

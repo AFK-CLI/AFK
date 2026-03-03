@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 extension Agent {
 
@@ -11,10 +12,10 @@ extension Agent {
     func gracefulShutdown() async {
         // Save state before shutdown so next run can resume
         agentState.save()
-        print("[State] Saved state on shutdown")
+        AppLogger.state.info("Saved state on shutdown")
 
         guard let client = wsClient else {
-            print("[Agent] No WS client — skipping session cleanup")
+            AppLogger.agent.warning("No WS client — skipping session cleanup")
             return
         }
         let sessions = await stateManager.allSessions()
@@ -22,7 +23,7 @@ extension Agent {
         for (sessionId, _) in active {
             if let msg = try? MessageEncoder.sessionCompleted(sessionId: sessionId) {
                 try? await client.send(msg)
-                print("[Agent] Sent session.completed for \(sessionId.prefix(8))")
+                AppLogger.agent.info("Sent session.completed for \(sessionId.prefix(8), privacy: .public)")
             }
         }
         // Stop permission socket
@@ -33,7 +34,7 @@ extension Agent {
         diskQueue?.close()
         // Brief delay to let WS messages flush
         try? await Task.sleep(for: .milliseconds(500))
-        print("[Agent] Graceful shutdown complete")
+        AppLogger.agent.info("Graceful shutdown complete")
     }
 
     /// Save current state to disk (called periodically and on shutdown).

@@ -5,6 +5,7 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 actor Agent {
     var config: AgentConfig
@@ -26,6 +27,7 @@ actor Agent {
     var signInController: SignInWindowController?
     nonisolated(unsafe) var onAccountChanged: ((String?) -> Void)?
     let statusBarController: StatusBarController?
+    let logCollector = LogCollector()
 
     init(config: AgentConfig, statusBarController: StatusBarController? = nil) {
         self.config = config
@@ -33,8 +35,8 @@ actor Agent {
     }
 
     func run() async {
-        print("[Agent] Starting AFK Agent...")
-        print("[Agent] Watching: \(config.claudeProjectsPath)")
+        AppLogger.agent.info("Starting AFK Agent...")
+        AppLogger.agent.info("Watching: \(self.config.claudeProjectsPath, privacy: .public)")
 
         // Initialize disk-backed offline queue
         let queueDir = URL(fileURLWithPath: BuildEnvironment.configDirectoryPath)
@@ -42,7 +44,7 @@ actor Agent {
         let queue = DiskQueue(directory: queueDir)
         self.diskQueue = queue
         if queue.count > 0 {
-            print("[Agent] Disk queue recovered \(queue.count) pending messages")
+            AppLogger.agent.info("Disk queue recovered \(queue.count, privacy: .public) pending messages")
         }
 
         let keychain = KeychainStore()
@@ -58,7 +60,7 @@ actor Agent {
 
         // Show sign-in window if no token
         if token == nil {
-            print("[Agent] No token found. Showing sign-in window...")
+            AppLogger.agent.info("No token found. Showing sign-in window...")
             let result = await showSignInWindow()
             if let result {
                 token = result.token
@@ -74,7 +76,7 @@ actor Agent {
             if !connected {
                 // Step 1: Try refreshing the access token
                 if let newToken = await tryRefreshToken(keychain: keychain) {
-                    print("[Agent] Retrying connection with refreshed token...")
+                    AppLogger.agent.info("Retrying connection with refreshed token...")
                     token = newToken
                     connected = await setupWebSocket(token: token, deviceId: deviceId, keychain: keychain)
                 }
@@ -84,7 +86,7 @@ actor Agent {
                     let savedDeviceId = deviceId
                     try? keychain.deleteToken(forKey: "auth-token")
                     try? keychain.deleteToken(forKey: "refresh-token")
-                    print("[Agent] Refresh failed — showing sign-in window...")
+                    AppLogger.agent.warning("Refresh failed — showing sign-in window...")
                     if let result = await showSignInWindow(existingDeviceId: savedDeviceId) {
                         token = result.token
                         deviceId = result.deviceId
@@ -94,12 +96,16 @@ actor Agent {
             }
 
             if connected {
-                print("[Agent] WebSocket ready — starting file watcher")
+                AppLogger.agent.info("WebSocket ready — starting file watcher")
             } else {
-                print("[Agent] WebSocket failed — events will be local only until reconnect")
+                AppLogger.agent.warning("WebSocket failed — events will be local only until reconnect")
             }
 
             self.enrolledDeviceId = deviceId
+
+            // Configure log collector for remote log upload
+            let logApiClient = APIClient(baseURL: config.httpBaseURL, token: token)
+            await logCollector.configure(apiClient: logApiClient, deviceId: deviceId)
 
             if let client = wsClient {
                 // Broadcast initial control state to iOS
@@ -122,7 +128,7 @@ actor Agent {
                 // Refresh peer keys on every WS reconnect to pick up rotated keys
                 await client.onReconnect { [weak self] in
                     guard let self else { return }
-                    print("[Agent] WS reconnected — refreshing E2EE peer keys")
+                    AppLogger.agent.info("WS reconnected — refreshing E2EE peer keys")
                     await self.setupE2EEEncryptor(deviceId: deviceId)
                     // Also refresh permission signing keys for HMAC verification
                     if let socket = await self.permissionSocket {
@@ -152,8 +158,8 @@ actor Agent {
                 }
             }
         } else {
-            print("[Agent] No auth token or device ID found. Running in local-only mode.")
-            print("[Agent] Configure \(BuildEnvironment.configDirectoryPath)/config.json or sign in to connect.")
+            AppLogger.agent.warning("No auth token or device ID found. Running in local-only mode.")
+            AppLogger.agent.info("Configure \(BuildEnvironment.configDirectoryPath, privacy: .public)/config.json or sign in to connect.")
         }
 
         // Start timeout checker
@@ -172,7 +178,7 @@ actor Agent {
         agentState = AgentState.load()
         let restoredCount = agentState.activeSessions.count
         if restoredCount > 0 {
-            print("[State] Loaded \(restoredCount) session(s) from previous run")
+            AppLogger.state.info("Loaded \(restoredCount, privacy: .public) session(s) from previous run")
         }
 
         // Start watching for JSONL files
@@ -215,14 +221,14 @@ actor Agent {
             if let client = wsClient {
                 if let msg = try? MessageEncoder.sessionCompleted(sessionId: sessionId) {
                     try? await client.send(msg)
-                    print("[State] Marked dead session \(sessionId.prefix(8)) as completed")
+                    AppLogger.state.info("Marked dead session \(sessionId.prefix(8), privacy: .public) as completed")
                 }
             }
             agentState.removeSession(sessionId)
         }
 
         if !resumedSessions.isEmpty {
-            print("[State] Resumed \(resumedSessions.count) session(s): \(resumedSessions.map { String($0.prefix(8)) }.joined(separator: ", "))")
+            AppLogger.state.info("Resumed \(resumedSessions.count, privacy: .public) session(s): \(resumedSessions.map { String($0.prefix(8)) }.joined(separator: ", "), privacy: .public)")
         }
 
         // Fast-forward files that are NOT being resumed from state
@@ -233,7 +239,7 @@ actor Agent {
                 await parser.fastForwardToEnd(file)
             }
         }
-        print("[Agent] Registered \(existingFiles.count) existing JSONL files (\(resumedSessions.count) resumed, \(existingFiles.count - resumedSessions.count) fast-forwarded)")
+        AppLogger.agent.info("Registered \(existingFiles.count, privacy: .public) existing JSONL files (\(resumedSessions.count, privacy: .public) resumed, \(existingFiles.count - resumedSessions.count, privacy: .public) fast-forwarded)")
 
         // Save reconciled state
         agentState.save()
@@ -248,7 +254,7 @@ actor Agent {
         }
 
         // Keep running — graceful shutdown on SIGINT/SIGTERM
-        print("[Agent] Agent is running. Press Ctrl+C to stop.")
+        AppLogger.agent.info("Agent is running. Press Ctrl+C to stop.")
         let shutdownSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         let shutdownSource2 = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         signal(SIGINT, SIG_IGN)
@@ -262,7 +268,7 @@ actor Agent {
         }
 
         for await _ in shutdownStream {
-            print("\n[Agent] Graceful shutdown — notifying backend of active sessions...")
+            AppLogger.agent.info("\nGraceful shutdown — notifying backend of active sessions...")
             await gracefulShutdown()
             exit(0)
         }
@@ -317,7 +323,7 @@ actor Agent {
                     }
 
                     // Log locally
-                    print("[\(sessionId.prefix(8))] \(event.eventType.rawValue) seq=\(seq)")
+                    AppLogger.session.debug("\(sessionId.prefix(8), privacy: .public) \(event.eventType.rawValue, privacy: .public) seq=\(seq, privacy: .public)")
                 }
             }
 
@@ -330,13 +336,13 @@ actor Agent {
                 let status = (await stateManager.getInfo(sessionId))?.status
                 if status == .idle || status == .completed {
                     if let intent = await socket.consumeRestartIntent(sessionId: sessionId) {
-                        print("[Agent] Session \(sessionId.prefix(8)) idle — executing plan restart")
+                        AppLogger.agent.info("Session \(sessionId.prefix(8), privacy: .public) idle — executing plan restart")
                         await spawnPlanRestart(sessionId: sessionId, planContent: intent.planContent)
                     }
                 }
             }
         } catch {
-            print("[Agent] Error parsing \(filePath): \(error)")
+            AppLogger.agent.error("Error parsing \(filePath, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -359,7 +365,7 @@ actor Agent {
                 )
                 try await client.send(updateMsg)
             } catch {
-                print("[WS] Failed to send update: \(error.localizedDescription)")
+                AppLogger.ws.error("Failed to send update: \(error.localizedDescription, privacy: .public)")
             }
         }
 
@@ -368,7 +374,53 @@ actor Agent {
             let eventMsg = try MessageEncoder.sessionEvent(sessionId: sessionId, event: event, seq: seq)
             try await client.send(eventMsg)
         } catch {
-            print("[WS] Failed to send event: \(error.localizedDescription)")
+            AppLogger.ws.error("Failed to send event: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func shareLogs() async {
+        let buffered = await logCollector.bufferedCount
+        if buffered == 0 {
+            AppLogger.agent.info("No buffered logs to share")
+            showNotification(title: "Share Logs", message: "No buffered logs to share.")
+            return
+        }
+        let count = await logCollector.shareAll()
+        if count > 0 {
+            AppLogger.agent.info("Shared \(count, privacy: .public) log entries")
+            showNotification(title: "Logs Shared", message: "Uploaded \(count) log entries to the server.")
+        } else {
+            AppLogger.agent.error("Failed to share logs")
+            showNotification(title: "Share Logs", message: "Failed to upload logs. Try again later.")
+        }
+    }
+
+    private func showNotification(title: String, message: String) {
+        let safeTitle = title.filter { $0.isLetter || $0.isNumber || $0 == " " || $0 == "." || $0 == ":" }
+        let safeMessage = message.filter { $0.isLetter || $0.isNumber || $0 == " " || $0 == "." || $0 == ":" || $0 == "," }
+        let script = "display notification \"\(safeMessage)\" with title \"\(safeTitle)\""
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    func submitFeedback(category: String, message: String) async {
+        let keychain = KeychainStore()
+        guard let token = config.authToken ?? (try? keychain.loadToken(forKey: "auth-token")),
+              let deviceId = enrolledDeviceId else {
+            AppLogger.agent.warning("Cannot submit feedback: not authenticated")
+            return
+        }
+        let apiClient = APIClient(baseURL: config.httpBaseURL, token: token)
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        do {
+            try await apiClient.submitFeedback(deviceId: deviceId, category: category, message: message, appVersion: appVersion)
+            AppLogger.agent.info("Feedback submitted successfully")
+        } catch {
+            AppLogger.agent.error("Failed to submit feedback: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -5,6 +5,7 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 actor TodoWatcher {
     private let sessionIndex: SessionIndex
@@ -24,7 +25,7 @@ actor TodoWatcher {
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        print("[TodoWatcher] Started scanning for todo.md changes")
+        AppLogger.session.info("TodoWatcher started scanning for todo.md changes")
 
         Task { [weak self] in
             while let self, await self.isRunning {
@@ -56,7 +57,7 @@ actor TodoWatcher {
                 lastHashes[projectPath] = hash
                 let content = String(data: data, encoding: .utf8) ?? ""
                 let items = TodoParser.parse(content)
-                print("[TodoWatcher] Change detected in \(projectPath)/todo.md (\(items.count) items)")
+                AppLogger.session.debug("TodoWatcher change detected in \(projectPath, privacy: .public)/todo.md (\(items.count, privacy: .public) items)")
                 await onChange(projectPath, hash, content, items)
             }
         }

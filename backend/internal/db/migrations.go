@@ -329,6 +329,39 @@ CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_revoked ON refresh_tokens(
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at_purge ON audit_log(created_at);
 `
 
+const m12AppLogsSQL = `
+CREATE TABLE IF NOT EXISTS app_logs (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    device_id TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    level TEXT NOT NULL DEFAULT 'info',
+    subsystem TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL DEFAULT '',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_app_logs_user_id ON app_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_app_logs_user_level ON app_logs(user_id, level);
+CREATE INDEX IF NOT EXISTS idx_app_logs_user_device ON app_logs(user_id, device_id);
+`
+
+const m12FeedbackSQL = `
+CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    device_id TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT 'general',
+    message TEXT NOT NULL DEFAULT '',
+    app_version TEXT NOT NULL DEFAULT '',
+    platform TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -354,6 +387,8 @@ var migrations = []struct {
 	{Name: "019_tasks.up.sql", SQL: m9TasksSQL},
 	{Name: "020_todos.up.sql", SQL: m10TodosSQL},
 	{Name: "021_security_hardening.up.sql", SQL: m11SecurityHardeningSQL},
+	{Name: "022_app_logs.up.sql", SQL: m12AppLogsSQL},
+	{Name: "023_feedback.up.sql", SQL: m12FeedbackSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

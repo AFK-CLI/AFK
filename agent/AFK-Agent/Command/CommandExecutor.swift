@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 actor CommandExecutor {
     private let redactor = ContentRedactor()
@@ -58,7 +59,7 @@ actor CommandExecutor {
                 )
                 try await verifier.verify(signedCmd, nonceStore: nonceStore)
             } else {
-                print("[CommandExecutor] WARNING: No verifier configured — skipping signature verification")
+                AppLogger.command.warning("No verifier configured — skipping signature verification")
             }
 
             // 2. Resolve claude path and build args — resume in-place (no forking)
@@ -67,7 +68,7 @@ actor CommandExecutor {
             let args = [claudePath, "--resume", request.sessionId, "-p", request.prompt, "--output-format", "json"]
             try CommandValidator.validate(args: args)
 
-            print("[CommandExecutor] Resuming session: \(request.sessionId)")
+            AppLogger.command.info("Resuming session: \(request.sessionId.prefix(8), privacy: .public)")
 
             // 3. Send ack
             let ackMsg = try MessageEncoder.commandAck(
@@ -89,11 +90,11 @@ actor CommandExecutor {
             )
 
             if let sid = newSessionId {
-                print("[CommandExecutor] Session continued: \(sid.prefix(8))")
+                AppLogger.command.info("Session continued: \(sid.prefix(8), privacy: .public)")
             }
 
         } catch {
-            print("[CommandExecutor] Error: \(error)")
+            AppLogger.command.error("Error: \(error.localizedDescription, privacy: .public)")
             if let failMsg = try? MessageEncoder.commandFailed(
                 commandId: request.commandId,
                 sessionId: request.sessionId,
@@ -126,7 +127,7 @@ actor CommandExecutor {
                 )
                 try await verifier.verify(signedCmd, nonceStore: nonceStore)
             } else {
-                print("[CommandExecutor] WARNING: No verifier configured — skipping signature verification")
+                AppLogger.command.warning("No verifier configured — skipping signature verification")
             }
 
             // 2. Resolve claude path and build args
@@ -162,7 +163,7 @@ actor CommandExecutor {
             )
 
         } catch {
-            print("[CommandExecutor] Error: \(error)")
+            AppLogger.command.error("Error: \(error.localizedDescription, privacy: .public)")
             if let failMsg = try? MessageEncoder.commandFailed(
                 commandId: request.commandId,
                 sessionId: "",
@@ -193,9 +194,9 @@ actor CommandExecutor {
 
         if !projectPath.isEmpty, FileManager.default.fileExists(atPath: projectPath) {
             process.currentDirectoryURL = URL(fileURLWithPath: projectPath)
-            print("[CommandExecutor] Working directory: \(projectPath)")
+            AppLogger.command.info("Working directory: \(projectPath, privacy: .public)")
         } else {
-            print("[CommandExecutor] WARNING: Project path not found: \(projectPath)")
+            AppLogger.command.warning("Project path not found: \(projectPath, privacy: .public)")
         }
 
         self.activeProcess = process
@@ -210,7 +211,7 @@ actor CommandExecutor {
                 sessionId: sessionId
             )
             try await wsClient.send(cancelledMsg)
-            print("[CommandExecutor] Command \(commandId) cancelled")
+            AppLogger.command.info("Command \(commandId, privacy: .public) cancelled")
             return nil
         }
 
@@ -277,7 +278,7 @@ actor CommandExecutor {
         guard activeCommandId == commandId else { return }
         isCancelled = true
         activeProcess?.terminate()
-        print("[CommandExecutor] Terminating process for command \(commandId)")
+        AppLogger.command.info("Terminating process for command \(commandId, privacy: .public)")
     }
 
 }

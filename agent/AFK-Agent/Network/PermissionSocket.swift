@@ -14,6 +14,7 @@
 
 import Foundation
 import CryptoKit
+import OSLog
 
 actor PermissionSocket {
     static var socketPath: String {
@@ -76,7 +77,7 @@ actor PermissionSocket {
 
     func setMode(_ mode: PermissionMode) {
         currentMode = mode
-        print("[PermissionSocket] Mode changed to: \(mode.rawValue)")
+        AppLogger.permission.info("Mode changed to: \(mode.rawValue, privacy: .public)")
     }
 
     func getMode() -> PermissionMode { currentMode }
@@ -190,7 +191,7 @@ actor PermissionSocket {
     /// Add an HMAC signing key for a specific peer device.
     func addPermissionSigningKey(_ key: SymmetricKey, for peerDeviceId: String) {
         self.permissionSigningKeys[peerDeviceId] = key
-        print("[PermissionSocket] Cached permission signing key for peer \(peerDeviceId.prefix(8))")
+        AppLogger.permission.debug("Cached permission signing key for peer \(peerDeviceId.prefix(8), privacy: .public)")
     }
 
     func start() throws {
@@ -237,7 +238,7 @@ actor PermissionSocket {
         chmod(PermissionSocket.socketPath, 0o600)
 
         isRunning = true
-        print("[PermissionSocket] Listening on \(PermissionSocket.socketPath)")
+        AppLogger.permission.info("Listening on \(PermissionSocket.socketPath, privacy: .public)")
 
         // Run blocking accept loop on a dedicated GCD queue — NOT on the actor.
         let serverFD = fileDescriptor
@@ -260,7 +261,7 @@ actor PermissionSocket {
         pending.removeAll()
         // Clean stale plan-approved flag files
         Self.cleanStalePlanFlags()
-        print("[PermissionSocket] Stopped")
+        AppLogger.permission.info("Stopped")
     }
 
     /// Remove leftover plan-approved-* flag files from the run directory.
@@ -277,13 +278,13 @@ actor PermissionSocket {
     /// Uses three-tier verification: E2EE HMAC > Challenge-Response > Legacy (transition only).
     func handleResponse(_ response: PermissionResponsePayload) {
         guard let req = pending[response.nonce] else {
-            print("[PermissionSocket] No pending request for nonce \(response.nonce.prefix(8))")
+            AppLogger.permission.warning("No pending request for nonce \(response.nonce.prefix(8), privacy: .public)")
             auditLog(nonce: response.nonce, action: response.action, note: "rejected:unknown_nonce")
             return
         }
         // Check expiry
         if Date() > req.expiresAt {
-            print("[PermissionSocket] Response for nonce \(response.nonce.prefix(8)) expired")
+            AppLogger.permission.warning("Response for nonce \(response.nonce.prefix(8), privacy: .public) expired")
             pending.removeValue(forKey: response.nonce)
             req.continuation.resume(returning: PermissionDecision(action: "deny"))
             auditLog(nonce: response.nonce, action: "expired", note: "response_after_expiry")
@@ -293,7 +294,7 @@ actor PermissionSocket {
         let message = "\(response.nonce)|\(response.action)|\(req.expiresAtUnix)"
         let messageData = Data(message.utf8)
 
-        print("[PermissionSocket] Verifying nonce \(response.nonce.prefix(8)): action=\(response.action), sig=\(response.signature.prefix(16))..., fallbackSig=\(response.fallbackSignature?.prefix(16) ?? "nil"), keys=\(permissionSigningKeys.count), hasChallenge=\(req.challenge != nil)")
+        AppLogger.permission.debug("Verifying nonce \(response.nonce.prefix(8), privacy: .public): action=\(response.action, privacy: .public), sig=\(response.signature.prefix(16), privacy: .public)..., fallbackSig=\(response.fallbackSignature?.prefix(16) ?? "nil", privacy: .public), keys=\(self.permissionSigningKeys.count, privacy: .public), hasChallenge=\(req.challenge != nil, privacy: .public)")
 
         // Tier 1: E2EE HMAC — verify using E2EE-derived permission signing keys
         if !permissionSigningKeys.isEmpty {
@@ -308,9 +309,9 @@ actor PermissionSocket {
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:e2ee_hmac")
                 return
             }
-            print("[PermissionSocket] Tier 1 failed: E2EE signature mismatch (\(permissionSigningKeys.count) keys checked)")
+            AppLogger.permission.warning("Tier 1 failed: E2EE signature mismatch (\(self.permissionSigningKeys.count, privacy: .public) keys checked)")
         } else {
-            print("[PermissionSocket] Tier 1 skipped: no E2EE signing keys cached")
+            AppLogger.permission.debug("Tier 1 skipped: no E2EE signing keys cached")
         }
 
         // Tier 2: Challenge-Response — verify using ephemeral challenge-derived key
@@ -324,9 +325,9 @@ actor PermissionSocket {
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:challenge_response")
                 return
             }
-            print("[PermissionSocket] Tier 2 failed: challenge-response signature mismatch")
+            AppLogger.permission.warning("Tier 2 failed: challenge-response signature mismatch")
         } else {
-            print("[PermissionSocket] Tier 2 skipped: challenge=\(req.challenge != nil), fallbackSig=\(response.fallbackSignature != nil)")
+            AppLogger.permission.debug("Tier 2 skipped: challenge=\(req.challenge != nil, privacy: .public), fallbackSig=\(response.fallbackSignature != nil, privacy: .public)")
         }
 
         // Tier 3: Legacy deterministic fallback (transition period only)
@@ -336,7 +337,7 @@ actor PermissionSocket {
             let mac = HMAC<SHA256>.authenticationCode(for: messageData, using: legacyKey)
             let hex = Data(mac).map { String(format: "%02x", $0) }.joined()
             if hex == response.signature {
-                print("[PermissionSocket] WARNING: Legacy fallback key accepted for nonce \(response.nonce.prefix(8)) — DEPRECATED")
+                AppLogger.permission.warning("Legacy fallback key accepted for nonce \(response.nonce.prefix(8), privacy: .public) — DEPRECATED")
                 pending.removeValue(forKey: response.nonce)
                 req.continuation.resume(returning: PermissionDecision(action: response.action))
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:legacy_fallback_DEPRECATED")
@@ -345,7 +346,7 @@ actor PermissionSocket {
         }
 
         // All tiers failed — deny
-        print("[PermissionSocket] All HMAC verification tiers failed for nonce \(response.nonce.prefix(8))")
+        AppLogger.permission.error("All HMAC verification tiers failed for nonce \(response.nonce.prefix(8), privacy: .public)")
         pending.removeValue(forKey: response.nonce)
         req.continuation.resume(returning: PermissionDecision(action: "deny"))
         auditLog(nonce: response.nonce, action: "deny", note: "rejected:all_hmac_failed")
@@ -371,7 +372,7 @@ actor PermissionSocket {
     /// Synchronous accept loop that runs on a GCD queue.
     /// Blocking `accept()` calls are fine here — they don't block the actor.
     private nonisolated func acceptLoopSync(serverFD: Int32) {
-        print("[PermissionSocket] Accept loop started on I/O queue")
+        AppLogger.permission.info("Accept loop started on I/O queue")
         while true {
             var clientAddr = sockaddr_un()
             var clientLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -382,7 +383,7 @@ actor PermissionSocket {
             }
             guard clientFD >= 0 else {
                 // accept failed — socket was closed (stop() called) or error
-                print("[PermissionSocket] Accept returned \(clientFD), errno=\(errno) — exiting accept loop")
+                AppLogger.permission.info("Accept returned \(clientFD, privacy: .public), errno=\(errno, privacy: .public) — exiting accept loop")
                 break
             }
 
@@ -390,7 +391,7 @@ actor PermissionSocket {
             var yes: Int32 = 1
             setsockopt(clientFD, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
 
-            print("[PermissionSocket] Accepted connection (fd=\(clientFD))")
+            AppLogger.permission.debug("Accepted connection (fd=\(clientFD, privacy: .public))")
 
             // Handle each connection on a separate GCD thread to avoid blocking
             // the accept loop while waiting for iOS response.
@@ -402,7 +403,7 @@ actor PermissionSocket {
                 self.handleConnectionSync(clientFD)
             }
         }
-        print("[PermissionSocket] Accept loop ended")
+        AppLogger.permission.info("Accept loop ended")
     }
 
     /// Handle a single hook connection synchronously.
@@ -424,16 +425,16 @@ actor PermissionSocket {
         }
 
         guard !data.isEmpty else {
-            print("[PermissionSocket] Empty data from hook")
+            AppLogger.permission.warning("Empty data from hook")
             return
         }
 
-        print("[PermissionSocket] Read \(data.count) bytes from hook")
+        AppLogger.permission.debug("Read \(data.count, privacy: .public) bytes from hook")
 
         // Parse the hook input
         let decoder = JSONDecoder()
         guard let input = try? decoder.decode(HookInput.self, from: data) else {
-            print("[PermissionSocket] Failed to parse hook input: \(String(data: data, encoding: .utf8) ?? "<binary>")")
+            AppLogger.permission.error("Failed to parse hook input: \(String(data: data, encoding: .utf8) ?? "<binary>", privacy: .public)")
             return
         }
 
@@ -443,7 +444,7 @@ actor PermissionSocket {
 
         // Local bypass — hook disabled from menu bar, let Claude Code handle permissions normally
         if StatusBarController.isHookBypassed {
-            print("[PermissionSocket] Hook bypassed — \(toolName)")
+            AppLogger.permission.debug("Hook bypassed — \(toolName, privacy: .public)")
             return  // empty response → Claude Code uses normal permission flow
         }
 
@@ -456,7 +457,7 @@ actor PermissionSocket {
             "EnterPlanMode", "NotebookRead"
         ]
         if safeTools.contains(toolName) {
-            print("[PermissionSocket] Auto-pass safe tool: \(toolName)")
+            AppLogger.permission.debug("Auto-pass safe tool: \(toolName, privacy: .public)")
             return  // empty response → Claude Code uses normal permission flow
         }
 
@@ -471,11 +472,11 @@ actor PermissionSocket {
 
         switch mode {
         case .autoApprove:
-            print("[PermissionSocket] Auto-approve (\(toolName)) — mode: autoApprove")
+            AppLogger.permission.info("Auto-approve (\(toolName, privacy: .public)) — mode: autoApprove")
             writeHookResponse(fd: fd, decision: "allow", reason: "Auto-approved via AFK permission mode")
             return
         case .acceptEdits where editTools.contains(toolName):
-            print("[PermissionSocket] Auto-approve edit (\(toolName)) — mode: acceptEdits")
+            AppLogger.permission.info("Auto-approve edit (\(toolName, privacy: .public)) — mode: acceptEdits")
             writeHookResponse(fd: fd, decision: "allow", reason: "Edit auto-approved via AFK Accept Edits mode")
             return
         case .plan where unsafeTools.contains(toolName):
@@ -486,10 +487,10 @@ actor PermissionSocket {
                 let semPlan = DispatchSemaphore(value: 0)
                 Task { await self.setPlanFilePath(sessionId: sessionId, path: filePath); semPlan.signal() }
                 semPlan.wait()
-                print("[PermissionSocket] Auto-approve plan file write: \(toolName) -> \(filePath)")
+                AppLogger.permission.info("Auto-approve plan file write: \(toolName, privacy: .public) -> \(filePath, privacy: .public)")
                 return  // empty response → normal flow
             }
-            print("[PermissionSocket] Auto-deny unsafe (\(toolName)) — mode: plan")
+            AppLogger.permission.info("Auto-deny unsafe (\(toolName, privacy: .public)) — mode: plan")
             writeHookResponse(fd: fd, decision: "deny", reason: "Denied via AFK Plan Mode (read-only)")
             return
         default:
@@ -515,14 +516,14 @@ actor PermissionSocket {
                let data = FileManager.default.contents(atPath: path),
                let text = String(data: data, encoding: .utf8), !text.isEmpty {
                 toolInputDisplay["plan"] = text
-                print("[PermissionSocket] Injected plan content (\(text.count) chars) into ExitPlanMode")
+                AppLogger.permission.debug("Injected plan content (\(text.count, privacy: .public) chars) into ExitPlanMode")
             }
         }
 
         // Generate nonce and expiry
         let nonce = UUID().uuidString
 
-        print("[PermissionSocket] Permission request: \(toolName) (nonce: \(nonce.prefix(8)), session: \(sessionId.prefix(8)))")
+        AppLogger.permission.info("Permission request: \(toolName, privacy: .public) (nonce: \(nonce.prefix(8), privacy: .public), session: \(sessionId.prefix(8), privacy: .public))")
 
         // Use a semaphore to bridge sync GCD context → async actor world.
         // The semaphore blocks THIS GCD thread (not the actor) until iOS responds.
@@ -544,13 +545,13 @@ actor PermissionSocket {
         // Block this GCD thread until the actor resolves (iOS responds or timeout).
         semaphore.wait()
 
-        print("[PermissionSocket] Decision for \(nonce.prefix(8)): \(decision.action)")
+        AppLogger.permission.info("Decision for \(nonce.prefix(8), privacy: .public): \(decision.action, privacy: .public)")
 
         // Handle AskUserQuestion answers from iOS — deny the tool with the answer
         // so Claude receives the user's selection without needing terminal input
         if decision.action.hasPrefix("answer:") {
             let answer = String(decision.action.dropFirst("answer:".count))
-            print("[PermissionSocket] AskUserQuestion answered from iOS: \(answer)")
+            AppLogger.permission.info("AskUserQuestion answered from iOS: \(answer, privacy: .public)")
             writeHookResponse(fd: fd, decision: "deny", reason: "User answered from AFK mobile: \(answer)")
             return
         }
@@ -571,7 +572,7 @@ actor PermissionSocket {
                 let sem = DispatchSemaphore(value: 0)
                 Task { await self.setMode(.acceptEdits); sem.signal() }
                 sem.wait()
-                print("[PermissionSocket] ExitPlanMode: accept + auto-accept (mode → acceptEdits)")
+                AppLogger.permission.info("ExitPlanMode: accept + auto-accept (mode → acceptEdits)")
 
             case "plan:accept-manual":
                 // Allow ExitPlanMode → PostToolUse will inject Shift+Tab
@@ -580,7 +581,7 @@ actor PermissionSocket {
                 let sem = DispatchSemaphore(value: 0)
                 Task { await self.setMode(.ask); sem.signal() }
                 sem.wait()
-                print("[PermissionSocket] ExitPlanMode: accept + manual (mode → ask)")
+                AppLogger.permission.info("ExitPlanMode: accept + manual (mode → ask)")
 
             case "plan:accept-clear-auto":
                 // Deny — session will stop, Agent spawns fresh session with the plan
@@ -589,20 +590,20 @@ actor PermissionSocket {
                 Task { await self.recordRestartIntent(sessionId: sessionId, planContent: planText); sem.signal() }
                 sem.wait()
                 writeHookResponse(fd: fd, decision: "deny", reason: "Plan approved by user from AFK mobile. Session will restart with clean context to implement the plan.", shouldContinue: false)
-                print("[PermissionSocket] ExitPlanMode: accept + clear context (continue=false)")
+                AppLogger.permission.info("ExitPlanMode: accept + clear context (continue=false)")
 
             case "plan:reject":
                 writeHookResponse(fd: fd, decision: "deny", reason: "Plan rejected by user from AFK mobile. Please revise the plan.")
-                print("[PermissionSocket] ExitPlanMode: rejected")
+                AppLogger.permission.info("ExitPlanMode: rejected")
 
             default:
                 if planAction.hasPrefix("plan:feedback:") {
                     let feedback = String(planAction.dropFirst("plan:feedback:".count))
                     writeHookResponse(fd: fd, decision: "deny", reason: "User feedback from AFK mobile on the plan: \(feedback)")
-                    print("[PermissionSocket] ExitPlanMode: feedback — \(feedback.prefix(80))")
+                    AppLogger.permission.info("ExitPlanMode: feedback — \(feedback.prefix(80), privacy: .public)")
                 } else {
                     writeHookResponse(fd: fd, decision: "deny", reason: "Unknown plan action from AFK mobile: \(planAction)")
-                    print("[PermissionSocket] ExitPlanMode: unknown — \(planAction)")
+                    AppLogger.permission.warning("ExitPlanMode: unknown — \(planAction, privacy: .public)")
                 }
             }
             return
@@ -701,7 +702,7 @@ actor PermissionSocket {
         guard let req = pending[nonce] else { return }
         pending.removeValue(forKey: nonce)
         req.continuation.resume(returning: PermissionDecision(action: "deny"))
-        print("[PermissionSocket] Request \(nonce.prefix(8)) expired")
+        AppLogger.permission.warning("Request \(nonce.prefix(8), privacy: .public) expired")
     }
 
     // MARK: - Hook Response Helper
@@ -720,7 +721,7 @@ actor PermissionSocket {
             response["continue"] = shouldContinue
         }
         guard var data = try? JSONSerialization.data(withJSONObject: response) else {
-            print("[PermissionSocket] ERROR: Failed to serialize hook response JSON")
+            AppLogger.permission.error("Failed to serialize hook response JSON")
             return
         }
         // Append newline delimiter so the hook script can detect response completion
@@ -732,11 +733,11 @@ actor PermissionSocket {
         }
         if written < 0 {
             let err = errno
-            print("[PermissionSocket] ERROR: write() failed — errno=\(err) (\(String(cString: strerror(err)))). Hook script likely disconnected before response was ready.")
+            AppLogger.permission.error("write() failed — errno=\(err, privacy: .public) (\(String(cString: strerror(err)), privacy: .public)). Hook script likely disconnected before response was ready.")
         } else if written < data.count {
-            print("[PermissionSocket] WARNING: Partial write — \(written)/\(data.count) bytes. Hook script may not receive full response.")
+            AppLogger.permission.warning("Partial write — \(written, privacy: .public)/\(data.count, privacy: .public) bytes. Hook script may not receive full response.")
         } else {
-            print("[PermissionSocket] Wrote \(written) byte \(decision) response")
+            AppLogger.permission.debug("Wrote \(written, privacy: .public) byte \(decision, privacy: .public) response")
         }
     }
 
