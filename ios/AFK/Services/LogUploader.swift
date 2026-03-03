@@ -2,6 +2,7 @@ import Foundation
 import OSLog
 
 @Observable
+@MainActor
 final class LogUploader {
     static let shared = LogUploader()
 
@@ -26,7 +27,15 @@ final class LogUploader {
         isUploading = true
         defer { isUploading = false }
 
-        let entries = collectFromOSLog()
+        // Capture values before entering detached context.
+        let since = lastShareDate
+        let devId = deviceId
+
+        // Heavy OSLogStore iteration runs off the main actor.
+        let entries = await Task.detached(priority: .userInitiated) {
+            Self.collectFromOSLog(since: since, deviceId: devId)
+        }.value
+
         guard !entries.isEmpty else {
             lastShareCount = 0
             return 0
@@ -52,17 +61,42 @@ final class LogUploader {
         return uploaded
     }
 
-    /// Refresh the buffered log count off the main thread.
-    func refreshBufferedCount() async {
-        let count = collectFromOSLog().count
-        bufferedCount = count
+    /// Fire-and-forget: counts logs on a background thread, updates bufferedCount on MainActor.
+    /// Returns immediately — never blocks the caller.
+    func refreshBufferedCount() {
+        let since = lastShareDate
+        // Task inherits @MainActor, so after await it resumes here safely.
+        Task {
+            let count = await Task.detached(priority: .utility) {
+                Self.countFromOSLog(since: since)
+            }.value
+            bufferedCount = count
+        }
     }
 
-    private func collectFromOSLog() -> [AppLogUploadEntry] {
+    /// Lightweight count — iterates entries without building the full upload array.
+    nonisolated private static func countFromOSLog(since: Date?) -> Int {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
-            let since = lastShareDate ?? Date().addingTimeInterval(-3600)
-            let position = store.position(date: since)
+            let sinceDate = since ?? Date().addingTimeInterval(-3600)
+            let position = store.position(date: sinceDate)
+            let predicate = NSPredicate(format: "subsystem == %@", AppLogger.subsystem)
+            let osEntries = try store.getEntries(at: position, matching: predicate)
+            var count = 0
+            for entry in osEntries where entry is OSLogEntryLog { count += 1 }
+            return count
+        } catch {
+            return 0
+        }
+    }
+
+    nonisolated private static func collectFromOSLog(since: Date?, deviceId: String)
+        -> [AppLogUploadEntry]
+    {
+        do {
+            let store = try OSLogStore(scope: .currentProcessIdentifier)
+            let sinceDate = since ?? Date().addingTimeInterval(-3600)
+            let position = store.position(date: sinceDate)
             let predicate = NSPredicate(format: "subsystem == %@", AppLogger.subsystem)
             let osEntries = try store.getEntries(at: position, matching: predicate)
 
@@ -78,14 +112,15 @@ final class LogUploader {
                 case .notice: level = "info"
                 default: level = "info"
                 }
-                result.append(AppLogUploadEntry(
-                    deviceId: deviceId,
-                    source: "ios",
-                    level: level,
-                    subsystem: logEntry.category,
-                    message: String(logEntry.composedMessage.prefix(4096)),
-                    metadata: nil
-                ))
+                result.append(
+                    AppLogUploadEntry(
+                        deviceId: deviceId,
+                        source: "ios",
+                        level: level,
+                        subsystem: logEntry.category,
+                        message: String(logEntry.composedMessage.prefix(4096)),
+                        metadata: nil
+                    ))
             }
             return result
         } catch {

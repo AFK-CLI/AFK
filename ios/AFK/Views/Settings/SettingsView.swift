@@ -7,8 +7,10 @@ struct SettingsView: View {
     let wsService: WebSocketService
     let subscriptionManager: SubscriptionManager
     let logUploader: LogUploader
-    @AppStorage("timelineNewestFirst", store: BuildEnvironment.userDefaults) private var timelineNewestFirst = true
-    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricEnabled = false
+    @AppStorage("timelineNewestFirst", store: BuildEnvironment.userDefaults) private
+        var timelineNewestFirst = true
+    @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private
+        var biometricEnabled = false
     @State private var isSharingLogs = false
     @State private var showShareLogsResult = false
     @State private var shareLogsCount = 0
@@ -24,7 +26,8 @@ struct SettingsView: View {
                 }
 
                 Section("Subscription") {
-                    SubscriptionStatusView(subscriptionManager: subscriptionManager, apiClient: apiClient)
+                    SubscriptionStatusView(
+                        subscriptionManager: subscriptionManager, apiClient: apiClient)
                 }
 
                 Section("Server") {
@@ -43,7 +46,9 @@ struct SettingsView: View {
 
                 Section("Security") {
                     if BiometricService.isAvailable {
-                        Toggle("\(BiometricService.biometricType) for Commands", isOn: $biometricEnabled)
+                        Toggle(
+                            "\(BiometricService.biometricType) for Commands",
+                            isOn: $biometricEnabled)
                     }
                     NavigationLink("Audit Log") {
                         AuditLogView(apiClient: apiClient)
@@ -77,15 +82,14 @@ struct SettingsView: View {
                             Spacer()
                             if isSharingLogs {
                                 ProgressView()
-                            } else {
+                            } else if logUploader.bufferedCount > 0 {
                                 Text("\(logUploader.bufferedCount)")
                                     .foregroundStyle(.secondary)
                                     .font(.subheadline)
                             }
                         }
                     }
-                    .disabled(isSharingLogs || logUploader.bufferedCount == 0)
-                    .task { await logUploader.refreshBufferedCount() }
+                    .disabled(isSharingLogs)
                 }
 
                 Section("Display") {
@@ -99,6 +103,7 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .onAppear { logUploader.refreshBufferedCount() }
             .alert("Logs Shared", isPresented: $showShareLogsResult) {
                 Button("OK", role: .cancel) {}
             } message: {
