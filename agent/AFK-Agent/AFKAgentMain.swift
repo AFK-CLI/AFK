@@ -42,6 +42,13 @@ struct AFKAgentMain {
 
         let config = AgentConfig.load()
 
+        #if canImport(Sparkle)
+        if let updater = updaterController?.updater {
+            updater.automaticallyChecksForUpdates = config.updateCheckInterval > 0
+            updater.updateCheckInterval = config.updateCheckInterval > 0 ? config.updateCheckInterval : 3600
+        }
+        #endif
+
         if config.isConfigured {
             startAgent(config: config, app: app)
         } else {
@@ -57,7 +64,7 @@ struct AFKAgentMain {
     }
 
     private static func startAgent(config: AgentConfig, app: NSApplication) {
-        statusBarController = StatusBarController()
+        statusBarController = StatusBarController(config: config)
         let agent = Agent(config: config, statusBarController: statusBarController)
 
         #if canImport(Sparkle)
@@ -65,6 +72,40 @@ struct AFKAgentMain {
             statusBarController?.setUpdaterAction(target: updater)
         }
         #endif
+
+        // Configure SettingsWindow with current config and Sparkle updater
+        if let sbc = statusBarController {
+            SettingsWindow.shared.configure(
+                config: config,
+                sleepPreventer: sbc.sleepPreventer,
+                onConfigChanged: { newConfig in
+                    sbc.updateConfig(newConfig)
+                    sbc.onSettingsChanged?(newConfig)
+                },
+                onRemoteApprovalChanged: { enabled in
+                    sbc.setRemoteApproval(enabled)
+                }
+            )
+            #if canImport(Sparkle)
+            if let updater = updaterController {
+                SettingsWindow.shared.setUpdaterController(updater)
+            }
+            #endif
+        }
+
+        statusBarController?.activeSessionProvider = {
+            let sessions = await agent.stateManager.allSessions()
+            var entries: [SessionEntry] = []
+            for (sessionId, info) in sessions {
+                guard info.status == .running || info.status == .idle || info.status == .waitingPermission else { continue }
+                entries.append(SessionEntry(
+                    sessionId: sessionId,
+                    projectPath: info.projectPath,
+                    status: info.status.rawValue
+                ))
+            }
+            return entries
+        }
 
         statusBarController?.onSignIn = {
             Task { await agent.signIn() }

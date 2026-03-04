@@ -67,3 +67,4 @@ node_modules/
 # Admin panel build output
 backend/internal/handler/static/admin/
 *.tsbuildinfo
+**.trace

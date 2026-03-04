@@ -151,8 +151,37 @@ final class LiveActivityManager {
 
         Task {
             for activity in Activity<SessionActivityAttributes>.activities where activity.id == activityId {
-                await activity.update(.init(state: state, staleDate: nil))
+                await activity.update(.init(state: state, staleDate: Date().addingTimeInterval(180)))
             }
+        }
+    }
+
+    /// End live activities for sessions that are no longer actively running.
+    /// Call this on foreground transitions and WS reconnect to catch any orphaned activities.
+    func cleanupStaleActivities(activeSessionIds: Set<String>) {
+        var cleaned = 0
+        for activity in Activity<SessionActivityAttributes>.activities {
+            let sessionId = activity.attributes.sessionId
+            if !activeSessionIds.contains(sessionId) {
+                let elapsed = Int(Date().timeIntervalSince(startTimes[sessionId] ?? Date()))
+                let finalState = SessionActivityAttributes.ContentState(
+                    status: "completed",
+                    currentTool: nil,
+                    turnCount: 0,
+                    elapsedSeconds: elapsed
+                )
+                Task {
+                    await activity.end(.init(state: finalState, staleDate: nil), dismissalPolicy: .immediate)
+                }
+                activities.removeValue(forKey: sessionId)
+                startTimes.removeValue(forKey: sessionId)
+                updateThrottles.removeValue(forKey: sessionId)
+                lastStatus.removeValue(forKey: sessionId)
+                cleaned += 1
+            }
+        }
+        if cleaned > 0 {
+            AppLogger.liveActivity.info("Cleaned up \(cleaned, privacy: .public) stale live activities")
         }
     }
 

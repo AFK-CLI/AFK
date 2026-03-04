@@ -66,35 +66,32 @@ struct DeviceListView: View {
     /// Map device name and system info to the appropriate SF Symbol.
     private static func sfSymbol(for device: Device) -> String {
         let name = device.name.lowercased()
-        let systemInfo = (device.systemInfo ?? "").lowercased()
+        let info = (device.systemInfo ?? "").lowercased()
 
         // iOS devices
-        if systemInfo.hasPrefix("ios") || name.contains("iphone") {
+        if info.hasPrefix("ios") || name.contains("iphone") {
             return "iphone"
         }
-        if systemInfo.hasPrefix("ipados") || name.contains("ipad") {
+        if info.hasPrefix("ipados") || name.contains("ipad") {
             return "ipad"
         }
 
-        // Mac models
-        if name.contains("macbook") {
+        // Check both device name and systemInfo (which may contain hw.model like "macbookpro18,1")
+        let hints = name + " " + info
+
+        if hints.contains("macbook") {
             return "laptopcomputer"
         }
-        if name.contains("mac mini") {
+        if hints.contains("macmini") || hints.contains("mac mini") {
             return "macmini"
         }
-        if name.contains("mac studio") {
+        if hints.contains("macstudio") || hints.contains("mac studio") {
             return "macstudio"
         }
-        if name.contains("mac pro") {
+        if hints.contains("macpro") || hints.contains("mac pro") {
             return "macpro.gen3"
         }
-        if name.contains("imac") {
-            return "desktopcomputer"
-        }
-
-        // Default: macOS agent
-        if systemInfo.hasPrefix("macos") {
+        if hints.contains("imac") {
             return "desktopcomputer"
         }
 

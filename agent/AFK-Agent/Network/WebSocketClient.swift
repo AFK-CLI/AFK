@@ -216,6 +216,32 @@ actor WebSocketClient {
         connectionContinuations.removeAll()
     }
 
+    /// Reset reconnect backoff to the minimum delay. Useful after sleep/wake to
+    /// avoid waiting through a long exponential backoff period.
+    func resetReconnectBackoff() {
+        reconnectDelay = 1.0
+        AppLogger.ws.debug("Reconnect backoff reset to 1s")
+    }
+
+    /// Read-only access to the current connection state.
+    func getIsConnected() -> Bool {
+        isConnected
+    }
+
+    /// Trigger a reconnection attempt if currently disconnected and not cancelled.
+    /// Cancels any stale WebSocket task, fetches a fresh ticket, and connects.
+    func triggerReconnect() async {
+        guard !isCancelled, !isConnected else { return }
+
+        // Cancel any lingering task to prevent orphan callbacks
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+
+        let ticket = await ticketProvider?()
+        guard !isCancelled else { return }
+        await connect(ticket: ticket)
+    }
+
     private func receiveLoop() async {
         guard let task = webSocketTask else { return }
         do {

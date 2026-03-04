@@ -868,6 +868,8 @@ final class SessionStore {
                     )
                 case .completed:
                     lam.endActivity(sessionId: session.id, finalStatus: "completed")
+                case .idle:
+                    lam.endActivity(sessionId: session.id, finalStatus: "completed")
                 case .error:
                     lam.endActivity(sessionId: session.id, finalStatus: "error")
                 default:
@@ -962,6 +964,9 @@ final class SessionStore {
                 for sessionId in self.viewingSessionIds {
                     await self.loadEvents(for: sessionId)
                 }
+                // Clean up any stale live activities after reconnect
+                let activeIds = Set(self.sessions.filter { $0.status == .running }.map(\.id))
+                self.liveActivityManager?.cleanupStaleActivities(activeSessionIds: activeIds)
             }
         }
 
@@ -991,6 +996,15 @@ final class SessionStore {
         wsService.onAgentControlState = { [weak self] (deviceId, remoteApproval, autoPlanExit) in
             guard let self else { return }
             self.agentControlStates[deviceId] = AgentControlState(remoteApproval: remoteApproval, autoPlanExit: autoPlanExit)
+        }
+
+        wsService.onDeviceStatus = { [weak self] (deviceId, isOnline) in
+            guard let self else { return }
+            if !isOnline, let lam = self.liveActivityManager {
+                for session in self.sessions where session.deviceId == deviceId {
+                    lam.endActivity(sessionId: session.id, finalStatus: "completed")
+                }
+            }
         }
 
         wsService.onPermissionRequest = { [weak self] (request: PermissionRequest) in

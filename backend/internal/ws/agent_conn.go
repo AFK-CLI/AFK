@@ -154,6 +154,30 @@ func agentReadPump(hub *Hub, ac *AgentConn, database *sql.DB, userID, deviceID, 
 			IsOnline:   false,
 		})
 		hub.BroadcastToUser(userID, statusMsg)
+
+		// Mark all running sessions for this device as idle.
+		// Use idle (not completed) because the session may resume when
+		// the agent reconnects.
+		runningSessions, err := db.ListRunningSessionsByDevice(database, deviceID)
+		if err == nil && len(runningSessions) > 0 {
+			slog.Info("agent disconnected, marking running sessions idle",
+				"device_id", deviceID, "count", len(runningSessions))
+			for _, sid := range runningSessions {
+				if err := db.UpdateSessionStatus(database, sid, model.StatusIdle); err != nil {
+					slog.Error("failed to mark session idle on disconnect",
+						"session_id", sid, "device_id", deviceID, "error", err)
+					continue
+				}
+				// Broadcast updated session to iOS clients.
+				if session, err := db.GetSession(database, sid); err == nil {
+					notification, _ := NewWSMessage("session.update", model.SessionUpdateNotification{
+						Session:    session,
+						DeviceName: deviceName,
+					})
+					hub.BroadcastToUser(userID, notification)
+				}
+			}
+		}
 	}()
 
 	ac.Conn.SetReadLimit(maxMessageSize)

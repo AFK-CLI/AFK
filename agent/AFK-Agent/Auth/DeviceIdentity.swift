@@ -42,7 +42,21 @@ struct DeviceIdentity: Sendable {
     }
 
     static func systemInfo() -> String {
-        let info = ProcessInfo.processInfo
-        return "macOS \(info.operatingSystemVersionString)"
+        let version = ProcessInfo.processInfo.operatingSystemVersionString
+        let model = hardwareModel()
+        if model.isEmpty {
+            return "macOS \(version)"
+        }
+        return "macOS \(version) \(model)"
+    }
+
+    /// Returns the hardware model identifier (e.g. "MacBookPro18,1", "Macmini9,1").
+    private static func hardwareModel() -> String {
+        var size: Int = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        guard size > 0 else { return "" }
+        var model = [CChar](repeating: 0, count: size)
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        return String(cString: model)
     }
 }

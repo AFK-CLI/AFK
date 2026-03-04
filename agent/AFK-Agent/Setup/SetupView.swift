@@ -121,7 +121,11 @@ struct SetupView: View {
             deviceName: deviceName,
             logLevel: "info",
             hooksEnabled: true,
-            planAutoExit: false
+            planAutoExit: false,
+            obeySettingsRules: false,
+            preventSleep: false,
+            ctrlClickTogglesRemoteAndSleep: false,
+            updateCheckInterval: 3600
         )
         config.save()
         onSave(config)

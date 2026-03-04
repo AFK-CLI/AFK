@@ -29,6 +29,11 @@ struct HomeView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
+                                Button("Copy Resume Command", systemImage: "doc.on.doc") {
+                                    let command = "cd \(session.projectPath) && claude --resume \(session.id)"
+                                    UIPasteboard.general.string = command
+                                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                }
                                 if session.status == .idle {
                                     Button("Dismiss", systemImage: "xmark.circle") {
                                         withAnimation {

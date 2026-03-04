@@ -24,6 +24,12 @@ actor PermissionSocket {
     private let deviceId: String
     private let acceptLegacyFallback: Bool
 
+    /// When true, check Claude settings.json allow/deny rules before forwarding to iOS.
+    private var settingsRulesEnabled: Bool = false
+
+    /// Resolves a session ID to its project path (bridges to SessionIndex).
+    private var projectPathResolver: (@Sendable (String) async -> String?)?
+
     /// HMAC signing keys derived from E2EE key agreement, for verifying permission responses.
     /// Keyed by peer device ID (typically iOS devices).
     private var permissionSigningKeys: [String: SymmetricKey] = [:]
@@ -180,6 +186,20 @@ actor PermissionSocket {
 
     func setOnPermissionRequest(_ handler: @escaping @Sendable (PermissionRequestEvent) async -> Void) {
         self.onPermissionRequest = handler
+    }
+
+    func setSettingsRulesEnabled(_ enabled: Bool) {
+        self.settingsRulesEnabled = enabled
+    }
+
+    func setProjectPathResolver(_ resolver: @escaping @Sendable (String) async -> String?) {
+        self.projectPathResolver = resolver
+    }
+
+    func getSettingsRulesEnabled() -> Bool { settingsRulesEnabled }
+
+    func resolveProjectPath(sessionId: String) async -> String? {
+        await projectPathResolver?(sessionId)
     }
 
     init(timeout: TimeInterval, deviceId: String, acceptLegacyFallback: Bool = true) {
@@ -497,6 +517,39 @@ actor PermissionSocket {
             break // fall through to existing iOS forwarding logic
         }
 
+        // Check settings.json allow/deny rules (if enabled)
+        let semSettings = DispatchSemaphore(value: 0)
+        var settingsEnabled = false
+        var resolvedProjectPath: String?
+        Task {
+            settingsEnabled = await self.getSettingsRulesEnabled()
+            if settingsEnabled {
+                resolvedProjectPath = await self.resolveProjectPath(sessionId: sessionId)
+            }
+            semSettings.signal()
+        }
+        semSettings.wait()
+
+        if settingsEnabled {
+            // Build tool input string for rule matching
+            let settingsToolInput = Self.extractToolInputForSettings(toolName: toolName, input: input)
+            let parser = ClaudeSettingsParser(projectPath: resolvedProjectPath)
+            let settingsDecision = parser.decision(for: toolName, toolInput: settingsToolInput)
+
+            switch settingsDecision {
+            case .allow:
+                AppLogger.permission.info("Settings allow: \(toolName, privacy: .public) (session: \(sessionId.prefix(8), privacy: .public))")
+                writeHookResponse(fd: fd, decision: "allow", reason: "Allowed by settings.json rule")
+                return
+            case .deny:
+                AppLogger.permission.info("Settings deny: \(toolName, privacy: .public) (session: \(sessionId.prefix(8), privacy: .public))")
+                writeHookResponse(fd: fd, decision: "deny", reason: "Denied by settings.json rule")
+                return
+            case .ask:
+                break // fall through to iOS forwarding
+            }
+        }
+
         // Build simplified tool input for display
         var toolInputDisplay: [String: String] = [:]
         if let ti = input.tool_input {
@@ -738,6 +791,28 @@ actor PermissionSocket {
             AppLogger.permission.warning("Partial write — \(written, privacy: .public)/\(data.count, privacy: .public) bytes. Hook script may not receive full response.")
         } else {
             AppLogger.permission.debug("Wrote \(written, privacy: .public) byte \(decision, privacy: .public) response")
+        }
+    }
+
+    // MARK: - Settings Rule Input Extraction
+
+    /// Extract the most relevant tool input string for settings.json rule matching.
+    /// For Bash: uses the "command" field. For Write/Edit: uses "file_path".
+    /// Falls back to concatenating all string values.
+    private nonisolated static func extractToolInputForSettings(toolName: String, input: HookInput) -> String? {
+        guard let ti = input.tool_input else { return nil }
+
+        switch toolName {
+        case "Bash":
+            // Bash rules match against the command string
+            return ti["command"]?.stringValue
+        case "Write", "Edit", "NotebookEdit", "MultiEdit":
+            // File tools match against the file path
+            return ti["file_path"]?.stringValue ?? ti["notebook_path"]?.stringValue
+        default:
+            // For other tools, concatenate all string values
+            let values = ti.values.map(\.stringValue).filter { !$0.isEmpty }
+            return values.isEmpty ? nil : values.joined(separator: " ")
         }
     }
 

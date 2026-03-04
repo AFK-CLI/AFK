@@ -47,6 +47,12 @@ actor Agent {
             AppLogger.agent.info("Disk queue recovered \(queue.count, privacy: .public) pending messages")
         }
 
+        // Register for sleep/wake notifications (reconnect resilience)
+        registerSleepWakeObservers()
+
+        // Register for app termination (graceful shutdown on logout/restart)
+        registerTerminationObserver()
+
         let keychain = KeychainStore()
 
         // Resolve auth token + device ID

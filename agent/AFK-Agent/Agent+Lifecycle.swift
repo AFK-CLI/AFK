@@ -4,9 +4,34 @@
 //
 
 import Foundation
+import AppKit
 import OSLog
 
 extension Agent {
+
+    /// Register for NSApplication.willTerminateNotification to handle clean
+    /// macOS shutdown, restart, and logout. Calls gracefulShutdown() to mark
+    /// active sessions offline before the process exits.
+    func registerTerminationObserver() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            AppLogger.agent.info("Application will terminate — running graceful shutdown")
+            // Use a semaphore to block the notification handler until shutdown completes,
+            // since willTerminateNotification expects synchronous handling.
+            let semaphore = DispatchSemaphore(value: 0)
+            Task {
+                await self.gracefulShutdown()
+                semaphore.signal()
+            }
+            // Wait briefly (up to 2s) for shutdown to complete
+            _ = semaphore.wait(timeout: .now() + 2.0)
+        }
+        AppLogger.agent.debug("Registered termination observer")
+    }
 
     /// Send session.completed for all active sessions before exiting.
     func gracefulShutdown() async {

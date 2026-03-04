@@ -101,7 +101,7 @@ extension Agent {
 
             // 2. Enroll this device
             let deviceName = config.deviceName
-            let systemInfo = "\(ProcessInfo.processInfo.operatingSystemVersionString)"
+            let systemInfo = DeviceIdentity.systemInfo()
             let api = APIClient(baseURL: httpBase, token: token)
             let device = try await api.enrollDevice(
                 name: deviceName,

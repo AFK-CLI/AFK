@@ -24,6 +24,13 @@ extension Agent {
             await self.forwardPermissionRequest(event)
         }
 
+        // Configure settings.json rule checking
+        await socket.setSettingsRulesEnabled(config.obeySettingsRules)
+        await socket.setProjectPathResolver { [weak self] sessionId in
+            guard let self else { return nil }
+            return await self.sessionIndex.projectPath(for: sessionId)
+        }
+
         // Derive permission signing keys from E2EE key agreement with iOS peers.
         await setupPermissionSigningKeys(socket: socket, deviceId: deviceId)
 

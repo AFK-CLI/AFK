@@ -25,6 +25,12 @@ final class StatusBarController: NSObject {
     private var signInOutMenuItem: NSMenuItem!
     private var remoteSessionsMenuItem: NSMenuItem!
     private var remoteSessionsSubmenu: NSMenu!
+    private var preventSleepMenuItem: NSMenuItem!
+    private var copyResumeMenuItem: NSMenuItem!
+
+    let sleepPreventer = SleepPreventer()
+    private var sessionPickerWindow: SessionPickerWindow?
+    private(set) var agentConfig: AgentConfig?
 
     /// Tracks sessions started from iOS for the menu bar submenu.
     /// Must be a class (not struct) so NSMenuItem.representedObject can round-trip via `as?`.
@@ -44,6 +50,11 @@ final class StatusBarController: NSObject {
     var onControlStateChanged: (() -> Void)?
     var onSendFeedback: (() -> Void)?
     var onShareLogs: (() -> Void)?
+    var onSettingsChanged: ((AgentConfig) -> Void)?
+
+    /// Async provider for all active sessions (local + remote).
+    /// Wired by AFKAgentMain to query Agent's SessionStateManager + SessionIndex.
+    var activeSessionProvider: (@Sendable () async -> [SessionEntry])?
 
     /// Runtime directory for flag files and sockets.
     static var runDir: String {
@@ -112,12 +123,32 @@ final class StatusBarController: NSObject {
         onControlStateChanged?()
     }
 
-    override init() {
+    init(config: AgentConfig? = nil) {
+        self.agentConfig = config
         super.init()
         // Clean up stale flag files on startup (default: remote approval ON, auto plan exit OFF)
         removeFlagFile()
         removePlanAutoExitFlag()
         setupStatusBar()
+
+        // Sync sleep preventer with config on startup
+        if config?.preventSleep == true {
+            sleepPreventer.start()
+            preventSleepMenuItem.state = .on
+        }
+    }
+
+    /// Update the stored config reference (called when settings change).
+    func updateConfig(_ config: AgentConfig) {
+        self.agentConfig = config
+
+        // Sync sleep preventer state
+        if config.preventSleep && !sleepPreventer.isActive {
+            sleepPreventer.start()
+        } else if !config.preventSleep && sleepPreventer.isActive {
+            sleepPreventer.stop()
+        }
+        preventSleepMenuItem.state = sleepPreventer.isActive ? .on : .off
     }
 
     private var menu: NSMenu!
@@ -190,10 +221,28 @@ final class StatusBarController: NSObject {
         remoteSessionsMenuItem.submenu = remoteSessionsSubmenu
         remoteSessionsMenuItem.isHidden = true  // hidden until first remote session
 
+        copyResumeMenuItem = NSMenuItem(
+            title: "Copy Resume Command",
+            action: #selector(handleCopyResumeCommand),
+            keyEquivalent: ""
+        )
+        copyResumeMenuItem.target = self
+        copyResumeMenuItem.isEnabled = true
+
+        preventSleepMenuItem = NSMenuItem(
+            title: "Prevent Sleep",
+            action: #selector(togglePreventSleep),
+            keyEquivalent: ""
+        )
+        preventSleepMenuItem.target = self
+        preventSleepMenuItem.state = .off
+
         menu.addItem(remoteSessionsMenuItem)
+        menu.addItem(copyResumeMenuItem)
         menu.addItem(.separator())
         menu.addItem(hookMenuItem)
         menu.addItem(planAutoExitMenuItem)
+        menu.addItem(preventSleepMenuItem)
         menu.addItem(loginItemMenuItem)
 
         menu.addItem(.separator())
@@ -215,6 +264,15 @@ final class StatusBarController: NSObject {
         menu.addItem(shareLogsItem)
 
         menu.addItem(.separator())
+
+        let settingsItem = NSMenuItem(
+            title: "Settings\u{2026}",
+            action: #selector(handleShowSettings),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         menu.addItem(checkForUpdatesMenuItem)
         menu.addItem(.separator())
 
@@ -231,7 +289,13 @@ final class StatusBarController: NSObject {
     @objc private func statusBarClicked() {
         guard let event = NSApp.currentEvent else { return }
         if event.modifierFlags.contains(.control) {
-            toggleHook()
+            if agentConfig?.ctrlClickTogglesRemoteAndSleep == true {
+                // Combo toggle: remote approval + sleep prevention together
+                toggleHook()
+                togglePreventSleep()
+            } else {
+                toggleHook()
+            }
         } else {
             statusItem.menu = menu
             statusItem.button?.performClick(nil)
@@ -338,6 +402,81 @@ final class StatusBarController: NSObject {
         onShareLogs?()
     }
 
+    @objc private func togglePreventSleep() {
+        if sleepPreventer.isActive {
+            sleepPreventer.stop()
+            preventSleepMenuItem.state = .off
+        } else {
+            sleepPreventer.start()
+            preventSleepMenuItem.state = .on
+        }
+
+        // Persist the change to config
+        if var config = agentConfig {
+            config = AgentConfig(
+                serverURL: config.serverURL,
+                deviceID: config.deviceID,
+                authToken: config.authToken,
+                claudeProjectsPath: config.claudeProjectsPath,
+                heartbeatInterval: config.heartbeatInterval,
+                idleTimeout: config.idleTimeout,
+                completedTimeout: config.completedTimeout,
+                permissionStallTimeout: config.permissionStallTimeout,
+                remoteApprovalEnabled: config.remoteApprovalEnabled,
+                remoteApprovalTimeout: config.remoteApprovalTimeout,
+                hookInstallPath: config.hookInstallPath,
+                defaultPrivacyMode: config.defaultPrivacyMode,
+                projectPrivacyOverrides: config.projectPrivacyOverrides,
+                acceptLegacyPermissionFallback: config.acceptLegacyPermissionFallback,
+                deviceName: config.deviceName,
+                logLevel: config.logLevel,
+                hooksEnabled: config.hooksEnabled,
+                planAutoExit: config.planAutoExit,
+                obeySettingsRules: config.obeySettingsRules,
+                preventSleep: sleepPreventer.isActive,
+                ctrlClickTogglesRemoteAndSleep: config.ctrlClickTogglesRemoteAndSleep,
+                updateCheckInterval: config.updateCheckInterval
+            )
+            config.save()
+            agentConfig = config
+            onSettingsChanged?(config)
+        }
+    }
+
+    @objc private func handleShowSettings() {
+        SettingsWindow.shared.show()
+    }
+
+    @objc private func handleCopyResumeCommand() {
+        guard let provider = activeSessionProvider else {
+            // Fallback to remote sessions if no provider wired
+            handleCopyResume(entries: remoteSessions.map {
+                SessionEntry(sessionId: $0.sessionId, projectPath: $0.projectPath, status: "running")
+            })
+            return
+        }
+
+        Task {
+            let entries = await provider()
+            DispatchQueue.main.async { [weak self] in
+                self?.handleCopyResume(entries: entries)
+            }
+        }
+    }
+
+    private func handleCopyResume(entries: [SessionEntry]) {
+        if entries.count == 1, let entry = entries.first {
+            copyResumeCommand(sessionId: entry.sessionId, projectPath: entry.projectPath)
+            NSSound.beep()
+        } else if entries.count > 1 {
+            sessionPickerWindow = SessionPickerWindow()
+            sessionPickerWindow?.show(sessions: entries) { [weak self] entry in
+                self?.copyResumeCommand(sessionId: entry.sessionId, projectPath: entry.projectPath)
+                NSSound.beep()
+            }
+        }
+    }
+
     func updateAccount(email: String?) {
         if let email {
             accountMenuItem.title = email
@@ -351,6 +490,7 @@ final class StatusBarController: NSObject {
     @objc private func quitApp() {
         removeFlagFile()
         removePlanAutoExitFlag()
+        sleepPreventer.stop()
         AppLogger.agent.info("Shutting down via menu bar...")
         exit(0)
     }
@@ -378,6 +518,7 @@ final class StatusBarController: NSObject {
     private func rebuildRemoteSessionsSubmenu() {
         remoteSessionsSubmenu.removeAllItems()
         remoteSessionsMenuItem.isHidden = remoteSessions.isEmpty
+        copyResumeMenuItem.isEnabled = !remoteSessions.isEmpty
 
         for session in remoteSessions {
             let projectName = (session.projectPath as NSString).lastPathComponent

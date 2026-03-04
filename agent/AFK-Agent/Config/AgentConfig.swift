@@ -24,6 +24,10 @@ struct AgentConfig: Sendable {
     let logLevel: String
     let hooksEnabled: Bool
     let planAutoExit: Bool
+    let obeySettingsRules: Bool          // false by default — check settings.json allow/deny lists
+    let preventSleep: Bool               // false by default — IOKit sleep prevention
+    let ctrlClickTogglesRemoteAndSleep: Bool  // false by default — ctrl+click combo toggle
+    let updateCheckInterval: TimeInterval // 3600 (1 hour) default — Sparkle check interval
 
     var isConfigured: Bool {
         !serverURL.isEmpty
@@ -63,7 +67,11 @@ struct AgentConfig: Sendable {
                 deviceName: json["deviceName"] as? String ?? Host.current().localizedName ?? "Mac",
                 logLevel: json["logLevel"] as? String ?? "info",
                 hooksEnabled: json["hooksEnabled"] as? Bool ?? true,
-                planAutoExit: json["planAutoExit"] as? Bool ?? false
+                planAutoExit: json["planAutoExit"] as? Bool ?? false,
+                obeySettingsRules: json["obeySettingsRules"] as? Bool ?? false,
+                preventSleep: json["preventSleep"] as? Bool ?? false,
+                ctrlClickTogglesRemoteAndSleep: json["ctrlClickTogglesRemoteAndSleep"] as? Bool ?? false,
+                updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600
             )
         }
 
@@ -92,7 +100,11 @@ struct AgentConfig: Sendable {
             deviceName: Host.current().localizedName ?? "Mac",
             logLevel: env["AFK_LOG_LEVEL"] ?? "info",
             hooksEnabled: env["AFK_HOOKS_ENABLED"] != "0",
-            planAutoExit: env["AFK_PLAN_AUTO_EXIT"] == "1"
+            planAutoExit: env["AFK_PLAN_AUTO_EXIT"] == "1",
+            obeySettingsRules: false,
+            preventSleep: false,
+            ctrlClickTogglesRemoteAndSleep: false,
+            updateCheckInterval: 3600
         )
     }
 
@@ -119,6 +131,10 @@ struct AgentConfig: Sendable {
             "planAutoExit": planAutoExit,
             "remoteApprovalEnabled": remoteApprovalEnabled,
             "defaultPrivacyMode": defaultPrivacyMode,
+            "obeySettingsRules": obeySettingsRules,
+            "preventSleep": preventSleep,
+            "ctrlClickTogglesRemoteAndSleep": ctrlClickTogglesRemoteAndSleep,
+            "updateCheckInterval": updateCheckInterval,
         ]
         if let deviceID { dict["deviceId"] = deviceID }
         if let authToken { dict["authToken"] = authToken }
