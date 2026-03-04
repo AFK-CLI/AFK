@@ -48,7 +48,7 @@ struct TaskRow: View {
             Spacer()
 
             if let updatedAt = task.updatedAt {
-                Text(updatedAt, style: .relative)
+                RelativeTimeText(date: updatedAt)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }

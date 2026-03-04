@@ -211,31 +211,40 @@ enum MarkdownParser {
 struct MarkdownText: View {
     let text: String
     var maxBlocks: Int? = nil
+    @State private var parsedBlocks: [MarkdownBlock] = []
 
-    private var blocks: [MarkdownBlock] {
-        let all = MarkdownParser.parse(text)
+    init(text: String, maxBlocks: Int? = nil) {
+        self.text = text
+        self.maxBlocks = maxBlocks
+        _parsedBlocks = State(initialValue: MarkdownParser.parse(text))
+    }
+
+    private var displayBlocks: [MarkdownBlock] {
         if let max = maxBlocks {
-            return Array(all.prefix(max))
+            return Array(parsedBlocks.prefix(max))
         }
-        return all
+        return parsedBlocks
     }
 
     private var isTruncated: Bool {
         if let max = maxBlocks {
-            return MarkdownParser.parse(text).count > max
+            return parsedBlocks.count > max
         }
         return false
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(blocks.enumerated()), id: \.element.id) { _, block in
+            ForEach(Array(displayBlocks.enumerated()), id: \.element.id) { _, block in
                 blockView(block)
             }
             if isTruncated {
                 Text("\u{2026}")
                     .foregroundStyle(.secondary)
             }
+        }
+        .onChange(of: text) { _, newText in
+            parsedBlocks = MarkdownParser.parse(newText)
         }
     }
 

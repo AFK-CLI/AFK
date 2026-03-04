@@ -19,7 +19,7 @@ struct ActiveSessionCard: View {
                         .padding(.vertical, 4)
                         .background(session.status.color.opacity(0.15), in: .capsule)
                     if let updatedAt = session.updatedAt {
-                        Text(updatedAt, style: .relative)
+                        RelativeTimeText(date: updatedAt)
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                     }

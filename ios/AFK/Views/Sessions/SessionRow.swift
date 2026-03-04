@@ -37,7 +37,7 @@ struct SessionRow: View {
                     .font(.caption2)
                     .foregroundStyle(session.status.color)
                 if let updatedAt = session.updatedAt {
-                    Text(updatedAt, style: .relative)
+                    RelativeTimeText(date: updatedAt)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

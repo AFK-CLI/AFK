@@ -16,6 +16,9 @@ var termsHTML []byte
 //go:embed static/admin
 var adminFS embed.FS
 
+//go:embed static/landing
+var landingFS embed.FS
+
 func HandlePrivacy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(privacyHTML)
@@ -24,6 +27,36 @@ func HandlePrivacy(w http.ResponseWriter, r *http.Request) {
 func HandleTerms(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(termsHTML)
+}
+
+// LandingFileServer returns an http.Handler that serves the embedded landing page.
+// Serves index.html at "/" and static assets (icon.png) at their paths.
+func LandingFileServer() http.Handler {
+	sub, _ := fs.Sub(landingFS, "static/landing")
+	fileServer := http.FileServer(http.FS(sub))
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+
+		// Serve static assets directly.
+		if path == "/icon.png" {
+			w.Header().Set("Cache-Control", "public, max-age=86400")
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// Serve index.html for the root path.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:")
+		data, err := fs.ReadFile(sub, "index.html")
+		if err != nil {
+			http.Error(w, "landing page not available", http.StatusInternalServerError)
+			return
+		}
+		w.Write(data)
+	})
 }
 
 // AdminFileServer returns an http.Handler that serves the embedded React admin SPA.

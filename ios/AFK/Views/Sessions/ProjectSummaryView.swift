@@ -34,7 +34,8 @@ struct ProjectSummaryView: View {
                 }
 
                 if let since = summary.sinceDate {
-                    Text("Since \(since, style: .relative) ago")
+                    let _ = RelativeTimeClock.shared.tick
+                    Text("Since \(RelativeTimeClock.format(since)) ago")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }

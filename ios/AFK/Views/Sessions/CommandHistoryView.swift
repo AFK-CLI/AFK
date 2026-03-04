@@ -20,7 +20,7 @@ struct CommandHistoryView: View {
                             .font(.subheadline)
                             .lineLimit(2)
                         Spacer()
-                        Text(cmd.startedAt, style: .relative)
+                        RelativeTimeText(date: cmd.startedAt)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

@@ -5,6 +5,7 @@ struct ConversationTurn: Identifiable {
     let turnIndex: Int
     let events: [SessionEvent]
     let toolPairs: [ToolCallPair]
+    let cachedAssistantContentBlocks: [AssistantContentBlock]?
 
     var userSnippet: String? {
         guard let raw = events.first(where: { $0.eventType == "turn_started" })?.userSnippet else {
@@ -37,10 +38,25 @@ struct ConversationTurn: Identifiable {
         return cleaned.isEmpty ? nil : cleaned
     }
 
-    /// Parsed assistant content blocks (text interleaved with task/teammate cards).
+    /// Parsed assistant content blocks (pre-computed at build time by TurnBuilder).
     var assistantContentBlocks: [AssistantContentBlock]? {
-        guard let snippet = assistantSnippet else { return nil }
-        let blocks = AssistantContentParser.parse(snippet)
+        cachedAssistantContentBlocks
+    }
+
+    /// Compute assistant content blocks from events (used by TurnBuilder at build time).
+    static func buildContentBlocks(from events: [SessionEvent]) -> [AssistantContentBlock]? {
+        guard let raw = events.last(where: {
+            $0.eventType == "assistant_responding" && ($0.assistantSnippet ?? "").isEmpty == false
+        })?.assistantSnippet else {
+            return nil
+        }
+        let cleaned = raw
+            .replacingOccurrences(of: "<thinking>[\\s\\S]*?</thinking>", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\[Image #\\d+\\]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+
+        let blocks = AssistantContentParser.parse(cleaned)
         let hasContent = blocks.contains { block in
             switch block {
             case .text(let t): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -123,7 +139,8 @@ enum TurnBuilder {
                 id: "turn-\(offset)",
                 turnIndex: group.index,
                 events: group.events,
-                toolPairs: pairs
+                toolPairs: pairs,
+                cachedAssistantContentBlocks: ConversationTurn.buildContentBlocks(from: group.events)
             )
         }
     }

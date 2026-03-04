@@ -299,6 +299,11 @@ func main() {
 	mux.Handle("POST /v1/admin/devices/{id}/rotate-keys", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminForceKeyRotation)))
 	mux.Handle("PUT /v1/admin/sessions/{id}/status", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateSessionStatus)))
 
+	// Landing page.
+	landingHandler := handler.LandingFileServer()
+	mux.Handle("GET /{$}", landingHandler)
+	mux.Handle("GET /icon.png", landingHandler)
+
 	// Static pages (privacy policy, terms of service).
 	mux.HandleFunc("GET /privacy", handler.HandlePrivacy)
 	mux.HandleFunc("GET /terms", handler.HandleTerms)

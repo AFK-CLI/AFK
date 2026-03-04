@@ -79,6 +79,7 @@ struct ClaudeSettingsParser {
     ///   "Edit"              — matches any use of the Edit tool
     ///   "Bash(npm test)"    — matches Bash with input exactly "npm test"
     ///   "Bash(npm *)"       — matches Bash with input starting with "npm "
+    ///   "Bash(ls:*)"        — colon format: matches Bash where command starts with "ls"
     ///   "Write(**/docs/**)" — matches Write with path matching the glob
     private func matches(rule: String, toolName: String, toolInput: String?) -> Bool {
         // Parse rule into tool name + optional pattern
@@ -92,6 +93,33 @@ struct ClaudeSettingsParser {
 
         // Need input to match against
         guard let input = toolInput, !input.isEmpty else { return false }
+
+        // Handle Claude Code's colon-separated format: "prefix:glob"
+        // e.g. "ls:*" means command starts with "ls", "npm run:*" means starts with "npm run"
+        // Special keyword "domain": extracts host from URL for WebFetch/WebSearch rules
+        if let colonIdx = pattern.firstIndex(of: ":") {
+            let prefix = String(pattern[pattern.startIndex..<colonIdx])
+            let suffixPattern = String(pattern[pattern.index(after: colonIdx)...])
+
+            // "domain:" keyword — extract host from URL and match against it
+            if prefix == "domain" {
+                if let url = URL(string: input), let host = url.host {
+                    return Self.globMatch(pattern: suffixPattern, text: host)
+                }
+                // Input might already be just a domain
+                return Self.globMatch(pattern: suffixPattern, text: input)
+            }
+
+            // The input must start with the prefix
+            guard input.hasPrefix(prefix) else { return false }
+
+            // If suffix is just "*", any continuation matches (including nothing)
+            if suffixPattern == "*" { return true }
+
+            // Otherwise glob-match the remainder of the input against the suffix pattern
+            let remainder = String(input.dropFirst(prefix.count))
+            return Self.globMatch(pattern: suffixPattern, text: remainder)
+        }
 
         return Self.globMatch(pattern: pattern, text: input)
     }

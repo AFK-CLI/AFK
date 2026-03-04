@@ -468,17 +468,18 @@ actor PermissionSocket {
             return  // empty response → Claude Code uses normal permission flow
         }
 
-        // Fast path: safe/read-only tools don't need mobile approval.
-        // Return empty (no output) so Claude Code proceeds with its normal flow.
-        let safeTools: Set<String> = [
-            "Read", "Glob", "Grep", "WebFetch", "WebSearch",
-            "Task", "TodoRead", "TodoWrite",
+        // Auto-allow read-only tools — these never modify anything and should
+        // not require mobile approval or local prompts.
+        let readOnlyTools: Set<String> = [
+            "Read", "Glob", "Grep",
+            "Task", "TodoRead",
             "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
             "EnterPlanMode", "NotebookRead"
         ]
-        if safeTools.contains(toolName) {
-            AppLogger.permission.debug("Auto-pass safe tool: \(toolName, privacy: .public)")
-            return  // empty response → Claude Code uses normal permission flow
+        if readOnlyTools.contains(toolName) {
+            AppLogger.permission.debug("Auto-allow read-only tool: \(toolName, privacy: .public)")
+            writeHookResponse(fd: fd, decision: "allow", reason: "Read-only tool auto-allowed by AFK agent")
+            return
         }
 
         // Check permission mode — auto-handle based on current mode
@@ -809,6 +810,9 @@ actor PermissionSocket {
         case "Write", "Edit", "NotebookEdit", "MultiEdit":
             // File tools match against the file path
             return ti["file_path"]?.stringValue ?? ti["notebook_path"]?.stringValue
+        case "WebFetch", "WebSearch":
+            // Domain rules match against the URL
+            return ti["url"]?.stringValue ?? ti["query"]?.stringValue
         default:
             // For other tools, concatenate all string values
             let values = ti.values.map(\.stringValue).filter { !$0.isEmpty }
