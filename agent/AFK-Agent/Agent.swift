@@ -24,6 +24,7 @@ actor Agent {
     var agentState = AgentState()
     var diskQueue: DiskQueue?
     var todoWatcher: TodoWatcher?
+    var usageService: ClaudeUsageService?
     var signInController: SignInWindowController?
     nonisolated(unsafe) var onAccountChanged: ((String?) -> Void)?
     let statusBarController: StatusBarController?
@@ -115,6 +116,14 @@ actor Agent {
                 Task { [weak self] in
                     guard let self else { return }
                     await self.heartbeatLoop(deviceId: deviceId)
+                }
+
+                // Start usage polling loop
+                let usageSvc = ClaudeUsageService()
+                self.usageService = usageSvc
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.usagePollingLoop(deviceId: deviceId, service: usageSvc)
                 }
 
                 // Start permission socket if remote approval is enabled

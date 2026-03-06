@@ -25,6 +25,8 @@ final class StatusBarController: NSObject {
     private var signInOutMenuItem: NSMenuItem!
     private var remoteSessionsMenuItem: NSMenuItem!
     private var remoteSessionsSubmenu: NSMenu!
+    private var usageSessionMenuItem: NSMenuItem!
+    private var usageWeeklyMenuItem: NSMenuItem!
 
     /// Tracks sessions started from iOS for the menu bar submenu.
     /// Must be a class (not struct) so NSMenuItem.representedObject can round-trip via `as?`.
@@ -147,6 +149,18 @@ final class StatusBarController: NSObject {
         signInOutMenuItem = NSMenuItem(title: "Sign In\u{2026}", action: #selector(handleSignInOut), keyEquivalent: "")
         signInOutMenuItem.target = self
         menu.addItem(signInOutMenuItem)
+
+        menu.addItem(.separator())
+
+        usageSessionMenuItem = NSMenuItem(title: "No CLI account", action: nil, keyEquivalent: "")
+        usageSessionMenuItem.isEnabled = false
+        usageSessionMenuItem.isHidden = true
+        menu.addItem(usageSessionMenuItem)
+
+        usageWeeklyMenuItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+        usageWeeklyMenuItem.isEnabled = false
+        usageWeeklyMenuItem.isHidden = true
+        menu.addItem(usageWeeklyMenuItem)
 
         menu.addItem(.separator())
 
@@ -348,6 +362,51 @@ final class StatusBarController: NSObject {
         }
     }
 
+    func updateUsage(_ usage: ClaudeUsage?) {
+        guard let usage else {
+            usageSessionMenuItem.isHidden = true
+            usageWeeklyMenuItem.isHidden = true
+            return
+        }
+
+        let resetIn = Self.formatTimeRemaining(until: usage.sessionResetTime)
+        let sessionColor = Self.usageColor(usage.sessionPercentage)
+        usageSessionMenuItem.title = "Session: \(Int(usage.sessionPercentage))% used \u{2014} resets in \(resetIn)"
+        usageSessionMenuItem.isHidden = false
+        let sessionImage = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)
+        sessionImage?.isTemplate = false
+        usageSessionMenuItem.image = Self.tintedCircle(sessionColor)
+
+        usageWeeklyMenuItem.title = "Weekly: \(Int(usage.weeklyPercentage))% \u{2014} Opus: \(Int(usage.opusWeeklyPercentage))% \u{2014} Sonnet: \(Int(usage.sonnetWeeklyPercentage))%"
+        usageWeeklyMenuItem.isHidden = false
+        let weeklyColor = Self.usageColor(usage.weeklyPercentage)
+        usageWeeklyMenuItem.image = Self.tintedCircle(weeklyColor)
+    }
+
+    private static func usageColor(_ percentage: Double) -> NSColor {
+        if percentage >= 80 { return .systemRed }
+        if percentage >= 50 { return .systemOrange }
+        return .systemGreen
+    }
+
+    private static func tintedCircle(_ color: NSColor) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) else { return nil }
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .regular)
+        let sized = image.withSymbolConfiguration(config) ?? image
+        return sized.tinted(with: color)
+    }
+
+    private static func formatTimeRemaining(until date: Date) -> String {
+        let remaining = date.timeIntervalSinceNow
+        guard remaining > 0 else { return "now" }
+        let hours = Int(remaining) / 3600
+        let minutes = (Int(remaining) % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
+
     @objc private func quitApp() {
         removeFlagFile()
         removePlanAutoExitFlag()
@@ -461,5 +520,20 @@ final class StatusBarController: NSObject {
 
     private func removePlanAutoExitFlag() {
         try? FileManager.default.removeItem(atPath: Self.planAutoExitFlagPath)
+    }
+}
+
+// MARK: - NSImage tinting
+
+private extension NSImage {
+    func tinted(with color: NSColor) -> NSImage {
+        let image = self.copy() as! NSImage
+        image.lockFocus()
+        color.set()
+        let rect = NSRect(origin: .zero, size: image.size)
+        rect.fill(using: .sourceAtop)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 }

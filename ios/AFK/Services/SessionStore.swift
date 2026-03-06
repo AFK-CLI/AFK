@@ -28,6 +28,7 @@ final class SessionStore {
     var viewingSessionIds: Set<String> = []
     var permissionModes: [String: String] = [:]  // deviceId -> mode
     var agentControlStates: [String: AgentControlState] = [:]  // deviceId -> control state
+    var usageByDevice: [String: ClaudeUsage] = [:]  // deviceId -> latest usage
 
     /// E2EE: cached session keys (sessionId -> SymmetricKey)
     private var e2eeSessionKeys: [String: SymmetricKey] = [:]
@@ -991,6 +992,11 @@ final class SessionStore {
         wsService.onAgentControlState = { [weak self] (deviceId, remoteApproval, autoPlanExit) in
             guard let self else { return }
             self.agentControlStates[deviceId] = AgentControlState(remoteApproval: remoteApproval, autoPlanExit: autoPlanExit)
+        }
+
+        wsService.onUsageUpdate = { [weak self] usage in
+            guard let self else { return }
+            self.usageByDevice[usage.deviceId] = usage
         }
 
         wsService.onPermissionRequest = { [weak self] (request: PermissionRequest) in

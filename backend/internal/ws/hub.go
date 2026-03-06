@@ -74,6 +74,7 @@ type Hub struct {
 	agents        map[string]*AgentConn        // deviceID -> conn
 	ios           map[string][]*IOSConn        // userID -> conns
 	controlStates map[string]*model.WSMessage  // deviceID -> last agent.control_state
+	usageStates   map[string]*model.WSMessage  // deviceID -> last agent.usage.update
 	Notifier      PushNotifier                 // optional push notification sender
 	Decision      PushDecisionEngine           // optional intelligent push routing
 }
@@ -83,6 +84,7 @@ func NewHub() *Hub {
 		agents:        make(map[string]*AgentConn),
 		ios:           make(map[string][]*IOSConn),
 		controlStates: make(map[string]*model.WSMessage),
+		usageStates:   make(map[string]*model.WSMessage),
 	}
 }
 
@@ -114,6 +116,7 @@ func (h *Hub) UnregisterAgent(deviceID string) {
 		delete(h.agents, deviceID)
 	}
 	delete(h.controlStates, deviceID)
+	delete(h.usageStates, deviceID)
 }
 
 func (h *Hub) RegisterIOS(userID, deviceID string, conn *websocket.Conn) *IOSConn {
@@ -297,6 +300,32 @@ func (h *Hub) SendCachedControlStates(userID string, ic *IOSConn) {
 	for deviceID, ac := range h.agents {
 		if ac.UserID == userID {
 			if msg, ok := h.controlStates[deviceID]; ok {
+				msgs = append(msgs, msg)
+			}
+		}
+	}
+	h.mu.RUnlock()
+
+	for _, msg := range msgs {
+		_ = ic.SendMsg(msg)
+	}
+}
+
+// CacheUsageState stores the last agent.usage.update message for a device.
+func (h *Hub) CacheUsageState(deviceID string, msg *model.WSMessage) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.usageStates[deviceID] = msg
+}
+
+// SendCachedUsageStates replays cached agent.usage.update messages for
+// the user's online agents to a newly connected iOS client.
+func (h *Hub) SendCachedUsageStates(userID string, ic *IOSConn) {
+	h.mu.RLock()
+	var msgs []*model.WSMessage
+	for deviceID, ac := range h.agents {
+		if ac.UserID == userID {
+			if msg, ok := h.usageStates[deviceID]; ok {
 				msgs = append(msgs, msg)
 			}
 		}

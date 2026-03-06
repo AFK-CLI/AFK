@@ -421,6 +421,25 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 			})
 		}
 
+	case "agent.usage.update":
+		var usage model.AgentUsageUpdate
+		if err := json.Unmarshal(msg.Payload, &usage); err != nil {
+			slog.Error("parse usage update failed", "device_id", deviceID, "error", err)
+			return
+		}
+		usage.DeviceID = deviceID
+		notification, err := NewWSMessage("agent.usage.update", struct {
+			model.AgentUsageUpdate
+			DeviceName string `json:"deviceName"`
+		}{usage, deviceName})
+		if err != nil {
+			slog.Error("marshal usage update failed", "device_id", deviceID, "error", err)
+			return
+		}
+		hub.BroadcastToUser(userID, notification)
+		hub.CacheUsageState(deviceID, notification)
+		slog.Info("broadcast usage update", "device_id", deviceID, "session_pct", usage.SessionPercentage, "weekly_pct", usage.WeeklyPercentage)
+
 	case "agent.control_state":
 		var state model.AgentControlState
 		if err := json.Unmarshal(msg.Payload, &state); err != nil {

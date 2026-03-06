@@ -82,6 +82,9 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 		// Replay cached agent control states so iOS immediately knows each agent's state.
 		hub.SendCachedControlStates(userID, ic)
 
+		// Replay cached usage states so iOS shows usage immediately.
+		hub.SendCachedUsageStates(userID, ic)
+
 		go iosWritePump(ic)
 		go iosReadPump(hub, ic, database, userID, deviceID)
 	}

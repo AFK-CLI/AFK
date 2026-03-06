@@ -40,6 +40,7 @@ final class WebSocketService {
     var onAgentControlState: ((String, Bool, Bool) -> Void)?  // (deviceId, remoteApproval, autoPlanExit)
     var onTaskUpdate: ((AFKTask) -> Void)?
     var onTodoUpdate: ((ProjectTodos) -> Void)?
+    var onUsageUpdate: ((ClaudeUsage) -> Void)?
 
     /// Content decryptor closure — set by SessionStore to decrypt E2EE content.
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
@@ -273,6 +274,23 @@ final class WebSocketService {
             if let payload = try? decoder.decode(TodoUpdatePayload.self, from: payloadData) {
                 onTodoUpdate?(payload.projectTodos)
             }
+        case "agent.usage.update":
+            if let payload = try? decoder.decode(UsageUpdatePayload.self, from: payloadData) {
+                let usage = ClaudeUsage(
+                    deviceId: payload.deviceId,
+                    sessionPercentage: payload.sessionPercentage,
+                    sessionResetTime: ISO8601DateFormatter().date(from: payload.sessionResetTime) ?? Date(),
+                    weeklyPercentage: payload.weeklyPercentage,
+                    weeklyResetTime: ISO8601DateFormatter().date(from: payload.weeklyResetTime) ?? Date(),
+                    opusWeeklyPercentage: payload.opusWeeklyPercentage,
+                    sonnetWeeklyPercentage: payload.sonnetWeeklyPercentage,
+                    sonnetWeeklyResetTime: payload.sonnetWeeklyResetTime.flatMap { ISO8601DateFormatter().date(from: $0) },
+                    subscriptionType: payload.subscriptionType,
+                    lastUpdated: ISO8601DateFormatter().date(from: payload.lastUpdated) ?? Date(),
+                    deviceName: payload.deviceName
+                )
+                onUsageUpdate?(usage)
+            }
         default:
             break
         }
@@ -349,4 +367,18 @@ private struct TaskUpdatePayload: Codable {
 
 private struct TodoUpdatePayload: Codable {
     let projectTodos: ProjectTodos
+}
+
+private struct UsageUpdatePayload: Codable {
+    let deviceId: String
+    let sessionPercentage: Double
+    let sessionResetTime: String
+    let weeklyPercentage: Double
+    let weeklyResetTime: String
+    let opusWeeklyPercentage: Double
+    let sonnetWeeklyPercentage: Double
+    let sonnetWeeklyResetTime: String?
+    let subscriptionType: String
+    let lastUpdated: String
+    let deviceName: String?
 }
