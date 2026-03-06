@@ -120,17 +120,31 @@ actor ClaudeUsageService {
         }
 
         let apiResponse = try JSONDecoder().decode(UsageAPIResponse.self, from: data)
+
+        // Log raw response for debugging reset times
+        if let rawJSON = String(data: data, encoding: .utf8) {
+            AppLogger.usage.debug("Raw usage response: \(rawJSON, privacy: .public)")
+        }
+
         let iso = ISO8601DateFormatter()
+        // Also try with fractional seconds since Anthropic API may include them
+        let isoFractional = ISO8601DateFormatter()
+        isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let now = Date()
+
+        func parseDate(_ str: String?) -> Date? {
+            guard let str else { return nil }
+            return iso.date(from: str) ?? isoFractional.date(from: str)
+        }
 
         return ClaudeUsage(
             sessionPercentage: apiResponse.five_hour?.utilization ?? 0,
-            sessionResetTime: apiResponse.five_hour?.resets_at.flatMap { iso.date(from: $0) } ?? now,
+            sessionResetTime: parseDate(apiResponse.five_hour?.resets_at) ?? now,
             weeklyPercentage: apiResponse.seven_day?.utilization ?? 0,
-            weeklyResetTime: apiResponse.seven_day?.resets_at.flatMap { iso.date(from: $0) } ?? now,
+            weeklyResetTime: parseDate(apiResponse.seven_day?.resets_at) ?? now,
             opusWeeklyPercentage: apiResponse.seven_day_opus?.utilization ?? 0,
             sonnetWeeklyPercentage: apiResponse.seven_day_sonnet?.utilization ?? 0,
-            sonnetWeeklyResetTime: apiResponse.seven_day_sonnet?.resets_at.flatMap { iso.date(from: $0) },
+            sonnetWeeklyResetTime: parseDate(apiResponse.seven_day_sonnet?.resets_at),
             subscriptionType: subscriptionType,
             lastUpdated: now
         )
