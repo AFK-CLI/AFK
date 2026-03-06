@@ -19,6 +19,8 @@ type PushNotifier interface {
 	NotifyPermissionRequest(userID string, req model.PermissionRequest)
 	NotifySessionError(userID, sessionID, errorMsg string)
 	NotifySessionCompleted(userID, sessionID string)
+	NotifySessionStopped(userID, sessionID, lastMessage string)
+	NotifyIdlePrompt(userID, sessionID, message string)
 	NotifyLiveActivityUpdate(sessionID, status, currentTool string, turnCount, elapsedSeconds int)
 	RegisterLiveActivityToken(sessionID, pushToken string)
 	DeregisterLiveActivityToken(sessionID string)

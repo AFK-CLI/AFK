@@ -27,6 +27,11 @@ struct SessionRow: View {
                     Text("\(session.turnCount) turns")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if session.costUsd > 0 {
+                        Text(session.costUsd.formattedCost)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -45,4 +50,5 @@ struct SessionRow: View {
         }
         .padding(.vertical, 4)
     }
+
 }

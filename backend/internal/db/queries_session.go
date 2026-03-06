@@ -14,8 +14,8 @@ import (
 
 func UpsertSession(db *sql.DB, s *model.Session) error {
 	_, err := db.Exec(`
-		INSERT INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project_path = excluded.project_path,
 			git_branch = excluded.git_branch,
@@ -27,10 +27,11 @@ func UpsertSession(db *sql.DB, s *model.Session) error {
 			turn_count = excluded.turn_count,
 			project_id = COALESCE(excluded.project_id, sessions.project_id),
 			description = CASE WHEN excluded.description != '' THEN excluded.description ELSE sessions.description END,
-			ephemeral_public_key = COALESCE(excluded.ephemeral_public_key, sessions.ephemeral_public_key)
+			ephemeral_public_key = COALESCE(excluded.ephemeral_public_key, sessions.ephemeral_public_key),
+			cost_usd = sessions.cost_usd  -- preserve: accumulated via AccumulateSessionCost, not upsert
 	`, s.ID, s.DeviceID, s.UserID, s.ProjectPath, s.GitBranch, s.CWD,
 		string(s.Status), s.StartedAt, s.UpdatedAt, s.TokensIn, s.TokensOut, s.TurnCount,
-		nullableString(s.ProjectID), s.Description, nullableString(s.EphemeralPublicKey))
+		nullableString(s.ProjectID), s.Description, nullableString(s.EphemeralPublicKey), 0.0)
 	if err != nil {
 		return fmt.Errorf("upsert session: %w", err)
 	}
@@ -41,13 +42,25 @@ func UpsertSession(db *sql.DB, s *model.Session) error {
 // Unlike UpsertSession, it never overwrites existing metadata.
 func EnsureSession(db *sql.DB, s *model.Session) error {
 	_, err := db.Exec(`
-		INSERT OR IGNORE INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT OR IGNORE INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, s.ID, s.DeviceID, s.UserID, s.ProjectPath, s.GitBranch, s.CWD,
 		string(s.Status), s.StartedAt, s.UpdatedAt, s.TokensIn, s.TokensOut, s.TurnCount,
-		nullableString(s.ProjectID), s.Description, nullableString(s.EphemeralPublicKey))
+		nullableString(s.ProjectID), s.Description, nullableString(s.EphemeralPublicKey), 0.0)
 	if err != nil {
 		return fmt.Errorf("ensure session: %w", err)
+	}
+	return nil
+}
+
+func AccumulateSessionCost(db *sql.DB, sessionID string, costUsd float64) error {
+	if costUsd <= 0 || costUsd > 1000 {
+		return nil // ignore non-positive or unreasonably large costs
+	}
+	_, err := db.Exec(`UPDATE sessions SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?`,
+		costUsd, time.Now(), sessionID)
+	if err != nil {
+		return fmt.Errorf("accumulate session cost: %w", err)
 	}
 	return nil
 }
@@ -75,7 +88,7 @@ func UpdateSessionStatus(db *sql.DB, sessionID string, status model.SessionStatu
 
 func ListSessions(db *sql.DB, userID, deviceID, status string) ([]*model.Session, error) {
 	query := `SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
-		started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key
+		started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
 		FROM sessions WHERE user_id = ?`
 	args := []interface{}{userID}
 
@@ -102,7 +115,7 @@ func ListSessions(db *sql.DB, userID, deviceID, status string) ([]*model.Session
 		var ephPubKey sql.NullString
 		err := rows.Scan(&s.ID, &s.DeviceID, &s.UserID, &s.ProjectPath, &s.GitBranch,
 			&s.CWD, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TokensIn, &s.TokensOut, &s.TurnCount,
-			&projectID, &s.Description, &ephPubKey)
+			&projectID, &s.Description, &ephPubKey, &s.CostUsd)
 		if err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
@@ -120,7 +133,7 @@ func ListSessions(db *sql.DB, userID, deviceID, status string) ([]*model.Session
 func ListSessionsByProject(db *sql.DB, userID, projectID string) ([]*model.Session, error) {
 	rows, err := db.Query(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
-			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key
+			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
 		FROM sessions WHERE user_id = ? AND project_id = ?
 		ORDER BY updated_at DESC
 	`, userID, projectID)
@@ -136,7 +149,7 @@ func ListSessionsByProject(db *sql.DB, userID, projectID string) ([]*model.Sessi
 		var ephPubKey sql.NullString
 		err := rows.Scan(&s.ID, &s.DeviceID, &s.UserID, &s.ProjectPath, &s.GitBranch,
 			&s.CWD, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TokensIn, &s.TokensOut, &s.TurnCount,
-			&pid, &s.Description, &ephPubKey)
+			&pid, &s.Description, &ephPubKey, &s.CostUsd)
 		if err != nil {
 			return nil, fmt.Errorf("scan session: %w", err)
 		}
@@ -157,11 +170,11 @@ func GetSession(db *sql.DB, sessionID string) (*model.Session, error) {
 	var ephPubKey sql.NullString
 	err := db.QueryRow(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
-			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key
+			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
 		FROM sessions WHERE id = ?
 	`, sessionID).Scan(&s.ID, &s.DeviceID, &s.UserID, &s.ProjectPath, &s.GitBranch,
 		&s.CWD, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TokensIn, &s.TokensOut, &s.TurnCount,
-		&projectID, &s.Description, &ephPubKey)
+		&projectID, &s.Description, &ephPubKey, &s.CostUsd)
 	if err != nil {
 		return nil, fmt.Errorf("get session: %w", err)
 	}
@@ -198,7 +211,7 @@ func ListStuckSessions(db *sql.DB, stuckThreshold time.Duration) ([]*model.Sessi
 	cutoff := time.Now().Add(-stuckThreshold)
 	rows, err := db.Query(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
-			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key
+			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
 		FROM sessions WHERE status = 'running' AND updated_at < ?
 		ORDER BY updated_at ASC
 	`, cutoff)
@@ -214,7 +227,7 @@ func ListStuckSessions(db *sql.DB, stuckThreshold time.Duration) ([]*model.Sessi
 		var ephPubKey sql.NullString
 		err := rows.Scan(&s.ID, &s.DeviceID, &s.UserID, &s.ProjectPath, &s.GitBranch,
 			&s.CWD, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TokensIn, &s.TokensOut, &s.TurnCount,
-			&projectID, &s.Description, &ephPubKey)
+			&projectID, &s.Description, &ephPubKey, &s.CostUsd)
 		if err != nil {
 			return nil, fmt.Errorf("scan stuck session: %w", err)
 		}

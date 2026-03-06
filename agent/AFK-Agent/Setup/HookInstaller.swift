@@ -14,7 +14,35 @@ struct HookInstaller {
     private let settingsPath: String     // ~/.claude/settings.json
     private let hookScriptName = "afk-permission-hook.sh"
     private let postToolHookScriptName = "afk-plan-exit-hook.sh"
+    private let notificationHookScriptName = "afk-notification-hook.sh"
+    private let stopHookScriptName = "afk-stop-hook.sh"
+    private let sessionStartHookScriptName = "afk-session-start-hook.sh"
+    private let promptSubmitHookScriptName = "afk-prompt-submit-hook.sh"
     private let hookTimeout: Int         // ms
+
+    /// All AFK hook script names for install/uninstall management.
+    private var allScriptNames: [String] {
+        [hookScriptName, postToolHookScriptName, notificationHookScriptName,
+         stopHookScriptName, sessionStartHookScriptName, promptSubmitHookScriptName]
+    }
+
+    /// OTLP telemetry environment variables to inject into Claude Code settings.
+    private static let otlpEnvValues: [String: String] = [
+        "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+        "OTEL_LOGS_EXPORTER": "otlp",
+        "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL": "http/json",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": "http://localhost:4318/v1/logs",
+        "OTEL_LOGS_EXPORT_INTERVAL": "5000"
+    ]
+
+    /// OTLP env key names for cleanup on uninstall.
+    private static let otlpEnvKeys: Set<String> = Set(otlpEnvValues.keys)
+
+    /// All settings.json hook keys that AFK may register under.
+    private static let allHookKeys = [
+        "PreToolUse", "PostToolUse", "Notification", "Stop",
+        "SessionStart", "UserPromptSubmit", "PermissionRequest"
+    ]
 
     init(hookInstallDir: String, timeoutSeconds: TimeInterval) {
         self.hookInstallDir = hookInstallDir
@@ -29,6 +57,10 @@ struct HookInstaller {
 
     var installedPostToolHookPath: String {
         "\(hookInstallDir)/\(postToolHookScriptName)"
+    }
+
+    private func scriptPath(_ name: String) -> String {
+        "\(hookInstallDir)/\(name)"
     }
 
     /// Install the hook script and register it in Claude Code settings.
@@ -116,40 +148,70 @@ struct HookInstaller {
             hooks["PostToolUse"] = postToolHooks
         }
 
+        // 5. Install Notification hook (async, fire-and-forget)
+        try installScript(notificationHookScriptName, contents: bundledNotificationHookContents(), fm: fm)
+        registerHook(
+            &hooks, key: "Notification", matcher: "permission_prompt|idle_prompt",
+            scriptName: notificationHookScriptName, timeout: 5000
+        )
+
+        // 6. Install Stop hook (async, fire-and-forget)
+        try installScript(stopHookScriptName, contents: bundledStopHookContents(), fm: fm)
+        registerHook(&hooks, key: "Stop", matcher: "", scriptName: stopHookScriptName, timeout: 5000)
+
+        // 7. Install SessionStart hook (sync, returns additionalContext)
+        try installScript(sessionStartHookScriptName, contents: bundledSessionStartHookContents(), fm: fm)
+        registerHook(
+            &hooks, key: "SessionStart", matcher: "startup|resume",
+            scriptName: sessionStartHookScriptName, timeout: 5000
+        )
+
+        // 8. Install UserPromptSubmit hook (sync, returns additionalContext)
+        try installScript(promptSubmitHookScriptName, contents: bundledPromptSubmitHookContents(), fm: fm)
+        registerHook(
+            &hooks, key: "UserPromptSubmit", matcher: "",
+            scriptName: promptSubmitHookScriptName, timeout: 3000
+        )
+
         settings["hooks"] = hooks
+
+        // Merge OTLP telemetry env vars
+        var env = settings["env"] as? [String: String] ?? [:]
+        for (key, value) in Self.otlpEnvValues {
+            env[key] = value
+        }
+        settings["env"] = env
+
         try saveSettings(settings)
 
-        AppLogger.hook.info("Installed \(hookScriptName, privacy: .public) at \(installedHookPath, privacy: .public)")
-        AppLogger.hook.info("Installed \(postToolHookScriptName, privacy: .public) at \(installedPostToolHookPath, privacy: .public)")
+        AppLogger.hook.info("Installed all AFK hooks (\(allScriptNames.count, privacy: .public) scripts)")
     }
 
-    /// Remove the hook script and unregister from Claude Code settings.
+    /// Remove all hook scripts and unregister from Claude Code settings.
     func uninstall() throws {
         let fm = FileManager.default
 
-        // 1. Remove the script files
-        if fm.fileExists(atPath: installedHookPath) {
-            try fm.removeItem(atPath: installedHookPath)
-        }
-        if fm.fileExists(atPath: installedPostToolHookPath) {
-            try fm.removeItem(atPath: installedPostToolHookPath)
+        // 1. Remove all script files
+        for name in allScriptNames {
+            let path = scriptPath(name)
+            if fm.fileExists(atPath: path) {
+                try fm.removeItem(atPath: path)
+            }
         }
 
-        // 2. Remove from settings.json — clean PreToolUse, PostToolUse, and legacy PermissionRequest keys
+        // 2. Remove from settings.json — clean all AFK hook keys
         var settings = loadSettings()
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
         var changed = false
 
-        let scriptNames = [hookScriptName, postToolHookScriptName]
-
-        for hookKey in ["PreToolUse", "PostToolUse", "PermissionRequest"] {
+        for hookKey in Self.allHookKeys {
             if var hookEntries = hooks[hookKey] as? [[String: Any]] {
                 let before = hookEntries.count
                 hookEntries.removeAll { entry in
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { cmd in
                             guard let command = cmd["command"] as? String else { return false }
-                            return scriptNames.contains(where: { command.contains($0) })
+                            return allScriptNames.contains(where: { command.contains($0) })
                         }
                     }
                     return false
@@ -165,6 +227,19 @@ struct HookInstaller {
             }
         }
 
+        // Remove OTLP env vars
+        if var env = settings["env"] as? [String: String] {
+            for key in Self.otlpEnvKeys {
+                env.removeValue(forKey: key)
+            }
+            if env.isEmpty {
+                settings.removeValue(forKey: "env")
+            } else {
+                settings["env"] = env
+            }
+            changed = true
+        }
+
         if changed {
             if hooks.isEmpty {
                 settings.removeValue(forKey: "hooks")
@@ -174,15 +249,54 @@ struct HookInstaller {
             try saveSettings(settings)
         }
 
-        AppLogger.hook.info("Uninstalled \(hookScriptName, privacy: .public) and \(postToolHookScriptName, privacy: .public)")
+        AppLogger.hook.info("Uninstalled all AFK hooks (\(allScriptNames.count, privacy: .public) scripts)")
     }
 
     var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: installedHookPath) &&
-        FileManager.default.fileExists(atPath: installedPostToolHookPath)
+        allScriptNames.allSatisfy { FileManager.default.fileExists(atPath: scriptPath($0)) }
     }
 
     // MARK: - Private
+
+    // MARK: - Helpers
+
+    /// Write a hook script to disk and make it executable.
+    private func installScript(_ name: String, contents: String, fm: FileManager) throws {
+        let path = scriptPath(name)
+        try contents.write(toFile: path, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+    }
+
+    /// Register a hook in settings.json if not already present.
+    private func registerHook(
+        _ hooks: inout [String: Any],
+        key: String,
+        matcher: String,
+        scriptName: String,
+        timeout: Int
+    ) {
+        let hookEntry: [String: Any] = [
+            "type": "command",
+            "command": scriptPath(scriptName),
+            "timeout": timeout
+        ]
+        let matcherEntry: [String: Any] = [
+            "matcher": matcher,
+            "hooks": [hookEntry]
+        ]
+
+        var entries = hooks[key] as? [[String: Any]] ?? []
+        let alreadyInstalled = entries.contains { entry in
+            if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                return entryHooks.contains { ($0["command"] as? String)?.contains(scriptName) == true }
+            }
+            return false
+        }
+        if !alreadyInstalled {
+            entries.append(matcherEntry)
+            hooks[key] = entries
+        }
+    }
 
     private func loadSettings() -> [String: Any] {
         guard let data = FileManager.default.contents(atPath: settingsPath),
@@ -233,9 +347,14 @@ struct HookInstaller {
         # This is the most reliable path for interactive sessions. Even though
         # the hook's stdin/stdout are pipes, /dev/tty opens the controlling terminal.
         if [ -w /dev/tty ] 2>/dev/null; then
-            sleep 0.3
-            printf '\\033[Z' > /dev/tty 2>/dev/null
-            echo "$(date '+%H:%M:%S') Sent Shift+Tab via /dev/tty" >> "$LOG" 2>/dev/null
+            # Poll up to 2s at 100ms intervals for the prompt to appear
+            for _attempt in $(seq 1 20); do
+                sleep 0.1
+                if printf '\\033[Z' > /dev/tty 2>/dev/null; then
+                    echo "$(date '+%H:%M:%S') Sent Shift+Tab via /dev/tty on attempt $_attempt" >> "$LOG" 2>/dev/null
+                    exit 0
+                fi
+            done
             exit 0
         fi
 
@@ -269,9 +388,13 @@ struct HookInstaller {
         done
 
         if [ -n "$CLAUDE_TTY" ]; then
-            sleep 0.3
-            printf '\\033[Z' > "$CLAUDE_TTY" 2>/dev/null
-            echo "$(date '+%H:%M:%S') Sent Shift+Tab via $CLAUDE_TTY" >> "$LOG" 2>/dev/null
+            for _attempt in $(seq 1 20); do
+                sleep 0.1
+                if printf '\\033[Z' > "$CLAUDE_TTY" 2>/dev/null; then
+                    echo "$(date '+%H:%M:%S') Sent Shift+Tab via $CLAUDE_TTY on attempt $_attempt" >> "$LOG" 2>/dev/null
+                    exit 0
+                fi
+            done
             exit 0
         fi
 
@@ -399,16 +522,15 @@ struct HookInstaller {
                     # Claude Code doesn't block waiting for our stdout/stderr to close.
                     (
                         exec </dev/null >/dev/null 2>/dev/null
-                        sleep 1
-                        # Use osascript System Events to send Shift+Tab keystroke to the
-                        # frontmost application (the terminal running Claude Code).
-                        # Requires: VS Code / Terminal.app must have Accessibility permission
-                        # in System Preferences > Privacy & Security > Accessibility.
-                        if osascript -e 'tell application "System Events" to key code 48 using shift down' 2>/dev/null; then
-                            echo "$(date '+%H:%M:%S') Injected Shift+Tab via osascript System Events" >> "$PLOG" 2>/dev/null
-                        else
-                            echo "$(date '+%H:%M:%S') osascript failed (accessibility permission missing?)" >> "$PLOG" 2>/dev/null
-                        fi
+                        # Poll up to 2s at 100ms intervals for the prompt to appear,
+                        # then inject Shift+Tab. More robust than a fixed sleep on slow machines.
+                        for _attempt in $(seq 1 20); do
+                            sleep 0.1
+                            if osascript -e 'tell application "System Events" to key code 48 using shift down' 2>/dev/null; then
+                                echo "$(date '+%H:%M:%S') Injected Shift+Tab on attempt $_attempt" >> "$PLOG" 2>/dev/null
+                                break
+                            fi
+                        done
                     ) &
                 else
                     echo "$(date '+%H:%M:%S') ExitPlanMode allowed — Auto Plan Exit disabled, skipping injection" >> "$PLOG" 2>/dev/null
@@ -417,6 +539,107 @@ struct HookInstaller {
         fi
 
         echo "$RESPONSE"
+        """
+    }
+
+    // MARK: - Notification Hook (async, fire-and-forget)
+
+    private func bundledNotificationHookContents() -> String {
+        let configDir = BuildEnvironment.configDirectoryName
+        return """
+        #!/bin/bash
+        # AFK Agent — Claude Code Notification hook (async)
+        # Fire-and-forget: wraps notification JSON in envelope and sends to Unix socket.
+        # Always exits 0. No response expected.
+        SOCKET="$HOME/\(configDir)/run/agent.sock"
+
+        INPUT=$(cat 2>/dev/null) || true
+        [ -z "$INPUT" ] && exit 0
+        [ ! -S "$SOCKET" ] && exit 0
+
+        ENVELOPE="{\\"type\\":\\"notification\\",\\"payload\\":$INPUT}"
+        echo "$ENVELOPE" | python3 -c "
+        import sys, socket
+        data = sys.stdin.buffer.read()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect('$SOCKET')
+            sock.settimeout(5)
+            sock.sendall(data)
+            sock.shutdown(socket.SHUT_WR)
+        except:
+            pass
+        sock.close()
+        " 2>/dev/null || true
+        exit 0
+        """
+    }
+
+    // MARK: - Stop Hook (async, fire-and-forget)
+
+    private func bundledStopHookContents() -> String {
+        let configDir = BuildEnvironment.configDirectoryName
+        return """
+        #!/bin/bash
+        # AFK Agent — Claude Code Stop hook (async)
+        # Fire-and-forget: forwards stop event to Unix socket.
+        # CRITICAL: Must check stop_hook_active to prevent infinite loops.
+        SOCKET="$HOME/\(configDir)/run/agent.sock"
+
+        INPUT=$(cat 2>/dev/null) || true
+        [ -z "$INPUT" ] && exit 0
+
+        # Infinite loop prevention: if stop_hook_active is true, Claude is already
+        # continuing from a previous Stop hook block. Exit immediately.
+        if echo "$INPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(0 if d.get('stop_hook_active') else 1)" 2>/dev/null; then
+            exit 0
+        fi
+
+        [ ! -S "$SOCKET" ] && exit 0
+
+        ENVELOPE="{\\"type\\":\\"stop\\",\\"payload\\":$INPUT}"
+        echo "$ENVELOPE" | python3 -c "
+        import sys, socket
+        data = sys.stdin.buffer.read()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect('$SOCKET')
+            sock.settimeout(5)
+            sock.sendall(data)
+            sock.shutdown(socket.SHUT_WR)
+        except:
+            pass
+        sock.close()
+        " 2>/dev/null || true
+        exit 0
+        """
+    }
+
+    // MARK: - SessionStart Hook (sync, returns additionalContext)
+
+    private func bundledSessionStartHookContents() -> String {
+        return """
+        #!/bin/bash
+        # AFK Agent — Claude Code SessionStart hook
+        # Injects additionalContext so Claude knows it's in an AFK-monitored session.
+        cat > /dev/null
+        cat << 'JSONEOF'
+        {"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"[AFK] This session is monitored by the AFK mobile app. The user is away from the keyboard and may approve or deny tool calls remotely from their phone. Permission requests are forwarded to the user's iOS device."}}
+        JSONEOF
+        """
+    }
+
+    // MARK: - UserPromptSubmit Hook (sync, returns additionalContext)
+
+    private func bundledPromptSubmitHookContents() -> String {
+        return """
+        #!/bin/bash
+        # AFK Agent — Claude Code UserPromptSubmit hook
+        # Re-injects AFK context on every prompt. Survives context compaction.
+        cat > /dev/null
+        cat << 'JSONEOF'
+        {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[AFK] Session is remotely monitored via the AFK mobile app. Tool permissions are managed remotely."}}
+        JSONEOF
         """
     }
 }

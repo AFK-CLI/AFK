@@ -27,6 +27,7 @@ struct AgentConfig: Sendable {
     let obeySettingsRules: Bool          // false by default — check settings.json allow/deny lists
     let preventSleep: Bool               // false by default — IOKit sleep prevention
     let ctrlClickTogglesRemoteAndSleep: Bool  // false by default — ctrl+click combo toggle
+    let notifyOnIdle: Bool               // true by default — show macOS notification when Claude is idle
     let updateCheckInterval: TimeInterval // 3600 (1 hour) default — Sparkle check interval
 
     var isConfigured: Bool {
@@ -71,6 +72,7 @@ struct AgentConfig: Sendable {
                 obeySettingsRules: json["obeySettingsRules"] as? Bool ?? false,
                 preventSleep: json["preventSleep"] as? Bool ?? false,
                 ctrlClickTogglesRemoteAndSleep: json["ctrlClickTogglesRemoteAndSleep"] as? Bool ?? false,
+                notifyOnIdle: json["notifyOnIdle"] as? Bool ?? true,
                 updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600
             )
         }
@@ -104,6 +106,7 @@ struct AgentConfig: Sendable {
             obeySettingsRules: false,
             preventSleep: false,
             ctrlClickTogglesRemoteAndSleep: false,
+            notifyOnIdle: true,
             updateCheckInterval: 3600
         )
     }
@@ -134,6 +137,7 @@ struct AgentConfig: Sendable {
             "obeySettingsRules": obeySettingsRules,
             "preventSleep": preventSleep,
             "ctrlClickTogglesRemoteAndSleep": ctrlClickTogglesRemoteAndSleep,
+            "notifyOnIdle": notifyOnIdle,
             "updateCheckInterval": updateCheckInterval,
         ]
         if let deviceID { dict["deviceId"] = deviceID }

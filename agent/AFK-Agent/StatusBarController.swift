@@ -435,6 +435,7 @@ final class StatusBarController: NSObject {
                 obeySettingsRules: config.obeySettingsRules,
                 preventSleep: sleepPreventer.isActive,
                 ctrlClickTogglesRemoteAndSleep: config.ctrlClickTogglesRemoteAndSleep,
+                notifyOnIdle: config.notifyOnIdle,
                 updateCheckInterval: config.updateCheckInterval
             )
             config.save()
@@ -584,6 +585,23 @@ final class StatusBarController: NSObject {
             return "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
         }
         return path
+    }
+
+    // MARK: - Attention state (idle/waiting icon)
+
+    /// Set the menu bar icon to an attention color (orange) indicating Claude is waiting.
+    func setAttention(_ on: Bool) {
+        guard let button = statusItem.button else { return }
+        let bypassed = Self.isHookBypassed
+        let symbolName = bypassed ? "shield.slash" : "shield.lefthalf.filled"
+        let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "AFK Agent")
+
+        if on {
+            let config = NSImage.SymbolConfiguration(paletteColors: [.orange])
+            button.image = image?.withSymbolConfiguration(config)
+        } else {
+            button.image = image
+        }
     }
 
     // MARK: - Flag file management

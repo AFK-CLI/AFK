@@ -481,6 +481,51 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 			go hub.Notifier.NotifyPermissionRequest(userID, req)
 		}
 
+	case "agent.notification":
+		var notif struct {
+			SessionID        string `json:"sessionId"`
+			NotificationType string `json:"notificationType"`
+			Message          string `json:"message,omitempty"`
+		}
+		if err := json.Unmarshal(msg.Payload, &notif); err != nil {
+			slog.Error("parse agent notification failed", "device_id", deviceID, "error", err)
+			return
+		}
+		notification, _ := NewWSMessage("session.notification", notif)
+		hub.BroadcastToUser(userID, notification)
+		slog.Info("agent notification forwarded", "type", notif.NotificationType, "session_id", notif.SessionID)
+
+		if hub.Decision != nil {
+			data, _ := json.Marshal(map[string]string{"notificationType": notif.NotificationType, "message": notif.Message})
+			go hub.Decision.HandleSessionEvent(userID, notif.SessionID, "notification", deviceName, data)
+		} else if hub.Notifier != nil && (notif.NotificationType == "idle_prompt" || notif.NotificationType == "permission_prompt") {
+			go hub.Notifier.NotifyIdlePrompt(userID, notif.SessionID, notif.Message)
+		}
+
+	case "agent.session.stopped":
+		var stopped struct {
+			SessionID           string `json:"sessionId"`
+			LastAssistantMessage string `json:"lastAssistantMessage,omitempty"`
+		}
+		if err := json.Unmarshal(msg.Payload, &stopped); err != nil {
+			slog.Error("parse session stopped failed", "device_id", deviceID, "error", err)
+			return
+		}
+		notification, _ := NewWSMessage("session.stopped", stopped)
+		hub.BroadcastToUser(userID, notification)
+		slog.Info("session stopped", "session_id", stopped.SessionID)
+
+		if hub.Decision != nil {
+			dataMap := map[string]string{}
+			if stopped.LastAssistantMessage != "" {
+				dataMap["lastAssistantMessage"] = stopped.LastAssistantMessage
+			}
+			data, _ := json.Marshal(dataMap)
+			go hub.Decision.HandleSessionEvent(userID, stopped.SessionID, "session_stopped", deviceName, data)
+		} else if hub.Notifier != nil {
+			go hub.Notifier.NotifySessionStopped(userID, stopped.SessionID, stopped.LastAssistantMessage)
+		}
+
 	case "agent.session.completed":
 		// Parse only sessionId — the completed message has no metadata fields.
 		var partial struct {
@@ -636,6 +681,23 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 			ProjectTodos model.TodoState `json:"projectTodos"`
 		}{todoState})
 		hub.BroadcastToUser(userID, notification)
+
+	case "agent.session.metrics":
+		var metrics model.AgentSessionMetrics
+		if err := json.Unmarshal(msg.Payload, &metrics); err != nil {
+			slog.Error("parse session metrics failed", "device_id", deviceID, "error", err)
+			return
+		}
+		if err := db.AccumulateSessionCost(database, metrics.SessionID, metrics.CostUsd); err != nil {
+			slog.Error("accumulate session cost failed", "session_id", metrics.SessionID, "error", err)
+		}
+		// Broadcast to iOS
+		notification, _ := NewWSMessage("session.metrics", metrics)
+		hub.BroadcastToUser(userID, notification)
+		slog.Info("session metrics received",
+			"session_id", metrics.SessionID, "model", metrics.Model,
+			"cost_usd", metrics.CostUsd, "input_tokens", metrics.InputTokens,
+			"output_tokens", metrics.OutputTokens)
 
 	default:
 		slog.Warn("unknown agent message type", "type", msg.Type, "device_id", deviceID)

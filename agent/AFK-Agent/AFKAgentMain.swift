@@ -5,6 +5,7 @@
 
 import AppKit
 import Foundation
+import UserNotifications
 #if canImport(Sparkle)
 import Sparkle
 #endif
@@ -26,6 +27,9 @@ struct AFKAgentMain {
 
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
+
+        // Request notification permission for idle/waiting alerts
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
 
         #if canImport(Sparkle)
         updaterController = SPUStandardUpdaterController(

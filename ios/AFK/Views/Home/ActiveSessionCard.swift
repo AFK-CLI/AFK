@@ -50,19 +50,17 @@ struct ActiveSessionCard: View {
 
             HStack(spacing: 24) {
                 StatView(title: "Turns", value: "\(session.turnCount)", icon: "arrow.2.squarepath")
-                StatView(title: "Tokens In", value: formatTokens(session.tokensIn), icon: "arrow.down.circle")
-                StatView(title: "Tokens Out", value: formatTokens(session.tokensOut), icon: "arrow.up.circle")
+                StatView(title: "Tokens In", value: session.tokensIn.formattedTokens, icon: "arrow.down.circle")
+                StatView(title: "Tokens Out", value: session.tokensOut.formattedTokens, icon: "arrow.up.circle")
+                if session.costUsd > 0 {
+                    StatView(title: "Cost", value: session.costUsd.formattedCost, icon: "dollarsign.circle")
+                }
             }
         }
         .padding()
         .background(.regularMaterial, in: .rect(cornerRadius: 16))
     }
 
-    private func formatTokens(_ count: Int64) -> String {
-        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
-        if count >= 1_000 { return String(format: "%.1fK", Double(count) / 1_000) }
-        return "\(count)"
-    }
 }
 
 struct StatView: View {

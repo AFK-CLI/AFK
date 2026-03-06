@@ -38,8 +38,11 @@ final class WebSocketService {
     var onReconnect: (() -> Void)?
     var onDeviceKeyRotated: ((String, String, Int) -> Void)?  // (deviceId, newPublicKey, keyVersion)
     var onAgentControlState: ((String, Bool, Bool) -> Void)?  // (deviceId, remoteApproval, autoPlanExit)
+    var onSessionNotification: ((String, String, String?) -> Void)?  // (sessionId, notificationType, message)
+    var onSessionStopped: ((String, String?) -> Void)?  // (sessionId, lastAssistantMessage)
     var onTaskUpdate: ((AFKTask) -> Void)?
     var onTodoUpdate: ((ProjectTodos) -> Void)?
+    var onSessionMetrics: ((SessionMetricsData) -> Void)?
 
     /// Content decryptor closure — set by SessionStore to decrypt E2EE content.
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
@@ -235,6 +238,14 @@ final class WebSocketService {
             if let request = try? decoder.decode(PermissionRequest.self, from: payloadData) {
                 onPermissionRequest?(request)
             }
+        case "session.notification":
+            if let payload = try? decoder.decode(SessionNotificationPayload.self, from: payloadData) {
+                onSessionNotification?(payload.sessionId, payload.notificationType, payload.message)
+            }
+        case "session.stopped":
+            if let payload = try? decoder.decode(SessionStoppedPayload.self, from: payloadData) {
+                onSessionStopped?(payload.sessionId, payload.lastAssistantMessage)
+            }
         case "command.running":
             if let payload = try? decoder.decode(CommandRunningPayload.self, from: payloadData) {
                 onCommandRunning?(payload.sessionId)
@@ -273,6 +284,10 @@ final class WebSocketService {
             if let payload = try? decoder.decode(TodoUpdatePayload.self, from: payloadData) {
                 onTodoUpdate?(payload.projectTodos)
             }
+        case "session.metrics":
+            if let payload = try? decoder.decode(SessionMetricsData.self, from: payloadData) {
+                onSessionMetrics?(payload)
+            }
         default:
             break
         }
@@ -292,6 +307,17 @@ private struct SessionEventPayload: Codable {
     let data: [String: String]?
     let content: [String: String]?
     let deviceName: String?
+}
+
+private struct SessionNotificationPayload: Codable {
+    let sessionId: String
+    let notificationType: String
+    let message: String?
+}
+
+private struct SessionStoppedPayload: Codable {
+    let sessionId: String
+    let lastAssistantMessage: String?
 }
 
 private struct DeviceStatusPayload: Codable {
@@ -349,4 +375,15 @@ private struct TaskUpdatePayload: Codable {
 
 private struct TodoUpdatePayload: Codable {
     let projectTodos: ProjectTodos
+}
+
+struct SessionMetricsData: Codable {
+    let sessionId: String
+    let model: String
+    let costUsd: Double
+    let inputTokens: Int64
+    let outputTokens: Int64
+    let cacheReadTokens: Int64
+    let cacheCreationTokens: Int64
+    let durationMs: Int64
 }

@@ -57,6 +57,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             preventSleep: config.preventSleep,
             ctrlClickTogglesRemoteAndSleep: config.ctrlClickTogglesRemoteAndSleep,
             remoteApprovalEnabled: isRemoteApprovalOn,
+            notifyOnIdle: config.notifyOnIdle,
             autoCheckForUpdates: config.updateCheckInterval > 0,
             updateCheckInterval: config.updateCheckInterval,
             onSave: { [weak self] settings in
@@ -67,7 +68,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             }
         )
 
-        let contentSize = NSSize(width: 400, height: 420)
+        let contentSize = NSSize(width: 400, height: 530)
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: contentSize),
@@ -114,6 +115,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             obeySettingsRules: settings.obeySettingsRules,
             preventSleep: settings.preventSleep,
             ctrlClickTogglesRemoteAndSleep: settings.ctrlClickTogglesRemoteAndSleep,
+            notifyOnIdle: settings.notifyOnIdle,
             updateCheckInterval: settings.updateCheckInterval
         )
         config.save()
@@ -148,6 +150,7 @@ struct SettingsValues {
     var preventSleep: Bool
     var ctrlClickTogglesRemoteAndSleep: Bool
     var remoteApprovalEnabled: Bool
+    var notifyOnIdle: Bool
     var updateCheckInterval: TimeInterval
 }
 
@@ -158,6 +161,7 @@ private struct SettingsContentView: View {
     @State var preventSleep: Bool
     @State var ctrlClickTogglesRemoteAndSleep: Bool
     @State var remoteApprovalEnabled: Bool
+    @State var notifyOnIdle: Bool
     @State var autoCheckForUpdates: Bool
     @State var updateCheckInterval: TimeInterval
 
@@ -176,6 +180,7 @@ private struct SettingsContentView: View {
         preventSleep: Bool,
         ctrlClickTogglesRemoteAndSleep: Bool,
         remoteApprovalEnabled: Bool,
+        notifyOnIdle: Bool,
         autoCheckForUpdates: Bool,
         updateCheckInterval: TimeInterval,
         onSave: @escaping (SettingsValues) -> Void,
@@ -185,6 +190,7 @@ private struct SettingsContentView: View {
         _preventSleep = State(initialValue: preventSleep)
         _ctrlClickTogglesRemoteAndSleep = State(initialValue: ctrlClickTogglesRemoteAndSleep)
         _remoteApprovalEnabled = State(initialValue: remoteApprovalEnabled)
+        _notifyOnIdle = State(initialValue: notifyOnIdle)
         _autoCheckForUpdates = State(initialValue: autoCheckForUpdates)
         _updateCheckInterval = State(initialValue: updateCheckInterval)
         self.onSave = onSave
@@ -204,6 +210,16 @@ private struct SettingsContentView: View {
             GroupBox(label: Label("Power", systemImage: "bolt.fill")) {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Prevent Sleep", isOn: $preventSleep)
+                }
+                .padding(.vertical, 4)
+            }
+
+            GroupBox(label: Label("Notifications", systemImage: "bell.badge")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Notify when Claude is idle", isOn: $notifyOnIdle)
+                    Text("Shows a macOS notification and turns the menu bar icon orange when Claude is waiting for input.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             }
@@ -244,6 +260,7 @@ private struct SettingsContentView: View {
                         preventSleep: preventSleep,
                         ctrlClickTogglesRemoteAndSleep: ctrlClickTogglesRemoteAndSleep,
                         remoteApprovalEnabled: remoteApprovalEnabled,
+                        notifyOnIdle: notifyOnIdle,
                         updateCheckInterval: effectiveInterval
                     ))
                 }

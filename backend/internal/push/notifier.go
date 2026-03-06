@@ -183,6 +183,64 @@ func (n *Notifier) NotifySessionCompleted(userID, sessionID string) {
 	n.sendToAll(tokens, title, body, "session_completed", data)
 }
 
+func (n *Notifier) NotifySessionStopped(userID, sessionID, lastMessage string) {
+	if n.hasActiveIOSConns(userID) {
+		return
+	}
+
+	if !n.checkPrefsAndRate(userID, sessionID, func(p *model.NotificationPrefs) bool { return p.SessionCompletions }) {
+		return
+	}
+
+	tokens, err := db.ListPushTokensByUser(n.database, userID)
+	if err != nil {
+		slog.Error("failed to list push tokens", "user_id", userID, "error", err)
+		return
+	}
+
+	title := "Claude Stopped"
+	body := "Claude has finished responding"
+	if lastMessage != "" {
+		// Truncate to keep push payload small
+		if len(lastMessage) > 200 {
+			lastMessage = lastMessage[:200] + "..."
+		}
+		body = lastMessage
+	}
+	data := map[string]string{
+		"sessionId": sessionID,
+		"deepLink":  fmt.Sprintf("afk://session/%s", sessionID),
+	}
+	n.sendToAll(tokens, title, body, "session_stopped", data)
+}
+
+func (n *Notifier) NotifyIdlePrompt(userID, sessionID, message string) {
+	if n.hasActiveIOSConns(userID) {
+		return
+	}
+
+	if !n.checkPrefsAndRate(userID, sessionID, func(p *model.NotificationPrefs) bool { return p.PermissionRequests }) {
+		return
+	}
+
+	tokens, err := db.ListPushTokensByUser(n.database, userID)
+	if err != nil {
+		slog.Error("failed to list push tokens", "user_id", userID, "error", err)
+		return
+	}
+
+	title := "Claude Needs Attention"
+	body := message
+	if body == "" {
+		body = "Claude is waiting for input"
+	}
+	data := map[string]string{
+		"sessionId": sessionID,
+		"deepLink":  fmt.Sprintf("afk://session/%s", sessionID),
+	}
+	n.sendToAll(tokens, title, body, "idle_prompt", data)
+}
+
 // checkPrefsAndRate checks notification preferences and rate limiting.
 func (n *Notifier) checkPrefsAndRate(userID, sessionID string, prefCheck func(*model.NotificationPrefs) bool) bool {
 	prefs, err := db.GetNotificationPrefs(n.database, userID)

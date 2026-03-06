@@ -6,6 +6,7 @@
 import Foundation
 import CryptoKit
 import OSLog
+import UserNotifications
 
 actor Agent {
     var config: AgentConfig
@@ -15,6 +16,7 @@ actor Agent {
     var normalizer = EventNormalizer()
     var wsClient: WebSocketClient?
     var permissionSocket: PermissionSocket?
+    var otlpReceiver: OTLPReceiver?
     var commandExecutor: CommandExecutor?
     var commandVerifier: CommandVerifier?
     var commandNonceStore = NonceStore()
@@ -130,6 +132,9 @@ actor Agent {
 
                 // Wire E2EE content encryption into the normalizer
                 await setupE2EEEncryptor(deviceId: deviceId)
+
+                // Start OTLP telemetry receiver for cost/token tracking
+                await setupOTLPReceiver()
 
                 // Refresh peer keys on every WS reconnect to pick up rotated keys
                 await client.onReconnect { [weak self] in
@@ -299,6 +304,12 @@ actor Agent {
 
         do {
             let entries = try await parser.parseNewEntries(at: filePath)
+            if !entries.isEmpty {
+                // Clear attention icon — Claude is active again
+                Task { @MainActor [weak self] in
+                    self?.statusBarController?.setAttention(false)
+                }
+            }
             for entry in entries {
                 // Skip sidechain entries
                 if entry.isSidechain == true { continue }
@@ -395,16 +406,18 @@ actor Agent {
         }
     }
 
-    private func showNotification(title: String, message: String) {
-        let safeTitle = title.filter { $0.isLetter || $0.isNumber || $0 == " " || $0 == "." || $0 == ":" }
-        let safeMessage = message.filter { $0.isLetter || $0.isNumber || $0 == " " || $0 == "." || $0 == ":" || $0 == "," }
-        let script = "display notification \"\(safeMessage)\" with title \"\(safeTitle)\""
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        try? process.run()
+    func showNotification(title: String, message: String) {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = message
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     func submitFeedback(category: String, message: String) async {

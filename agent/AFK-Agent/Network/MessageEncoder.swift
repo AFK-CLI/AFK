@@ -92,6 +92,16 @@ struct MessageEncoder {
         return try WSMessage(type: "agent.control_state", payload: payload)
     }
 
+    static func notification(sessionId: String, notificationType: String, message: String?) throws -> WSMessage {
+        let payload = AgentNotificationPayload(sessionId: sessionId, notificationType: notificationType, message: message)
+        return try WSMessage(type: "agent.notification", payload: payload)
+    }
+
+    static func sessionStopped(sessionId: String, lastAssistantMessage: String?) throws -> WSMessage {
+        let payload = AgentSessionStoppedPayload(sessionId: sessionId, lastAssistantMessage: lastAssistantMessage)
+        return try WSMessage(type: "agent.session.stopped", payload: payload)
+    }
+
     static func todoSync(
         projectPath: String,
         contentHash: String,
@@ -106,6 +116,29 @@ struct MessageEncoder {
             items: wireItems
         )
         return try WSMessage(type: "agent.todo.sync", payload: payload)
+    }
+
+    static func sessionMetrics(
+        sessionId: String,
+        model: String,
+        costUsd: Double,
+        inputTokens: Int64,
+        outputTokens: Int64,
+        cacheReadTokens: Int64,
+        cacheCreationTokens: Int64,
+        durationMs: Int64
+    ) throws -> WSMessage {
+        let payload = AgentSessionMetrics(
+            sessionId: sessionId,
+            model: model,
+            costUsd: costUsd,
+            inputTokens: inputTokens,
+            outputTokens: outputTokens,
+            cacheReadTokens: cacheReadTokens,
+            cacheCreationTokens: cacheCreationTokens,
+            durationMs: durationMs
+        )
+        return try WSMessage(type: "agent.session.metrics", payload: payload)
     }
 }
 
@@ -177,6 +210,17 @@ struct AgentControlStatePayload: Codable, Sendable {
     let autoPlanExit: Bool
 }
 
+struct AgentNotificationPayload: Codable, Sendable {
+    let sessionId: String
+    let notificationType: String
+    let message: String?
+}
+
+struct AgentSessionStoppedPayload: Codable, Sendable {
+    let sessionId: String
+    let lastAssistantMessage: String?
+}
+
 struct AgentTodoItem: Codable, Sendable {
     let text: String
     let checked: Bool
@@ -188,4 +232,15 @@ struct AgentTodoSyncPayload: Codable, Sendable {
     let contentHash: String
     let rawContent: String
     let items: [AgentTodoItem]
+}
+
+struct AgentSessionMetrics: Codable, Sendable {
+    let sessionId: String
+    let model: String
+    let costUsd: Double
+    let inputTokens: Int64
+    let outputTokens: Int64
+    let cacheReadTokens: Int64
+    let cacheCreationTokens: Int64
+    let durationMs: Int64
 }

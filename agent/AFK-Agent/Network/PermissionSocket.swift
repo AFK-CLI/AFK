@@ -121,6 +121,7 @@ actor PermissionSocket {
         let tool_input: [String: AnyCodable]?
         let tool_use_id: String?
         let session_id: String?
+        let permission_mode: String?
     }
 
     // Minimal type-erased Codable wrapper for tool_input values
@@ -186,6 +187,37 @@ actor PermissionSocket {
 
     func setOnPermissionRequest(_ handler: @escaping @Sendable (PermissionRequestEvent) async -> Void) {
         self.onPermissionRequest = handler
+    }
+
+    // MARK: - Hook Envelope Events (Notification, Stop)
+
+    /// Envelope wrapper for async hook messages (notification, stop).
+    /// Async hooks wrap their payload in {"type":"...", "payload":{...}}.
+    struct HookEnvelope: Codable {
+        let type: String
+        let payload: [String: AnyCodable]?
+    }
+
+    struct NotificationEvent: Sendable {
+        let sessionId: String
+        let notificationType: String
+        let message: String?
+    }
+
+    struct StopEvent: Sendable {
+        let sessionId: String
+        let lastAssistantMessage: String?
+    }
+
+    private var onNotification: (@Sendable (NotificationEvent) async -> Void)?
+    private var onStop: (@Sendable (StopEvent) async -> Void)?
+
+    func setOnNotification(_ handler: @escaping @Sendable (NotificationEvent) async -> Void) {
+        self.onNotification = handler
+    }
+
+    func setOnStop(_ handler: @escaping @Sendable (StopEvent) async -> Void) {
+        self.onStop = handler
     }
 
     func setSettingsRulesEnabled(_ enabled: Bool) {
@@ -451,8 +483,43 @@ actor PermissionSocket {
 
         AppLogger.permission.debug("Read \(data.count, privacy: .public) bytes from hook")
 
-        // Parse the hook input
+        // Check for envelope messages from async hooks (notification, stop).
+        // These wrap the Claude Code payload in {"type":"...", "payload":{...}}.
+        // Only treat as envelope if it has a "payload" key — prevents misinterpreting
+        // PreToolUse messages that happen to have a "type" field.
         let decoder = JSONDecoder()
+        if let envelope = try? decoder.decode(HookEnvelope.self, from: data),
+           envelope.payload != nil {
+            switch envelope.type {
+            case "notification":
+                let sessionId = envelope.payload?["session_id"]?.stringValue ?? "unknown"
+                let notifType = envelope.payload?["notification_type"]?.stringValue ?? "unknown"
+                let message = envelope.payload?["message"]?.stringValue
+                AppLogger.permission.info("Notification hook: \(notifType, privacy: .public) (session: \(sessionId.prefix(8), privacy: .public))")
+                let event = NotificationEvent(sessionId: sessionId, notificationType: notifType, message: message)
+                Task { await self.onNotification?(event) }
+                return  // fire-and-forget, no response needed
+
+            case "stop":
+                let sessionId = envelope.payload?["session_id"]?.stringValue ?? "unknown"
+                let lastMsg = envelope.payload?["last_assistant_message"]?.stringValue
+                let stopActive = envelope.payload?["stop_hook_active"]?.stringValue
+                if stopActive == "true" || stopActive == "1" {
+                    AppLogger.permission.debug("Stop hook: stop_hook_active=true, ignoring")
+                    return
+                }
+                AppLogger.permission.info("Stop hook: session \(sessionId.prefix(8), privacy: .public) stopped")
+                let event = StopEvent(sessionId: sessionId, lastAssistantMessage: lastMsg)
+                Task { await self.onStop?(event) }
+                return  // fire-and-forget, no response needed
+
+            default:
+                AppLogger.permission.warning("Unknown envelope type: \(envelope.type, privacy: .public)")
+                return
+            }
+        }
+
+        // Parse the hook input (standard PreToolUse format)
         guard let input = try? decoder.decode(HookInput.self, from: data) else {
             AppLogger.permission.error("Failed to parse hook input: \(String(data: data, encoding: .utf8) ?? "<binary>", privacy: .public)")
             return
@@ -479,6 +546,13 @@ actor PermissionSocket {
         if readOnlyTools.contains(toolName) {
             AppLogger.permission.debug("Auto-allow read-only tool: \(toolName, privacy: .public)")
             writeHookResponse(fd: fd, decision: "allow", reason: "Read-only tool auto-allowed by AFK agent")
+            return
+        }
+
+        // Auto-allow when Claude Code session is in bypassPermissions mode
+        if input.permission_mode == "bypassPermissions" {
+            AppLogger.permission.info("Auto-allow (\(toolName, privacy: .public)) — permission_mode: bypassPermissions")
+            writeHookResponse(fd: fd, decision: "allow", reason: "Bypassed via permission_mode")
             return
         }
 

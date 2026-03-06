@@ -71,6 +71,10 @@ struct Session: Codable, Identifiable, Sendable {
     var projectId: String?
     var description: String = ""
     var ephemeralPublicKey: String?
+    var costUsd: Double = 0
+    var lastModel: String?
+    var otlpCacheReadTokens: Int64 = 0
+    var otlpCacheCreationTokens: Int64 = 0
 
     /// Resolves worktree paths to their parent project path.
     /// e.g. `/path/to/AFK/.claude/worktrees/xyz` → `/path/to/AFK`
@@ -90,7 +94,8 @@ struct Session: Codable, Identifiable, Sendable {
          cwd: String, status: SessionStatus, startedAt: Date?, updatedAt: Date?,
          tokensIn: Int64, tokensOut: Int64, turnCount: Int,
          deviceName: String? = nil, projectId: String? = nil, description: String = "",
-         ephemeralPublicKey: String? = nil) {
+         ephemeralPublicKey: String? = nil, costUsd: Double = 0,
+         lastModel: String? = nil, otlpCacheReadTokens: Int64 = 0, otlpCacheCreationTokens: Int64 = 0) {
         self.id = id
         self.deviceId = deviceId
         self.userId = userId
@@ -107,6 +112,19 @@ struct Session: Codable, Identifiable, Sendable {
         self.projectId = projectId
         self.description = description
         self.ephemeralPublicKey = ephemeralPublicKey
+        self.costUsd = costUsd
+        self.lastModel = lastModel
+        self.otlpCacheReadTokens = otlpCacheReadTokens
+        self.otlpCacheCreationTokens = otlpCacheCreationTokens
+    }
+
+    /// Preserves locally-accumulated OTLP fields (cost, model, cache tokens)
+    /// from an existing session when the incoming data has zero/nil values.
+    mutating func preserveOTLPFields(from existing: Session) {
+        if costUsd == 0 && existing.costUsd > 0 { costUsd = existing.costUsd }
+        if lastModel == nil, let m = existing.lastModel { lastModel = m }
+        if otlpCacheReadTokens == 0 { otlpCacheReadTokens = existing.otlpCacheReadTokens }
+        if otlpCacheCreationTokens == 0 { otlpCacheCreationTokens = existing.otlpCacheCreationTokens }
     }
 
     init(from decoder: any Decoder) throws {
@@ -127,5 +145,9 @@ struct Session: Codable, Identifiable, Sendable {
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         ephemeralPublicKey = try container.decodeIfPresent(String.self, forKey: .ephemeralPublicKey)
+        costUsd = try container.decodeIfPresent(Double.self, forKey: .costUsd) ?? 0
+        lastModel = try container.decodeIfPresent(String.self, forKey: .lastModel)
+        otlpCacheReadTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheReadTokens) ?? 0
+        otlpCacheCreationTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheCreationTokens) ?? 0
     }
 }

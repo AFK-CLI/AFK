@@ -125,6 +125,7 @@ struct SetupView: View {
             obeySettingsRules: false,
             preventSleep: false,
             ctrlClickTogglesRemoteAndSleep: false,
+            notifyOnIdle: true,
             updateCheckInterval: 3600
         )
         config.save()

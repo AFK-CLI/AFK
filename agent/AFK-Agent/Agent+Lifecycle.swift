@@ -55,6 +55,10 @@ extension Agent {
         if let socket = permissionSocket {
             await socket.stop()
         }
+        // Stop OTLP telemetry receiver
+        if let receiver = otlpReceiver {
+            await receiver.stop()
+        }
         // Close disk queue
         diskQueue?.close()
         // Brief delay to let WS messages flush

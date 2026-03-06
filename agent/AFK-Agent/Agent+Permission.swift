@@ -24,6 +24,57 @@ extension Agent {
             await self.forwardPermissionRequest(event)
         }
 
+        // When async notification hook fires, forward to iOS via WS
+        await socket.setOnNotification { [weak self] event in
+            guard let self else { return }
+
+            // Local idle notification (icon + optional macOS notification)
+            if await self.config.notifyOnIdle {
+                // Set menu bar icon to orange attention state
+                Task { @MainActor [weak self] in
+                    self?.statusBarController?.setAttention(true)
+                }
+
+                // Show macOS notification if remote approval is off (user is at their Mac)
+                if StatusBarController.isHookBypassed {
+                    let title = event.notificationType == "idle_prompt"
+                        ? "Claude is waiting for input"
+                        : "Action required"
+                    let message = event.message ?? event.sessionId
+                    await self.showNotification(title: "AFK: \(title)", message: message)
+                }
+            }
+
+            // Forward to iOS via WS
+            guard let client = await self.wsClient else { return }
+            do {
+                let msg = try MessageEncoder.notification(
+                    sessionId: event.sessionId,
+                    notificationType: event.notificationType,
+                    message: event.message
+                )
+                try await client.send(msg)
+                AppLogger.permission.info("Forwarded notification: \(event.notificationType, privacy: .public)")
+            } catch {
+                AppLogger.permission.error("Failed to forward notification: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        // When async stop hook fires, forward to iOS via WS
+        await socket.setOnStop { [weak self] event in
+            guard let self, let client = await self.wsClient else { return }
+            do {
+                let msg = try MessageEncoder.sessionStopped(
+                    sessionId: event.sessionId,
+                    lastAssistantMessage: event.lastAssistantMessage
+                )
+                try await client.send(msg)
+                AppLogger.permission.info("Forwarded session stopped: \(event.sessionId.prefix(8), privacy: .public)")
+            } catch {
+                AppLogger.permission.error("Failed to forward session stopped: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
         // Configure settings.json rule checking
         await socket.setSettingsRulesEnabled(config.obeySettingsRules)
         await socket.setProjectPathResolver { [weak self] sessionId in

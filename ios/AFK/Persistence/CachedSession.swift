@@ -19,6 +19,10 @@ final class CachedSession {
     var projectId: String?
     var sessionDescription: String = ""
     var ephemeralPublicKey: String?
+    var costUsd: Double = 0
+    var lastModel: String?
+    var otlpCacheReadTokens: Int64 = 0
+    var otlpCacheCreationTokens: Int64 = 0
     var lastSyncedAt: Date
 
     init(from session: Session) {
@@ -38,6 +42,10 @@ final class CachedSession {
         self.projectId = session.projectId
         self.sessionDescription = session.description
         self.ephemeralPublicKey = session.ephemeralPublicKey
+        self.costUsd = session.costUsd
+        self.lastModel = session.lastModel
+        self.otlpCacheReadTokens = session.otlpCacheReadTokens
+        self.otlpCacheCreationTokens = session.otlpCacheCreationTokens
         self.lastSyncedAt = Date()
     }
 
@@ -58,7 +66,11 @@ final class CachedSession {
             deviceName: deviceName,
             projectId: projectId,
             description: sessionDescription,
-            ephemeralPublicKey: ephemeralPublicKey
+            ephemeralPublicKey: ephemeralPublicKey,
+            costUsd: costUsd,
+            lastModel: lastModel,
+            otlpCacheReadTokens: otlpCacheReadTokens,
+            otlpCacheCreationTokens: otlpCacheCreationTokens
         )
     }
 
@@ -78,6 +90,10 @@ final class CachedSession {
         projectId = session.projectId
         sessionDescription = session.description
         ephemeralPublicKey = session.ephemeralPublicKey
+        costUsd = session.costUsd
+        lastModel = session.lastModel
+        otlpCacheReadTokens = session.otlpCacheReadTokens
+        otlpCacheCreationTokens = session.otlpCacheCreationTokens
         lastSyncedAt = Date()
     }
 }

@@ -24,8 +24,23 @@ struct SessionInfoSheet: View {
 
                 Section("Stats") {
                     row("Turns", value: "\(session.turnCount)", icon: "arrow.right.circle")
-                    row("Tokens In", value: formatTokens(session.tokensIn), icon: "arrow.down.circle")
-                    row("Tokens Out", value: formatTokens(session.tokensOut), icon: "arrow.up.circle")
+                    row("Tokens In", value: session.tokensIn.formattedTokens, icon: "arrow.down.circle")
+                    row("Tokens Out", value: session.tokensOut.formattedTokens, icon: "arrow.up.circle")
+                    if session.costUsd > 0 {
+                        row("Estimated Cost", value: session.costUsd.formattedCost, icon: "dollarsign.circle")
+                    }
+                    if let model = session.lastModel, !model.isEmpty {
+                        row("Model", value: Self.prettyModelName(model), icon: "cpu")
+                    }
+                    if session.otlpCacheReadTokens > 0 || session.otlpCacheCreationTokens > 0 {
+                        row("Cache Read", value: session.otlpCacheReadTokens.formattedTokens, icon: "arrow.counterclockwise.circle")
+                        row("Cache Write", value: session.otlpCacheCreationTokens.formattedTokens, icon: "plus.circle")
+                        let total = session.otlpCacheReadTokens + session.otlpCacheCreationTokens
+                        if total > 0 {
+                            let hitRate = Double(session.otlpCacheReadTokens) / Double(total) * 100
+                            row("Cache Hit Rate", value: String(format: "%.0f%%", hitRate), icon: "chart.pie")
+                        }
+                    }
                 }
 
                 Section("Details") {
@@ -110,14 +125,27 @@ struct SessionInfoSheet: View {
         }
     }
 
-    private func formatTokens(_ count: Int64) -> String {
-        if count >= 1_000_000 {
-            return String(format: "%.1fM", Double(count) / 1_000_000.0)
+    static func prettyModelName(_ raw: String) -> String {
+        // "claude-opus-4-6" → "Opus 4.6"
+        // "claude-sonnet-4-5-20250929" → "Sonnet 4.5"
+        // "claude-3-5-sonnet-20241022" → "Sonnet 3.5"
+        var s = raw
+        if s.hasPrefix("claude-") { s = String(s.dropFirst(7)) }
+        if let range = s.range(of: #"-\d{8}$"#, options: .regularExpression) {
+            s = String(s[s.startIndex..<range.lowerBound])
         }
-        if count >= 1000 {
-            return String(format: "%.1fK", Double(count) / 1000.0)
+        let parts = s.split(separator: "-").map(String.init)
+        guard parts.count >= 2 else { return raw }
+
+        // Find the family name (first non-numeric part)
+        if let familyIdx = parts.firstIndex(where: { $0.first?.isLetter == true }) {
+            let family = parts[familyIdx].capitalized
+            var versionParts = parts
+            versionParts.remove(at: familyIdx)
+            let version = versionParts.joined(separator: ".")
+            return version.isEmpty ? family : "\(family) \(version)"
         }
-        return "\(count)"
+        return raw
     }
 
     private func formatTimestamp(_ date: Date) -> String {

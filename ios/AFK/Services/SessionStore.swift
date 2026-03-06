@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import OSLog
+import UserNotifications
 
 struct EventPagination {
     var minSeq: Int = 0
@@ -691,7 +692,15 @@ final class SessionStore {
             AppLogger.session.warning("Offline — showing \(self.sessions.count, privacy: .public) cached sessions")
         } else {
             isOffline = result.isEmpty && sessions.isEmpty
-            sessions = result
+            // Preserve locally-accumulated OTLP fields not in the API response
+            let existingByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+            sessions = result.map { incoming in
+                var s = incoming
+                if let existing = existingByID[s.id] {
+                    s.preserveOTLPFields(from: existing)
+                }
+                return s
+            }
             sessions.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
             AppLogger.session.info("Synced \(result.count, privacy: .public) sessions")
         }
@@ -841,7 +850,11 @@ final class SessionStore {
             }
             let previousStatus = self.sessions.first(where: { $0.id == session.id })?.status
             if let idx = self.sessions.firstIndex(where: { $0.id == session.id }) {
-                self.sessions[idx] = session
+                // Preserve locally-accumulated OTLP fields that the backend
+                // session broadcast doesn't carry (cost, model, cache tokens).
+                var merged = session
+                merged.preserveOTLPFields(from: self.sessions[idx])
+                self.sessions[idx] = merged
             } else {
                 self.sessions.insert(session, at: 0)
             }
@@ -850,7 +863,8 @@ final class SessionStore {
             }
 
             // Persist to local DB
-            Task { @MainActor in self.localStore.saveSession(session) }
+            let sessionToSave = self.sessions.first(where: { $0.id == session.id }) ?? session
+            Task { @MainActor in self.localStore.saveSession(sessionToSave) }
 
             // Live Activity integration
             if let lam = self.liveActivityManager {
@@ -996,6 +1010,35 @@ final class SessionStore {
         wsService.onAgentControlState = { [weak self] (deviceId, remoteApproval, autoPlanExit) in
             guard let self else { return }
             self.agentControlStates[deviceId] = AgentControlState(remoteApproval: remoteApproval, autoPlanExit: autoPlanExit)
+        }
+
+        wsService.onSessionMetrics = { [weak self] (metrics: SessionMetricsData) in
+            guard let self else { return }
+            if let idx = self.sessions.firstIndex(where: { $0.id == metrics.sessionId }) {
+                self.sessions[idx].costUsd += metrics.costUsd
+                self.sessions[idx].lastModel = metrics.model
+                self.sessions[idx].otlpCacheReadTokens += metrics.cacheReadTokens
+                self.sessions[idx].otlpCacheCreationTokens += metrics.cacheCreationTokens
+                Task { @MainActor in self.localStore.saveSession(self.sessions[idx]) }
+            }
+        }
+
+        wsService.onSessionNotification = { [weak self] (sessionId, notificationType, message) in
+            guard let self else { return }
+            // Don't notify if user is currently viewing this session
+            guard !self.viewingSessionIds.contains(sessionId) else { return }
+
+            let session = self.sessions.first(where: { $0.id == sessionId })
+            let title = session?.projectName ?? "Session"
+            let body = message ?? (notificationType == "idle_prompt" ? "Claude is waiting for input" : "Action required")
+
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            content.sound = .default
+
+            let request = UNNotificationRequest(identifier: "session-notif-\(sessionId)", content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(request)
         }
 
         wsService.onDeviceStatus = { [weak self] (deviceId, isOnline) in

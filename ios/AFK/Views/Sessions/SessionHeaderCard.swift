@@ -31,8 +31,8 @@ struct SessionHeaderCard: View {
             // Token stats row
             HStack(spacing: 16) {
                 Label("\(session.turnCount) turns", systemImage: "arrow.right.circle")
-                Label(formatTokens(session.tokensIn) + " in", systemImage: "arrow.down.circle")
-                Label(formatTokens(session.tokensOut) + " out", systemImage: "arrow.up.circle")
+                Label(session.tokensIn.formattedTokens + " in", systemImage: "arrow.down.circle")
+                Label(session.tokensOut.formattedTokens + " out", systemImage: "arrow.up.circle")
                 Spacer()
             }
             .font(.caption)
@@ -80,12 +80,6 @@ struct SessionHeaderCard: View {
         .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }
     }
 
-    private func formatTokens(_ count: Int64) -> String {
-        if count >= 1000 {
-            return String(format: "%.1fK", Double(count) / 1000.0)
-        }
-        return "\(count)"
-    }
 
     private func formatTimestamp(_ date: Date) -> String {
         let display = DateFormatter()

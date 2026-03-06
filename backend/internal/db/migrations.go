@@ -362,6 +362,8 @@ CREATE INDEX IF NOT EXISTS idx_feedback_user_id ON feedback(user_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
 `
 
+const m13SessionCostSQL = `ALTER TABLE sessions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0;`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -389,6 +391,7 @@ var migrations = []struct {
 	{Name: "021_security_hardening.up.sql", SQL: m11SecurityHardeningSQL},
 	{Name: "022_app_logs.up.sql", SQL: m12AppLogsSQL},
 	{Name: "023_feedback.up.sql", SQL: m12FeedbackSQL},
+	{Name: "024_session_cost.up.sql", SQL: m13SessionCostSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

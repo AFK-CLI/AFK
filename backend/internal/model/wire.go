@@ -82,6 +82,17 @@ type AgentSessionEvent struct {
 	Seq       int             `json:"seq,omitempty"`
 }
 
+type AgentSessionMetrics struct {
+	SessionID           string  `json:"sessionId"`
+	Model               string  `json:"model"`
+	CostUsd             float64 `json:"costUsd"`
+	InputTokens         int64   `json:"inputTokens"`
+	OutputTokens        int64   `json:"outputTokens"`
+	CacheReadTokens     int64   `json:"cacheReadTokens"`
+	CacheCreationTokens int64   `json:"cacheCreationTokens"`
+	DurationMs          int64   `json:"durationMs"`
+}
+
 // iOS payloads
 
 type AppSubscribe struct {
