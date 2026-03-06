@@ -12,6 +12,22 @@ struct ConversationTurnView: View {
                 UserMessageBubble(text: userText)
             }
 
+            // Teammate/task cards from user messages
+            if let userBlocks = turn.userContentBlocks {
+                ForEach(userBlocks) { block in
+                    switch block {
+                    case .text:
+                        EmptyView()
+                    case .taskNotification(let data):
+                        TaskNotificationCard(data: data)
+                    case .teammateMessage(let data):
+                        if !data.shouldHide {
+                            TeammateMessageCard(data: data)
+                        }
+                    }
+                }
+            }
+
             // Assistant content (text interleaved with task/teammate cards)
             if let blocks = turn.assistantContentBlocks {
                 ForEach(blocks) { block in

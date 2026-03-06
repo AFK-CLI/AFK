@@ -86,26 +86,65 @@ struct TaskNotificationCard: View {
 
 struct TeammateMessageCard: View {
     let data: TeammateMessageData
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(teammateColor.opacity(0.8))
-                .frame(width: 8, height: 8)
+        VStack(alignment: .leading, spacing: 0) {
+            // Header row
+            Button {
+                if hasExpandableContent {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(teammateColor.opacity(0.8))
+                        .frame(width: 8, height: 8)
 
-            Image(systemName: icon)
-                .font(.caption)
-                .foregroundStyle(teammateColor)
+                    Image(systemName: icon)
+                        .font(.caption)
+                        .foregroundStyle(teammateColor)
 
-            Text(displayLabel)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                    Text(displayLabel)
+                        .font(.caption)
+                        .lineLimit(isExpanded ? nil : 2)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.secondary)
 
-            Spacer()
+                    Spacer()
+
+                    if hasExpandableContent {
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+            .buttonStyle(.plain)
+
+            // Expandable content
+            if isExpanded, let content = data.displayMessage, data.messageType == "message" {
+                Divider()
+                    .padding(.horizontal, 12)
+
+                ScrollView {
+                    MarkdownText(text: content)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxHeight: 300)
+                .padding(12)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
         .background(teammateColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private var hasExpandableContent: Bool {
+        data.messageType == "message" && data.displayMessage != nil
     }
 
     private var icon: String {
@@ -126,6 +165,11 @@ struct TeammateMessageCard: View {
             return "\(name) approved shutdown"
         case "shutdown_request":
             return "\(name) requested shutdown"
+        case "message":
+            if let summary = data.summary, !summary.isEmpty {
+                return "\(name): \(summary)"
+            }
+            return "\(name) sent a message"
         default:
             return "\(name): \(data.messageType.replacingOccurrences(of: "_", with: " "))"
         }

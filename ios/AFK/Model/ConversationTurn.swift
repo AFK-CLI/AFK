@@ -6,11 +6,22 @@ struct ConversationTurn: Identifiable, Equatable {
     let events: [SessionEvent]
     let toolPairs: [ToolCallPair]
     let cachedAssistantContentBlocks: [AssistantContentBlock]?
+    let cachedUserContentBlocks: [AssistantContentBlock]?
+
+    init(id: String, turnIndex: Int, events: [SessionEvent], toolPairs: [ToolCallPair], cachedAssistantContentBlocks: [AssistantContentBlock]? = nil, cachedUserContentBlocks: [AssistantContentBlock]? = nil) {
+        self.id = id
+        self.turnIndex = turnIndex
+        self.events = events
+        self.toolPairs = toolPairs
+        self.cachedAssistantContentBlocks = cachedAssistantContentBlocks
+        self.cachedUserContentBlocks = cachedUserContentBlocks
+    }
 
     static func == (lhs: ConversationTurn, rhs: ConversationTurn) -> Bool {
         lhs.id == rhs.id &&
         lhs.events.count == rhs.events.count &&
-        lhs.toolPairs.count == rhs.toolPairs.count
+        lhs.toolPairs.count == rhs.toolPairs.count &&
+        lhs.cachedUserContentBlocks?.count == rhs.cachedUserContentBlocks?.count
     }
 
     var userSnippet: String? {
@@ -18,9 +29,21 @@ struct ConversationTurn: Identifiable, Equatable {
             return nil
         }
         // Strip CLI system/meta XML tags that aren't meaningful in the mobile UI
-        let cleaned = raw
+        var cleaned = raw
             .replacingOccurrences(
                 of: "<(local-command-caveat|command-name|command-message|command-args|local-command-stdout|system-reminder)>[\\s\\S]*?</\\1>",
+                with: "",
+                options: .regularExpression
+            )
+        // Strip teammate/task XML tags (rendered as cards separately)
+        cleaned = cleaned
+            .replacingOccurrences(
+                of: "(?:-\\s*\\[[ x]\\]\\s*)?<teammate-message[\\s\\S]*?</teammate-message>",
+                with: "",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "(?:-\\s*\\[[ x]\\]\\s*)?<task-notification>[\\s\\S]*?</task-notification>",
                 with: "",
                 options: .regularExpression
             )
@@ -47,6 +70,31 @@ struct ConversationTurn: Identifiable, Equatable {
     /// Parsed assistant content blocks (pre-computed at build time by TurnBuilder).
     var assistantContentBlocks: [AssistantContentBlock]? {
         cachedAssistantContentBlocks
+    }
+
+    /// Parsed user content blocks (teammate/task cards from user messages).
+    var userContentBlocks: [AssistantContentBlock]? {
+        cachedUserContentBlocks
+    }
+
+    /// Compute user content blocks (teammate/task cards) from the user snippet.
+    static func buildUserContentBlocks(from events: [SessionEvent]) -> [AssistantContentBlock]? {
+        guard let raw = events.first(where: { $0.eventType == "turn_started" })?.userSnippet else {
+            return nil
+        }
+        // Only parse if tags are present
+        guard raw.contains("<teammate-message") || raw.contains("<task-notification>") else {
+            return nil
+        }
+        let blocks = AssistantContentParser.parse(raw)
+        // Only return teammate/task blocks, not surrounding text
+        let specialBlocks = blocks.filter { block in
+            switch block {
+            case .text: return false
+            case .taskNotification, .teammateMessage: return true
+            }
+        }
+        return specialBlocks.isEmpty ? nil : specialBlocks
     }
 
     /// Compute assistant content blocks from events (used by TurnBuilder at build time).
@@ -146,7 +194,8 @@ enum TurnBuilder {
                 turnIndex: group.index,
                 events: group.events,
                 toolPairs: pairs,
-                cachedAssistantContentBlocks: ConversationTurn.buildContentBlocks(from: group.events)
+                cachedAssistantContentBlocks: ConversationTurn.buildContentBlocks(from: group.events),
+                cachedUserContentBlocks: ConversationTurn.buildUserContentBlocks(from: group.events)
             )
         }
     }

@@ -110,6 +110,29 @@ final class AssistantContentParserTests: XCTestCase {
         }
     }
 
+    func testTeammateMessageWithSummaryAndPlainTextBody() {
+        let text = """
+        <teammate-message teammate_id="beta-analyst" color="green" summary="Go file count in backend/internal/">
+        Counted Go files in backend/internal/ using glob pattern **/*.go
+
+        **Total: 73 Go files**
+        </teammate-message>
+        """
+        let blocks = AssistantContentParser.parse(text)
+        XCTAssertEqual(blocks.count, 1)
+        if case .teammateMessage(let data) = blocks[0] {
+            XCTAssertEqual(data.teammateId, "beta-analyst")
+            XCTAssertEqual(data.color, "green")
+            XCTAssertEqual(data.summary, "Go file count in backend/internal/")
+            XCTAssertEqual(data.messageType, "message")
+            XCTAssertEqual(data.from, "beta-analyst")
+            XCTAssertTrue(data.displayMessage?.contains("73 Go files") ?? false)
+            XCTAssertFalse(data.shouldHide)
+        } else {
+            XCTFail("Expected .teammateMessage block")
+        }
+    }
+
     // MARK: - Mixed Content
 
     func testTextBeforeTask() {

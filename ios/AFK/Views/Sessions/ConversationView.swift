@@ -38,7 +38,8 @@ struct ConversationView: View {
                     turnIndex: turn.turnIndex,
                     events: turn.events,
                     toolPairs: [],
-                    cachedAssistantContentBlocks: turn.cachedAssistantContentBlocks
+                    cachedAssistantContentBlocks: turn.cachedAssistantContentBlocks,
+                    cachedUserContentBlocks: turn.cachedUserContentBlocks
                 )
             }
         }

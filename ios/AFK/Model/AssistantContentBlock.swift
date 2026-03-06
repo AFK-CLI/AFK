@@ -31,6 +31,17 @@ struct TeammateMessageData {
     let from: String?
     let timestamp: String?
     let displayMessage: String?
+    let summary: String?
+
+    init(teammateId: String, color: String?, messageType: String, from: String?, timestamp: String?, displayMessage: String?, summary: String? = nil) {
+        self.teammateId = teammateId
+        self.color = color
+        self.messageType = messageType
+        self.from = from
+        self.timestamp = timestamp
+        self.displayMessage = displayMessage
+        self.summary = summary
+    }
 
     var shouldHide: Bool {
         messageType == "idle_notification"

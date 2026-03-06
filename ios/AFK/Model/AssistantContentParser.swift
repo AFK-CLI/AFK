@@ -110,7 +110,9 @@ enum AssistantContentParser {
         let body = String(text[openEnd.upperBound..<closeRange.lowerBound])
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // Parse JSON body
+        let summary = extractAttribute("summary", from: openTag)
+
+        // Parse JSON body, or treat as plain text content
         var messageType = "unknown"
         var from: String?
         var timestamp: String?
@@ -122,6 +124,11 @@ enum AssistantContentParser {
             from = json["from"] as? String
             timestamp = json["timestamp"] as? String
             displayMessage = json["message"] as? String
+        } else if !body.isEmpty {
+            // Non-JSON body: plain text content from teammate
+            messageType = "message"
+            from = teammateId
+            displayMessage = body
         }
 
         let data = TeammateMessageData(
@@ -130,7 +137,8 @@ enum AssistantContentParser {
             messageType: messageType,
             from: from,
             timestamp: timestamp,
-            displayMessage: displayMessage
+            displayMessage: displayMessage,
+            summary: summary
         )
         return (data, closeRange.upperBound)
     }
