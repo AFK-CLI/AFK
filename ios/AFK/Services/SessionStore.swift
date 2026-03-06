@@ -12,14 +12,14 @@ struct EventPagination {
 struct AgentControlState {
     var remoteApproval: Bool
     var autoPlanExit: Bool
+
+    static let `default` = AgentControlState(remoteApproval: true, autoPlanExit: false)
 }
 
 @Observable
 final class SessionStore {
     var sessions: [Session] = []
     var events: [String: [SessionEvent]] = [:]
-    var isLoading = false
-    var isOffline = false
     var pendingPermissions: [String: PermissionRequest] = [:]  // keyed by nonce
     private(set) var queuedPermissions: [PermissionRequest] = []
     private var permissionQueueTimers: [String: Task<Void, Never>] = [:]
@@ -27,11 +27,13 @@ final class SessionStore {
     var liveActivityManager: LiveActivityManager?
     /// Session IDs the user is currently viewing — events are reloaded on WS reconnect
     var viewingSessionIds: Set<String> = []
-    var permissionModes: [String: String] = [:]  // deviceId -> mode
-    var agentControlStates: [String: AgentControlState] = [:]  // deviceId -> control state
+    private var permissionModes: [String: String] = [:]  // deviceId -> mode
+    private var agentControlStates: [String: AgentControlState] = [:]  // deviceId -> control state
 
     /// E2EE: cached session keys (sessionId -> SymmetricKey)
     private var e2eeSessionKeys: [String: SymmetricKey] = [:]
+    /// E2EE: cached V1 fallback keys for when primary is V2 (sessionId -> SymmetricKey)
+    private var e2eeV1SessionKeys: [String: SymmetricKey] = [:]
     /// E2EE: cached historical session keys ("sessionId:v:version" -> SymmetricKey)
     private var historicalSessionKeys: [String: SymmetricKey] = [:]
     /// E2EE: cached permission signing keys (deviceId -> SymmetricKey)
@@ -99,6 +101,13 @@ final class SessionStore {
                     continue
                 }
 
+                // 1b. Try V1 fallback key (when primary is V2 but agent encrypted with V1)
+                if let v1Key = self.e2eeV1SessionKeys[sessionId],
+                   let plaintext = try? E2EEService.decrypt(blob.ciphertext, key: v1Key) {
+                    result[field] = plaintext
+                    continue
+                }
+
                 // 2. Try historical keys from cache (populated by prior async fallbacks)
                 if let senderVer = blob.senderKeyVersion {
                     var found = false
@@ -131,16 +140,14 @@ final class SessionStore {
         }
     }
 
-    /// Decrypt content fields, handling both multi-peer (device-prefixed) and legacy (un-prefixed) formats.
-    /// Supports both versioned (e1:...) and legacy (raw base64) ciphertext values.
-    private static func decryptContentFields(_ content: [String: String], key: SymmetricKey, myDeviceId: String?) -> [String: String] {
-        // Try multi-peer format first: look for keys prefixed with our device ID
-        let extracted = extractMyContent(content, myDeviceId: myDeviceId)
+    /// Decrypt already-extracted content fields using a session key.
+    /// Callers must extract device-prefixed fields via `extractMyContent` first.
+    private static func decryptContentFields(_ content: [String: String], key: SymmetricKey) -> [String: String] {
         do {
-            return try E2EEService.decryptContentVersioned(extracted, key: key)
+            return try E2EEService.decryptContentVersioned(content, key: key)
         } catch {
             AppLogger.e2ee.error("Decryption failed: \(error, privacy: .public)")
-            return sanitizeCiphertext(extracted)
+            return sanitizeCiphertext(content)
         }
     }
 
@@ -185,6 +192,22 @@ final class SessionStore {
         return result
     }
 
+    /// Invalidate all cached E2EE keys for sessions belonging to a specific device.
+    private func invalidateSessionKeys(for deviceId: String) {
+        for session in sessions where session.deviceId == deviceId {
+            e2eeSessionKeys.removeValue(forKey: session.id)
+            e2eeV1SessionKeys.removeValue(forKey: session.id)
+            sessionKeyVersions.removeValue(forKey: session.id)
+            sessionPeerDeviceId.removeValue(forKey: session.id)
+        }
+        permissionSigningKeys.removeValue(forKey: deviceId)
+    }
+
+    /// Sort sessions by most recently updated first.
+    private func sortSessionsByDate() {
+        sessions.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
+    }
+
     /// Reinitialize the E2EE service with a fresh key pair.
     /// Call this when the own device key changes (e.g., key regenerated from Keychain loss).
     /// Clears all cached session keys since they were derived from the old private key.
@@ -195,22 +218,21 @@ final class SessionStore {
         AppLogger.e2ee.info("Reinitialized E2EE service: \(oldFingerprint, privacy: .public) -> \(newFingerprint, privacy: .public)")
 
         // Clear ALL derived keys — they were computed from the old private key
-        let sessionKeyCount = e2eeSessionKeys.count
-        let historicalKeyCount = historicalSessionKeys.count
-        let permKeyCount = permissionSigningKeys.count
+        let counts = (e2eeSessionKeys.count, historicalSessionKeys.count, permissionSigningKeys.count)
         e2eeSessionKeys.removeAll()
+        e2eeV1SessionKeys.removeAll()
         historicalSessionKeys.removeAll()
         permissionSigningKeys.removeAll()
         sessionKeyVersions.removeAll()
         sessionPeerDeviceId.removeAll()
-        AppLogger.e2ee.info("Cleared \(sessionKeyCount, privacy: .public) session keys, \(historicalKeyCount, privacy: .public) historical keys, \(permKeyCount, privacy: .public) permission keys")
+        AppLogger.e2ee.info("Cleared \(counts.0, privacy: .public) session keys, \(counts.1, privacy: .public) historical keys, \(counts.2, privacy: .public) permission keys")
 
         // Re-wire the content decryptor
         setupE2EEDecryptor()
     }
 
     /// Cache an E2EE session key for a device's session.
-    func cacheE2EEKey(for sessionId: String, peerPublicKeyBase64: String) {
+    private func cacheE2EEKey(for sessionId: String, peerPublicKeyBase64: String) {
         guard let service = e2eeService else { return }
         do {
             let key = try service.sessionKey(peerPublicKeyBase64: peerPublicKeyBase64, sessionId: sessionId)
@@ -223,7 +245,8 @@ final class SessionStore {
     }
 
     /// Cache an E2EE v2 (forward-secret) session key using both long-term and ephemeral peer keys.
-    func cacheE2EEKeyV2(for sessionId: String, peerPublicKeyBase64: String, ephemeralPublicKeyBase64: String) {
+    /// Also derives and caches the V1 key as fallback for when the agent encrypts with V1.
+    private func cacheE2EEKeyV2(for sessionId: String, peerPublicKeyBase64: String, ephemeralPublicKeyBase64: String) {
         guard let service = e2eeService else { return }
         do {
             let key = try service.deriveSessionKeyV2(
@@ -238,25 +261,13 @@ final class SessionStore {
         } catch {
             AppLogger.e2ee.error("Failed to derive v2 session key for \(sessionId.prefix(8), privacy: .public): \(error, privacy: .public)")
         }
-    }
-
-    /// Encrypt a prompt before sending as a remote continue command.
-    /// Uses v2 wire format (e2:...) for forward-secret sessions, v1 (e1:...) otherwise.
-    func encryptPrompt(_ prompt: String, sessionId: String) -> String? {
-        guard let key = e2eeSessionKeys[sessionId] else { return nil }
-        if let deviceId = myDeviceId {
-            let keyVersion = myKeyVersion ?? 1
-            if sessionKeyVersions[sessionId] == 2 {
-                // V2: include receiver's key version so agent knows which ephemeral key was used
-                let receiverKeyVersion = 1
-                return try? E2EEService.encryptVersionedV2(
-                    prompt, key: key, keyVersion: keyVersion,
-                    senderDeviceId: deviceId, receiverKeyVersion: receiverKeyVersion
-                )
-            }
-            return try? E2EEService.encryptVersioned(prompt, key: key, keyVersion: keyVersion, senderDeviceId: deviceId)
+        // Also derive V1 fallback so sync decryptor can try both
+        do {
+            let v1Key = try service.sessionKey(peerPublicKeyBase64: peerPublicKeyBase64, sessionId: sessionId)
+            e2eeV1SessionKeys[sessionId] = v1Key
+        } catch {
+            AppLogger.e2ee.error("Failed to derive v1 fallback key for \(sessionId.prefix(8), privacy: .public): \(error, privacy: .public)")
         }
-        return try? E2EEService.encrypt(prompt, key: key)
     }
 
     /// Cache a device's KA public key for E2EE key derivation.
@@ -283,6 +294,7 @@ final class SessionStore {
             if hasEphKey && cachedVersion < 2 {
                 // Upgrade: invalidate V1 key so we re-derive as V2 below
                 e2eeSessionKeys.removeValue(forKey: session.id)
+                e2eeV1SessionKeys.removeValue(forKey: session.id)
                 AppLogger.e2ee.info("Upgrading session \(session.id.prefix(8), privacy: .public) key from v1 to v2 (ephemeral key now available)")
             } else {
                 return true
@@ -295,12 +307,13 @@ final class SessionStore {
         }
         sessionPeerDeviceId[session.id] = session.deviceId
         if let ephKey = session.ephemeralPublicKey, !ephKey.isEmpty {
-            // V2: forward-secret key using ephemeral + long-term
+            // V2: forward-secret key using ephemeral + long-term (also derives V1 fallback)
             cacheE2EEKeyV2(for: session.id, peerPublicKeyBase64: peerKey, ephemeralPublicKeyBase64: ephKey)
             sessionKeyVersions[session.id] = 2
         } else {
-            // V1: long-term only
+            // V1: long-term only — no V1 fallback needed (primary IS V1)
             cacheE2EEKey(for: session.id, peerPublicKeyBase64: peerKey)
+            e2eeV1SessionKeys.removeValue(forKey: session.id)
             sessionKeyVersions[session.id] = 1
         }
         return true
@@ -311,38 +324,25 @@ final class SessionStore {
     /// When no key exists, sanitize ciphertext-looking values to "[encrypted]".
     func decryptEvents(_ events: [SessionEvent], sessionId: String) -> [SessionEvent] {
         let key = e2eeSessionKeys[sessionId]
+        let v1Key = e2eeV1SessionKeys[sessionId]
         let deviceId = myDeviceId
         return events.map { event in
             guard let content = event.content, !content.isEmpty else { return event }
             let extracted = Self.extractMyContent(content, myDeviceId: deviceId)
             if let key {
-                let decrypted = Self.decryptContentFields(extracted, key: key, myDeviceId: deviceId)
-                return SessionEvent(
-                    id: event.id,
-                    sessionId: event.sessionId,
-                    deviceId: event.deviceId,
-                    eventType: event.eventType,
-                    timestamp: event.timestamp,
-                    payload: event.payload,
-                    content: decrypted,
-                    seq: event.seq
-                )
+                let decrypted = Self.decryptContentFields(extracted, key: key)
+                // If primary key produced [encrypted] fields, try V1 fallback
+                if let v1Key, decrypted.values.contains("[encrypted]") {
+                    let v1Decrypted = Self.decryptContentFields(extracted, key: v1Key)
+                    if !v1Decrypted.values.contains("[encrypted]") {
+                        return event.withContent(v1Decrypted)
+                    }
+                }
+                return event.withContent(decrypted)
             }
             // No key — sanitize ciphertext
             let sanitized = Self.sanitizeCiphertext(extracted)
-            if sanitized != extracted {
-                return SessionEvent(
-                    id: event.id,
-                    sessionId: event.sessionId,
-                    deviceId: event.deviceId,
-                    eventType: event.eventType,
-                    timestamp: event.timestamp,
-                    payload: event.payload,
-                    content: sanitized,
-                    seq: event.seq
-                )
-            }
-            return event
+            return sanitized != extracted ? event.withContent(sanitized) : event
         }
     }
 
@@ -361,7 +361,7 @@ final class SessionStore {
         }
         guard hasEncrypted else { return fastResult }
 
-        // Stage 2: Refetch peer's current key, re-derive session key, retry
+        // Stage 2: Refetch peer's current key, re-derive session key (both V1+V2), retry
         guard let session = sessions.first(where: { $0.id == sessionId }) else { return fastResult }
         do {
             let peerKeyResp = try await apiClient.getPeerKeyAgreement(deviceId: session.deviceId)
@@ -369,9 +369,12 @@ final class SessionStore {
             if currentCachedKey != peerKeyResp.publicKey {
                 AppLogger.e2ee.info("Stage 2: Peer key changed for device \(session.deviceId.prefix(8), privacy: .public), re-deriving")
                 deviceKAKeys[session.deviceId] = peerKeyResp.publicKey
-                e2eeSessionKeys.removeValue(forKey: sessionId)
-                cacheE2EEKey(for: sessionId, peerPublicKeyBase64: peerKeyResp.publicKey)
             }
+            // Always re-derive both V1+V2 keys via ensureE2EEKey
+            e2eeSessionKeys.removeValue(forKey: sessionId)
+            e2eeV1SessionKeys.removeValue(forKey: sessionId)
+            sessionKeyVersions.removeValue(forKey: sessionId)
+            ensureE2EEKey(for: session)
         } catch {
             AppLogger.e2ee.error("Stage 2: Failed to refetch peer key: \(error, privacy: .public)")
         }
@@ -457,11 +460,7 @@ final class SessionStore {
                     decrypted[field] = "[encrypted]"
                 }
             }
-            result[i] = SessionEvent(
-                id: stage2Event.id, sessionId: stage2Event.sessionId, deviceId: stage2Event.deviceId,
-                eventType: stage2Event.eventType, timestamp: stage2Event.timestamp,
-                payload: stage2Event.payload, content: decrypted, seq: stage2Event.seq
-            )
+            result[i] = stage2Event.withContent(decrypted)
         }
 
         // Log summary of Stage 3 results
@@ -557,11 +556,7 @@ final class SessionStore {
                     }
                 }
 
-                result[i] = SessionEvent(
-                    id: stage3Event.id, sessionId: stage3Event.sessionId, deviceId: stage3Event.deviceId,
-                    eventType: stage3Event.eventType, timestamp: stage3Event.timestamp,
-                    payload: stage3Event.payload, content: decrypted, seq: stage3Event.seq
-                )
+                result[i] = stage3Event.withContent(decrypted)
             }
         }
 
@@ -605,16 +600,8 @@ final class SessionStore {
                 }
             }
             // Invalidate session keys for devices whose KA key changed
-            for (deviceId, oldKey) in deviceKAKeys {
-                if newKeys[deviceId] != oldKey {
-                    // Remove all session keys that were derived from the old device key
-                    for session in sessions where session.deviceId == deviceId {
-                        e2eeSessionKeys.removeValue(forKey: session.id)
-                        sessionKeyVersions.removeValue(forKey: session.id)
-                        sessionPeerDeviceId.removeValue(forKey: session.id)
-                    }
-                    permissionSigningKeys.removeValue(forKey: deviceId)
-                }
+            for (deviceId, oldKey) in deviceKAKeys where newKeys[deviceId] != oldKey {
+                invalidateSessionKeys(for: deviceId)
             }
             deviceKAKeys = newKeys
             AppLogger.e2ee.info("Refreshed \(newKeys.count, privacy: .public) device KA keys")
@@ -682,28 +669,26 @@ final class SessionStore {
     }
 
     func loadSessions() async {
-        isLoading = true
-        defer { isLoading = false }
-
         let result = await syncService.syncSessions()
-        if result.isEmpty && !sessions.isEmpty {
-            // API failed but we have cached data — mark offline
-            isOffline = true
-            AppLogger.session.warning("Offline — showing \(self.sessions.count, privacy: .public) cached sessions")
-        } else {
-            isOffline = result.isEmpty && sessions.isEmpty
-            // Preserve locally-accumulated OTLP fields not in the API response
-            let existingByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
-            sessions = result.map { incoming in
-                var s = incoming
-                if let existing = existingByID[s.id] {
-                    s.preserveOTLPFields(from: existing)
-                }
-                return s
+        guard !result.isEmpty else {
+            if sessions.isEmpty {
+                AppLogger.session.warning("No sessions from API and no cache")
+            } else {
+                AppLogger.session.warning("Offline — showing \(self.sessions.count, privacy: .public) cached sessions")
             }
-            sessions.sort { ($0.updatedAt ?? .distantPast) > ($1.updatedAt ?? .distantPast) }
-            AppLogger.session.info("Synced \(result.count, privacy: .public) sessions")
+            return
         }
+        // Preserve locally-accumulated OTLP fields not in the API response
+        let existingByID = Dictionary(uniqueKeysWithValues: sessions.map { ($0.id, $0) })
+        sessions = result.map { incoming in
+            var s = incoming
+            if let existing = existingByID[s.id] {
+                s.preserveOTLPFields(from: existing)
+            }
+            return s
+        }
+        sortSessionsByDate()
+        AppLogger.session.info("Synced \(result.count, privacy: .public) sessions")
     }
 
     func loadEvents(for sessionId: String) async {
@@ -819,7 +804,6 @@ final class SessionStore {
     private func setupWebSocketHandlers() {
         wsService.onSessionUpdate = { [weak self] (session: Session) in
             guard let self else { return }
-            self.isOffline = false
             // Track key version before deriving, to detect upgrades
             let versionBefore = self.sessionKeyVersions[session.id] ?? 0
             // Ensure E2EE session key is derived when we first see a session
@@ -858,9 +842,7 @@ final class SessionStore {
             } else {
                 self.sessions.insert(session, at: 0)
             }
-            self.sessions.sort { s0, s1 in
-                (s0.updatedAt ?? .distantPast) > (s1.updatedAt ?? .distantPast)
-            }
+            self.sortSessionsByDate()
 
             // Persist to local DB
             let sessionToSave = self.sessions.first(where: { $0.id == session.id }) ?? session
@@ -912,10 +894,11 @@ final class SessionStore {
         wsService.onSessionEvent = { [weak self] (event: SessionEvent) in
             guard let self else { return }
             var list = self.events[event.sessionId] ?? []
-            // Deduplicate: skip if an event with the same ID was already fetched via REST
-            if !list.contains(where: { $0.id == event.id }) {
-                list.append(event)
-            }
+            // Deduplicate: skip if an event with the same ID was already fetched via REST.
+            // IMPORTANT: early-return avoids reassigning the dictionary, which would mark
+            // the @Observable property dirty and trigger unnecessary SwiftUI re-renders.
+            guard !list.contains(where: { $0.id == event.id }) else { return }
+            list.append(event)
             self.events[event.sessionId] = list
 
             // Persist to local DB
@@ -962,7 +945,6 @@ final class SessionStore {
 
         wsService.onReconnect = { [weak self] in
             guard let self else { return }
-            self.isOffline = false
             Task {
                 // Refresh device KA keys on reconnect to pick up any new/rotated keys
                 await self.refreshDeviceKAKeys()
@@ -994,14 +976,7 @@ final class SessionStore {
             self.deviceKAKeys[deviceId] = newPublicKey
 
             // Invalidate all session keys derived from this device's old key
-            for session in self.sessions where session.deviceId == deviceId {
-                self.e2eeSessionKeys.removeValue(forKey: session.id)
-                self.sessionKeyVersions.removeValue(forKey: session.id)
-                self.sessionPeerDeviceId.removeValue(forKey: session.id)
-            }
-
-            // Clear permission signing key for this device
-            self.permissionSigningKeys.removeValue(forKey: deviceId)
+            self.invalidateSessionKeys(for: deviceId)
 
             // Flush any queued permission requests with the new key
             self.flushQueuedPermissions(for: deviceId)
@@ -1204,16 +1179,16 @@ final class SessionStore {
     // MARK: - Agent Control
 
     func agentControl(for deviceId: String) -> AgentControlState {
-        agentControlStates[deviceId] ?? AgentControlState(remoteApproval: true, autoPlanExit: false)
+        agentControlStates[deviceId] ?? .default
     }
 
     func setAgentRemoteApproval(deviceId: String, enabled: Bool) async {
-        agentControlStates[deviceId, default: AgentControlState(remoteApproval: true, autoPlanExit: false)].remoteApproval = enabled
+        agentControlStates[deviceId, default: .default].remoteApproval = enabled
         await wsService.sendAgentControl(deviceId: deviceId, remoteApproval: enabled)
     }
 
     func setAgentAutoPlanExit(deviceId: String, enabled: Bool) async {
-        agentControlStates[deviceId, default: AgentControlState(remoteApproval: true, autoPlanExit: false)].autoPlanExit = enabled
+        agentControlStates[deviceId, default: .default].autoPlanExit = enabled
         await wsService.sendAgentControl(deviceId: deviceId, autoPlanExit: enabled)
     }
 
@@ -1257,98 +1232,68 @@ final class SessionStore {
     }
 
     struct DiagnosticSnapshot {
-        // Device identity
         let myDeviceId: String?
         let myKeyVersion: Int?
         let myFingerprint: String?
         let capabilities: [String]
-
-        // E2EE state
         let e2eeInitialized: Bool
         let sessionKeyCount: Int
         let historicalKeyCount: Int
         let permissionKeyCount: Int
         let peers: [PeerDiagnostic]
         let sessionKeys: [SessionKeyDiagnostic]
-
-        // Sessions
         let totalSessions: Int
         let sessionsByStatus: [SessionStatus: Int]
         let dismissedSessionIds: Set<String>
-
-        // Permissions
         let pendingPermissions: [PermissionDiagnostic]
         let queuedPermissionCount: Int
     }
 
     var diagnosticSnapshot: DiagnosticSnapshot {
-        // Build peer info
         var peers: [PeerDiagnostic] = []
         for (deviceId, pubKey) in deviceKAKeys {
             let fp = E2EEService.fingerprint(of: pubKey)
-            // Find device in sessions to get additional info
-            let device = sessions.first(where: { $0.deviceId == deviceId })
             let sessionsWithKeys = sessions.filter { s in
                 s.deviceId == deviceId && e2eeSessionKeys[s.id] != nil
             }.count
-            // We don't store peer capabilities locally — report empty
             peers.append(PeerDiagnostic(
-                deviceId: deviceId,
-                fingerprint: fp,
-                keyVersion: nil,
-                capabilities: [],
-                sessionsWithKeys: sessionsWithKeys
+                deviceId: deviceId, fingerprint: fp, keyVersion: nil,
+                capabilities: [], sessionsWithKeys: sessionsWithKeys
             ))
-            _ = device // suppress unused warning
         }
 
-        // Build session key details
         var sessionKeyDetails: [SessionKeyDiagnostic] = []
         for (sessionId, _) in e2eeSessionKeys {
             let ver = sessionKeyVersions[sessionId] ?? 1
             let session = sessions.first(where: { $0.id == sessionId })
             let hasEph = session?.ephemeralPublicKey != nil && !(session?.ephemeralPublicKey?.isEmpty ?? true)
             sessionKeyDetails.append(SessionKeyDiagnostic(
-                sessionId: sessionId,
-                keyVersion: ver,
-                hasEphemeralKey: hasEph,
-                peerDeviceId: sessionPeerDeviceId[sessionId]
+                sessionId: sessionId, keyVersion: ver,
+                hasEphemeralKey: hasEph, peerDeviceId: sessionPeerDeviceId[sessionId]
             ))
         }
 
-        // Session status breakdown
         var statusCounts: [SessionStatus: Int] = [:]
-        for session in sessions {
-            statusCounts[session.status, default: 0] += 1
-        }
+        for session in sessions { statusCounts[session.status, default: 0] += 1 }
 
-        // Permission diagnostics
         let permDiags = pendingPermissions.values.map { req in
             PermissionDiagnostic(
-                sessionId: req.sessionId,
-                toolName: req.toolName,
-                nonce: req.nonce,
-                isUnverified: req.isUnverified,
+                sessionId: req.sessionId, toolName: req.toolName,
+                nonce: req.nonce, isUnverified: req.isUnverified,
                 timeRemaining: req.timeRemaining
             )
         }
 
-        // Own fingerprint
         let myFP = e2eeService.map { E2EEService.fingerprint(of: $0.publicKeyBase64) }
-
         return DiagnosticSnapshot(
-            myDeviceId: myDeviceId,
-            myKeyVersion: myKeyVersion,
-            myFingerprint: myFP,
-            capabilities: ["e2ee_v2"],
+            myDeviceId: myDeviceId, myKeyVersion: myKeyVersion,
+            myFingerprint: myFP, capabilities: ["e2ee_v2"],
             e2eeInitialized: e2eeService != nil,
             sessionKeyCount: e2eeSessionKeys.count,
             historicalKeyCount: historicalSessionKeys.count,
             permissionKeyCount: permissionSigningKeys.count,
-            peers: peers,
-            sessionKeys: sessionKeyDetails,
-            totalSessions: sessions.count,
-            sessionsByStatus: statusCounts,
+            peers: peers, sessionKeys: sessionKeyDetails,
+            totalSessions: sessions.count, sessionsByStatus: statusCounts,
             dismissedSessionIds: dismissedFromNow,
             pendingPermissions: permDiags,
             queuedPermissionCount: queuedPermissions.count
@@ -1359,6 +1304,7 @@ final class SessionStore {
     func clearSessionKeyCache() {
         let count = e2eeSessionKeys.count
         e2eeSessionKeys.removeAll()
+        e2eeV1SessionKeys.removeAll()
         sessionKeyVersions.removeAll()
         historicalSessionKeys.removeAll()
         AppLogger.e2ee.info("Diagnostics: Cleared \(count, privacy: .public) session keys")

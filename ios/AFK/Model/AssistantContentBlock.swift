@@ -9,7 +9,7 @@ enum AssistantContentBlock: Identifiable {
 
     var id: String {
         switch self {
-        case .text(let s): return "text-\(s.hashValue)"
+        case .text(let s): return "text-\(s.prefix(64))-\(s.count)"
         case .taskNotification(let d): return "task-\(d.taskId)"
         case .teammateMessage(let d): return "tm-\(d.teammateId)-\(d.timestamp ?? d.messageType)"
         }

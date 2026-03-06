@@ -70,4 +70,12 @@ struct SessionEvent: Codable, Identifiable, Sendable {
               let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode([ToolInputField].self, from: data)
     }
+
+    func withContent(_ newContent: [String: String]?) -> SessionEvent {
+        SessionEvent(
+            id: id, sessionId: sessionId, deviceId: deviceId,
+            eventType: eventType, timestamp: timestamp,
+            payload: payload, content: newContent, seq: seq
+        )
+    }
 }

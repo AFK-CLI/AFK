@@ -1,5 +1,23 @@
-import Combine
 import SwiftUI
+
+/// Shared clock that drives all SymbolSpinner instances at 5 fps.
+/// One timer instead of N per-instance timers eliminates cascading re-renders.
+@Observable
+final class SpinnerClock {
+    static let shared = SpinnerClock()
+
+    private(set) var tick: UInt64 = 0
+    @ObservationIgnored private var timer: Timer?
+
+    private init() {
+        let timer = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in
+            self?.tick &+= 1
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+}
 
 /// A compact cycling-symbol spinner that matches the ThinkingIndicator style.
 /// Drop-in replacement for `ProgressView().controlSize(.small)`.
@@ -8,16 +26,11 @@ struct SymbolSpinner: View {
     var size: CGFloat = 14
 
     private static let frames: [String] = ["·", "✻", "✽", "✶", "✳", "✢"]
-    @State private var frameIndex = 0
-
-    private let timer = Timer.publish(every: 0.2, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        Text(Self.frames[frameIndex])
+        let index = Int(SpinnerClock.shared.tick % UInt64(Self.frames.count))
+        Text(Self.frames[index])
             .font(.system(size: size, weight: .medium, design: .monospaced))
             .foregroundStyle(color)
-            .onReceive(timer) { _ in
-                frameIndex = (frameIndex + 1) % Self.frames.count
-            }
     }
 }

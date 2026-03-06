@@ -7,6 +7,7 @@ struct ConversationView: View {
     @State private var showTools = true
     @State private var errorsOnly = false
     @State private var turns: [ConversationTurn] = []
+    @State private var rebuildTask: Task<Void, Never>?
 
     private var sessionEvents: [SessionEvent] {
         sessionStore.events[sessionId] ?? []
@@ -46,6 +47,8 @@ struct ConversationView: View {
     }
 
     var body: some View {
+        let currentTurns = filteredTurns
+
         // Filter bar — .task/.onChange here drive turn cache updates
         HStack(spacing: 12) {
             Toggle("Tools", isOn: $showTools)
@@ -63,9 +66,16 @@ struct ConversationView: View {
         }
         .padding(.horizontal)
         .task { rebuildTurns() }
-        .onChange(of: sessionEvents.count) { _, _ in rebuildTurns() }
+        .onChange(of: sessionEvents.count) { _, _ in
+            rebuildTask?.cancel()
+            rebuildTask = Task {
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                rebuildTurns()
+            }
+        }
 
-        if filteredTurns.isEmpty {
+        if currentTurns.isEmpty {
             if sessionStore.events[sessionId] == nil {
                 SkeletonLoadingView()
             } else {
@@ -92,8 +102,8 @@ struct ConversationView: View {
                 .padding(.horizontal)
             }
 
-            ForEach(Array(filteredTurns.enumerated()), id: \.element.id) { index, turn in
-                let isLast = index == filteredTurns.count - 1
+            ForEach(currentTurns) { turn in
+                let isLast = turn.id == currentTurns.last?.id
                 let hasCommand = commandStore?.activeCommand(for: sessionId) != nil
                     || commandStore?.completedCommand(for: sessionId) != nil
                 ConversationTurnView(

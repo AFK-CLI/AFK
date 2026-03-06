@@ -1,11 +1,17 @@
 import Foundation
 
-struct ConversationTurn: Identifiable {
+struct ConversationTurn: Identifiable, Equatable {
     let id: String
     let turnIndex: Int
     let events: [SessionEvent]
     let toolPairs: [ToolCallPair]
     let cachedAssistantContentBlocks: [AssistantContentBlock]?
+
+    static func == (lhs: ConversationTurn, rhs: ConversationTurn) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.events.count == rhs.events.count &&
+        lhs.toolPairs.count == rhs.toolPairs.count
+    }
 
     var userSnippet: String? {
         guard let raw = events.first(where: { $0.eventType == "turn_started" })?.userSnippet else {
