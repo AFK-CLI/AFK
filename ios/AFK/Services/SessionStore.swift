@@ -29,6 +29,7 @@ final class SessionStore {
     var viewingSessionIds: Set<String> = []
     private var permissionModes: [String: String] = [:]  // deviceId -> mode
     private var agentControlStates: [String: AgentControlState] = [:]  // deviceId -> control state
+    var usageByDevice: [String: ClaudeUsage] = [:]  // deviceId -> latest usage
 
     /// E2EE: cached session keys (sessionId -> SymmetricKey)
     private var e2eeSessionKeys: [String: SymmetricKey] = [:]
@@ -1023,6 +1024,11 @@ final class SessionStore {
                     lam.endActivity(sessionId: session.id, finalStatus: "completed")
                 }
             }
+        }
+
+        wsService.onUsageUpdate = { [weak self] usage in
+            guard let self else { return }
+            self.usageByDevice[usage.deviceId] = usage
         }
 
         wsService.onPermissionRequest = { [weak self] (request: PermissionRequest) in

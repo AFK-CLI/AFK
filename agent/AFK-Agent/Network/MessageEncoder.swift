@@ -87,6 +87,23 @@ struct MessageEncoder {
         return try WSMessage(type: "agent.command.cancelled", payload: payload)
     }
 
+    static func usageUpdate(deviceId: String, usage: ClaudeUsage) throws -> WSMessage {
+        let formatter = ISO8601DateFormatter()
+        let payload = AgentUsagePayload(
+            deviceId: deviceId,
+            sessionPercentage: usage.sessionPercentage,
+            sessionResetTime: formatter.string(from: usage.sessionResetTime),
+            weeklyPercentage: usage.weeklyPercentage,
+            weeklyResetTime: formatter.string(from: usage.weeklyResetTime),
+            opusWeeklyPercentage: usage.opusWeeklyPercentage,
+            sonnetWeeklyPercentage: usage.sonnetWeeklyPercentage,
+            sonnetWeeklyResetTime: usage.sonnetWeeklyResetTime.map { formatter.string(from: $0) },
+            subscriptionType: usage.subscriptionType,
+            lastUpdated: formatter.string(from: usage.lastUpdated)
+        )
+        return try WSMessage(type: "agent.usage.update", payload: payload)
+    }
+
     static func controlState(deviceID: String, remoteApproval: Bool, autoPlanExit: Bool) throws -> WSMessage {
         let payload = AgentControlStatePayload(deviceId: deviceID, remoteApproval: remoteApproval, autoPlanExit: autoPlanExit)
         return try WSMessage(type: "agent.control_state", payload: payload)
@@ -243,4 +260,17 @@ struct AgentSessionMetrics: Codable, Sendable {
     let cacheReadTokens: Int64
     let cacheCreationTokens: Int64
     let durationMs: Int64
+}
+
+struct AgentUsagePayload: Codable, Sendable {
+    let deviceId: String
+    let sessionPercentage: Double
+    let sessionResetTime: String
+    let weeklyPercentage: Double
+    let weeklyResetTime: String
+    let opusWeeklyPercentage: Double
+    let sonnetWeeklyPercentage: Double
+    let sonnetWeeklyResetTime: String?
+    let subscriptionType: String
+    let lastUpdated: String
 }

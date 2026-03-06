@@ -8,6 +8,26 @@ import OSLog
 
 extension Agent {
 
+    func usagePollingLoop(deviceId: String, service: ClaudeUsageService) async {
+        while true {
+            try? await Task.sleep(for: .seconds(60))
+            let usage = await service.fetchUsage()
+
+            // Update menu bar on main thread
+            if let controller = statusBarController {
+                await MainActor.run { controller.updateUsage(usage) }
+            }
+
+            // Send via WS if available
+            if let usage, let client = wsClient {
+                if let msg = try? MessageEncoder.usageUpdate(deviceId: deviceId, usage: usage) {
+                    try? await client.send(msg)
+                    AppLogger.usage.debug("Usage sent: session=\(Int(usage.sessionPercentage), privacy: .public)% weekly=\(Int(usage.weeklyPercentage), privacy: .public)%")
+                }
+            }
+        }
+    }
+
     func heartbeatLoop(deviceId: String) async {
         while true {
             try? await Task.sleep(for: .seconds(config.heartbeatInterval))

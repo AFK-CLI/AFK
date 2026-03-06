@@ -74,6 +74,19 @@ type AgentSessionUpdate struct {
 	EphemeralPublicKey string `json:"ephemeralPublicKey,omitempty"`
 }
 
+type AgentUsageUpdate struct {
+	DeviceID               string  `json:"deviceId"`
+	SessionPercentage      float64 `json:"sessionPercentage"`
+	SessionResetTime       string  `json:"sessionResetTime"`
+	WeeklyPercentage       float64 `json:"weeklyPercentage"`
+	WeeklyResetTime        string  `json:"weeklyResetTime"`
+	OpusWeeklyPercentage   float64 `json:"opusWeeklyPercentage"`
+	SonnetWeeklyPercentage float64 `json:"sonnetWeeklyPercentage"`
+	SonnetWeeklyResetTime  string  `json:"sonnetWeeklyResetTime,omitempty"`
+	SubscriptionType       string  `json:"subscriptionType"`
+	LastUpdated            string  `json:"lastUpdated"`
+}
+
 type AgentSessionEvent struct {
 	SessionID string          `json:"sessionId"`
 	EventType string          `json:"eventType"`

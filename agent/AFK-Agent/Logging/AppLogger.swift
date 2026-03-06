@@ -16,4 +16,5 @@ enum AppLogger {
     static let hook = Logger(subsystem: subsystem, category: "Hook")
     static let queue = Logger(subsystem: subsystem, category: "Queue")
     static let statusBar = Logger(subsystem: subsystem, category: "StatusBar")
+    static let usage = Logger(subsystem: subsystem, category: "Usage")
 }

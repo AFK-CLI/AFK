@@ -15,6 +15,10 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(spacing: 16) {
+                    if let usage = sessionStore.usageByDevice.values.first {
+                        UsageCard(usage: usage)
+                    }
+
                     if sessionStore.activeSessions.isEmpty {
                         ContentUnavailableView(
                             "No Active Sessions",

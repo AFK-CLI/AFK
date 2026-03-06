@@ -43,6 +43,7 @@ final class WebSocketService {
     var onTaskUpdate: ((AFKTask) -> Void)?
     var onTodoUpdate: ((ProjectTodos) -> Void)?
     var onSessionMetrics: ((SessionMetricsData) -> Void)?
+    var onUsageUpdate: ((ClaudeUsage) -> Void)?
 
     /// Content decryptor closure — set by SessionStore to decrypt E2EE content.
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
@@ -288,6 +289,23 @@ final class WebSocketService {
             if let payload = try? decoder.decode(SessionMetricsData.self, from: payloadData) {
                 onSessionMetrics?(payload)
             }
+        case "agent.usage.update":
+            if let payload = try? decoder.decode(UsageUpdatePayload.self, from: payloadData) {
+                let usage = ClaudeUsage(
+                    deviceId: payload.deviceId,
+                    sessionPercentage: payload.sessionPercentage,
+                    sessionResetTime: ISO8601DateFormatter().date(from: payload.sessionResetTime) ?? Date(),
+                    weeklyPercentage: payload.weeklyPercentage,
+                    weeklyResetTime: ISO8601DateFormatter().date(from: payload.weeklyResetTime) ?? Date(),
+                    opusWeeklyPercentage: payload.opusWeeklyPercentage,
+                    sonnetWeeklyPercentage: payload.sonnetWeeklyPercentage,
+                    sonnetWeeklyResetTime: payload.sonnetWeeklyResetTime.flatMap { ISO8601DateFormatter().date(from: $0) },
+                    subscriptionType: payload.subscriptionType,
+                    lastUpdated: ISO8601DateFormatter().date(from: payload.lastUpdated) ?? Date(),
+                    deviceName: payload.deviceName
+                )
+                onUsageUpdate?(usage)
+            }
         default:
             break
         }
@@ -386,4 +404,18 @@ struct SessionMetricsData: Codable {
     let cacheReadTokens: Int64
     let cacheCreationTokens: Int64
     let durationMs: Int64
+}
+
+private struct UsageUpdatePayload: Codable {
+    let deviceId: String
+    let sessionPercentage: Double
+    let sessionResetTime: String
+    let weeklyPercentage: Double
+    let weeklyResetTime: String
+    let opusWeeklyPercentage: Double
+    let sonnetWeeklyPercentage: Double
+    let sonnetWeeklyResetTime: String?
+    let subscriptionType: String
+    let lastUpdated: String
+    let deviceName: String?
 }
