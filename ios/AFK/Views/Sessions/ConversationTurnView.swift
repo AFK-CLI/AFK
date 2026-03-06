@@ -54,6 +54,8 @@ struct ConversationTurnView: View {
                     if pair.isComplete {
                         AskUserQuestionCard(pair: pair)
                     }
+                } else if pair.toolName == "TodoWrite" {
+                    TodoWriteCard(pair: pair)
                 } else {
                     RichToolCallCard(pair: pair)
                 }

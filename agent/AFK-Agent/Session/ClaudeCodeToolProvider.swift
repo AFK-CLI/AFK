@@ -110,6 +110,8 @@ struct ClaudeCodeToolProvider: ToolProvider, Sendable {
                 ("TaskID", "taskId", "badge"),
                 ("Status", "status", "badge"),
             ])
+        case "TodoWrite":
+            return Self.parseTodoWriteFields(input: input)
         case "AskUserQuestion":
             return Self.parseAskUserQuestionFields(input: input)
         case "EnterPlanMode", "ExitPlanMode":
@@ -177,6 +179,15 @@ struct ClaudeCodeToolProvider: ToolProvider, Sendable {
                 return "Updating task \(taskId)"
             }
             return "Updating task"
+        case "TodoWrite":
+            if let json = input["todos"],
+               let data = json.data(using: .utf8),
+               let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                let total = arr.count
+                let done = arr.filter { ($0["status"] as? String) == "completed" }.count
+                return "Tasks (\(done)/\(total) done)"
+            }
+            return "Updating tasks"
         case "Skill":
             if let skill = input["skill"], !skill.isEmpty {
                 return "Running skill: \(skill)"
@@ -220,6 +231,26 @@ struct ClaudeCodeToolProvider: ToolProvider, Sendable {
         specs.compactMap { spec in
             guard let value = input[spec.key], !value.isEmpty else { return nil }
             return ToolInputField(label: spec.label, value: value, style: spec.style)
+        }
+    }
+
+    // MARK: - TodoWrite parsing
+
+    /// Parses TodoWrite input into structured fields showing each todo item with status.
+    private static func parseTodoWriteFields(input: [String: String]) -> [ToolInputField] {
+        guard let json = input["todos"],
+              let data = json.data(using: .utf8),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return fields(from: input, specs: [("Todos", "todos", "text")])
+        }
+        return arr.compactMap { item in
+            guard let content = item["content"] as? String, !content.isEmpty else { return nil }
+            let status = item["status"] as? String ?? "pending"
+            let activeForm = item["activeForm"] as? String
+            // Encode status + activeForm into the style field for iOS to parse
+            let style = "todo_\(status)"
+            let value = activeForm.map { "\(content)\n\($0)" } ?? content
+            return ToolInputField(label: status, value: value, style: style)
         }
     }
 
