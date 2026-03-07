@@ -38,6 +38,7 @@ actor CommandExecutor {
         let useWorktree: Bool
         let worktreeName: String?
         let permissionMode: String?
+        let todoText: String?
         let nonce: String
         let expiresAt: Int64
         let signature: String

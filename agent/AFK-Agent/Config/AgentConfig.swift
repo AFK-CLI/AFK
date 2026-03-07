@@ -28,6 +28,7 @@ struct AgentConfig: Sendable {
     let preventSleep: Bool               // false by default — IOKit sleep prevention
     let ctrlClickTogglesRemoteAndSleep: Bool  // false by default — ctrl+click combo toggle
     let notifyOnIdle: Bool               // true by default — show macOS notification when Claude is idle
+    let usagePollingEnabled: Bool        // true by default — poll Claude API usage
     let updateCheckInterval: TimeInterval // 3600 (1 hour) default — Sparkle check interval
 
     var isConfigured: Bool {
@@ -73,6 +74,7 @@ struct AgentConfig: Sendable {
                 preventSleep: json["preventSleep"] as? Bool ?? false,
                 ctrlClickTogglesRemoteAndSleep: json["ctrlClickTogglesRemoteAndSleep"] as? Bool ?? false,
                 notifyOnIdle: json["notifyOnIdle"] as? Bool ?? true,
+                usagePollingEnabled: json["usagePollingEnabled"] as? Bool ?? true,
                 updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600
             )
         }
@@ -107,6 +109,7 @@ struct AgentConfig: Sendable {
             preventSleep: false,
             ctrlClickTogglesRemoteAndSleep: false,
             notifyOnIdle: true,
+            usagePollingEnabled: true,
             updateCheckInterval: 3600
         )
     }
@@ -138,6 +141,7 @@ struct AgentConfig: Sendable {
             "preventSleep": preventSleep,
             "ctrlClickTogglesRemoteAndSleep": ctrlClickTogglesRemoteAndSleep,
             "notifyOnIdle": notifyOnIdle,
+            "usagePollingEnabled": usagePollingEnabled,
             "updateCheckInterval": updateCheckInterval,
         ]
         if let deviceID { dict["deviceId"] = deviceID }

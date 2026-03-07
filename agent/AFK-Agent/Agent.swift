@@ -37,6 +37,10 @@ actor Agent {
         self.statusBarController = statusBarController
     }
 
+    func updateConfig(_ newConfig: AgentConfig) {
+        self.config = newConfig
+    }
+
     func run() async {
         AppLogger.agent.info("Starting AFK Agent...")
         AppLogger.agent.info("Watching: \(self.config.claudeProjectsPath, privacy: .public)")
@@ -163,7 +167,7 @@ actor Agent {
                 // Must be stored as a property so it isn't deallocated.
                 self.todoWatcher = TodoWatcher(sessionIndex: sessionIndex) { [weak self] projectPath, hash, rawContent, items in
                     guard let self, let client = await self.wsClient else { return }
-                    let wireItems = items.map { (text: $0.text, checked: $0.checked, line: $0.line) }
+                    let wireItems = items.map { (text: $0.text, checked: $0.checked, inProgress: $0.inProgress, line: $0.line) }
                     if let msg = try? MessageEncoder.todoSync(
                         projectPath: projectPath,
                         contentHash: hash,

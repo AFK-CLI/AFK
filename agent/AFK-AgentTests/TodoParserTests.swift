@@ -11,6 +11,7 @@ final class TodoParserTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].text, "Buy groceries")
         XCTAssertFalse(items[0].checked)
+        XCTAssertFalse(items[0].inProgress)
         XCTAssertEqual(items[0].line, 1)
     }
 
@@ -20,6 +21,7 @@ final class TodoParserTests: XCTestCase {
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].text, "Buy groceries")
         XCTAssertTrue(items[0].checked)
+        XCTAssertFalse(items[0].inProgress)
     }
 
     func testParseCheckedItemUppercaseX() {
@@ -29,12 +31,23 @@ final class TodoParserTests: XCTestCase {
         XCTAssertTrue(items[0].checked)
     }
 
+    func testParseInProgressItem() {
+        let content = "- [*] Deploy service"
+        let items = TodoParser.parse(content)
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].text, "Deploy service")
+        XCTAssertFalse(items[0].checked)
+        XCTAssertTrue(items[0].inProgress)
+        XCTAssertEqual(items[0].line, 1)
+    }
+
     func testParsePlainListItem() {
         let content = "- Plain item"
         let items = TodoParser.parse(content)
         XCTAssertEqual(items.count, 1)
         XCTAssertEqual(items[0].text, "Plain item")
         XCTAssertFalse(items[0].checked)
+        XCTAssertFalse(items[0].inProgress)
     }
 
     // MARK: - Multiple Items

@@ -10,21 +10,26 @@ struct TodoItemRow: View {
             Button {
                 onToggle?()
             } label: {
-                Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(item.checked ? .green : .secondary)
-                    .font(.title3)
+                if item.inProgress {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: item.checked ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(item.checked ? .green : .secondary)
+                        .font(.title3)
+                }
             }
             .buttonStyle(.plain)
 
             Text(item.text)
                 .font(.body)
                 .strikethrough(item.checked)
-                .foregroundStyle(item.checked ? .secondary : .primary)
+                .foregroundStyle(item.inProgress ? .orange : (item.checked ? .secondary : .primary))
                 .lineLimit(3)
 
             Spacer()
 
-            if !item.checked, let onStartSession {
+            if !item.checked && !item.inProgress, let onStartSession {
                 Button {
                     onStartSession()
                 } label: {

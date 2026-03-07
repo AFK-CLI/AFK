@@ -347,6 +347,7 @@ type ServerNewCommand struct {
 	UseWorktree     bool   `json:"useWorktree"`
 	WorktreeName    string `json:"worktreeName,omitempty"`
 	PermissionMode  string `json:"permissionMode,omitempty"`
+	TodoText        string `json:"todoText,omitempty"`
 	Nonce           string `json:"nonce"`
 	ExpiresAt       int64  `json:"expiresAt"`
 	Signature       string `json:"signature"`
@@ -389,9 +390,10 @@ type TaskNotification struct {
 // Todos
 
 type TodoItem struct {
-	Text    string `json:"text"`
-	Checked bool   `json:"checked"`
-	Line    int    `json:"line"`
+	Text       string `json:"text"`
+	Checked    bool   `json:"checked"`
+	InProgress bool   `json:"inProgress"`
+	Line       int    `json:"line"`
 }
 
 type TodoSync struct {

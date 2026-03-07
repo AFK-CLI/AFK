@@ -55,16 +55,27 @@ extension Agent {
             return
         }
 
+        // Mark todo as in-progress before execution
+        if let todoText = request.todoText, !todoText.isEmpty {
+            updateTodoStatus(projectPath: request.projectPath, todoText: todoText, from: "- [ ] ", to: "- [*] ")
+        }
+
         let projectsPath = config.claudeProjectsPath
         let requestProjectPath = request.projectPath
+        let todoText = request.todoText
         let sbc = statusBarController
-        Task { [sessionIndex] in
+        Task { [sessionIndex, weak self] in
             let newSessionId = await executor.executeNewChat(
                 request: request,
                 verifier: commandVerifier,
                 nonceStore: commandNonceStore,
                 wsClient: client
             )
+
+            // Mark todo as done after successful execution
+            if let todoText, !todoText.isEmpty, newSessionId != nil {
+                self?.updateTodoStatus(projectPath: requestProjectPath, todoText: todoText, from: "- [*] ", to: "- [x] ")
+            }
 
             // Register the new session in SessionIndex so continue commands can find its project path.
             if let newSessionId {
@@ -168,6 +179,7 @@ extension Agent {
             useWorktree: false,
             worktreeName: nil,
             permissionMode: mode,
+            todoText: nil,
             nonce: nonce,
             expiresAt: expiresAt,
             signature: ""  // No verifier needed for plan restart
@@ -254,6 +266,44 @@ extension Agent {
         toggleTodoLine(projectPath: payload.projectPath, line: payload.line, checked: payload.checked)
     }
 
+    /// Updates a todo item's checkbox prefix by matching text content.
+    /// Used to transition todos between states (e.g. `- [ ] ` → `- [*] ` for in-progress).
+    nonisolated func updateTodoStatus(projectPath: String, todoText: String, from: String, to: String) {
+        let todoPath = (projectPath as NSString).appendingPathComponent("todo.md")
+        let fm = FileManager.default
+
+        guard fm.fileExists(atPath: todoPath),
+              let data = fm.contents(atPath: todoPath),
+              let content = String(data: data, encoding: .utf8) else {
+            AppLogger.session.warning("Cannot read \(todoPath, privacy: .public) for todo status update")
+            return
+        }
+
+        var lines = content.components(separatedBy: "\n")
+        var matched = false
+
+        for (idx, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            // Match: line contains the `from` prefix followed by the todo text
+            if trimmed.hasPrefix(from) {
+                let afterPrefix = String(trimmed.dropFirst(from.count))
+                if afterPrefix == todoText {
+                    lines[idx] = line.replacingOccurrences(of: from, with: to)
+                    matched = true
+                    AppLogger.session.debug("Updated todo line \(idx + 1, privacy: .public): \(from.trimmingCharacters(in: .whitespaces), privacy: .public) → \(to.trimmingCharacters(in: .whitespaces), privacy: .public)")
+                    break
+                }
+            }
+        }
+
+        if matched {
+            let updated = lines.joined(separator: "\n")
+            try? updated.write(toFile: todoPath, atomically: true, encoding: .utf8)
+        } else {
+            AppLogger.session.warning("Could not find matching todo item for status update in \(todoPath, privacy: .public)")
+        }
+    }
+
     nonisolated func toggleTodoLine(projectPath: String, line: Int, checked: Bool) {
         let todoPath = (projectPath as NSString).appendingPathComponent("todo.md")
         let fm = FileManager.default
@@ -275,13 +325,16 @@ extension Agent {
         let currentLine = lines[idx]
         let newLine: String
         if checked {
-            // Mark as checked: replace "- [ ]" with "- [x]"
-            newLine = currentLine.replacingOccurrences(of: "- [ ] ", with: "- [x] ")
+            // Mark as checked: replace "- [ ]" or "- [*]" with "- [x]"
+            newLine = currentLine
+                .replacingOccurrences(of: "- [ ] ", with: "- [x] ")
+                .replacingOccurrences(of: "- [*] ", with: "- [x] ")
         } else {
-            // Mark as unchecked: replace "- [x]" or "- [X]" with "- [ ]"
+            // Mark as unchecked: replace "- [x]", "- [X]", or "- [*]" with "- [ ]"
             newLine = currentLine
                 .replacingOccurrences(of: "- [x] ", with: "- [ ] ")
                 .replacingOccurrences(of: "- [X] ", with: "- [ ] ")
+                .replacingOccurrences(of: "- [*] ", with: "- [ ] ")
         }
 
         lines[idx] = newLine

@@ -10,7 +10,16 @@ extension Agent {
 
     func usagePollingLoop(deviceId: String, service: ClaudeUsageService) async {
         while true {
-            try? await Task.sleep(for: .seconds(60))
+            try? await Task.sleep(for: .seconds(300))
+
+            guard config.usagePollingEnabled else {
+                // Clear usage display when disabled
+                if let controller = statusBarController {
+                    await MainActor.run { controller.updateUsage(nil) }
+                }
+                continue
+            }
+
             let usage = await service.fetchUsage()
 
             // Update menu bar on main thread

@@ -8,10 +8,17 @@ import OSLog
 
 actor ClaudeUsageService {
     private let keychainService = "Claude Code-credentials"
+    private var backoffSeconds: TimeInterval = 0
+    private var backoffUntil: Date?
 
     /// Fetch current Claude usage from the Anthropic API.
     /// Returns nil if no credentials are found or the token is expired.
     func fetchUsage() async -> ClaudeUsage? {
+        // Respect backoff from previous 429 responses
+        if let until = backoffUntil, Date() < until {
+            AppLogger.usage.debug("Usage API in backoff, \(Int(until.timeIntervalSinceNow))s remaining")
+            return nil
+        }
         guard let credentials = readKeychainCredentials() else {
             AppLogger.usage.debug("No Claude Code credentials found in keychain")
             return nil
@@ -111,13 +118,35 @@ actor ClaudeUsageService {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              httpResponse.statusCode == 200 else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse, userInfo: [
-                NSLocalizedDescriptionKey: "Usage API returned status \(statusCode)"
+                NSLocalizedDescriptionKey: "Usage API returned no HTTP response"
             ])
         }
+
+        if httpResponse.statusCode == 429 {
+            // Exponential backoff: 2m, 4m, 8m, max 15m
+            backoffSeconds = min(max(backoffSeconds * 2, 120), 900)
+            if let retryAfter = httpResponse.value(forHTTPHeaderField: "Retry-After"),
+               let seconds = TimeInterval(retryAfter) {
+                backoffSeconds = max(backoffSeconds, seconds)
+            }
+            backoffUntil = Date().addingTimeInterval(backoffSeconds)
+            AppLogger.usage.warning("Usage API rate limited, backing off \(Int(self.backoffSeconds))s")
+            throw URLError(.badServerResponse, userInfo: [
+                NSLocalizedDescriptionKey: "Usage API returned status 429"
+            ])
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw URLError(.badServerResponse, userInfo: [
+                NSLocalizedDescriptionKey: "Usage API returned status \(httpResponse.statusCode)"
+            ])
+        }
+
+        // Success — reset backoff state
+        backoffSeconds = 0
+        backoffUntil = nil
 
         let apiResponse = try JSONDecoder().decode(UsageAPIResponse.self, from: data)
 

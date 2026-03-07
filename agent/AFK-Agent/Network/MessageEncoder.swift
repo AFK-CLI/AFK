@@ -123,9 +123,9 @@ struct MessageEncoder {
         projectPath: String,
         contentHash: String,
         rawContent: String,
-        items: [(text: String, checked: Bool, line: Int)]
+        items: [(text: String, checked: Bool, inProgress: Bool, line: Int)]
     ) throws -> WSMessage {
-        let wireItems = items.map { AgentTodoItem(text: $0.text, checked: $0.checked, line: $0.line) }
+        let wireItems = items.map { AgentTodoItem(text: $0.text, checked: $0.checked, inProgress: $0.inProgress, line: $0.line) }
         let payload = AgentTodoSyncPayload(
             projectPath: projectPath,
             contentHash: contentHash,
@@ -241,6 +241,7 @@ struct AgentSessionStoppedPayload: Codable, Sendable {
 struct AgentTodoItem: Codable, Sendable {
     let text: String
     let checked: Bool
+    let inProgress: Bool
     let line: Int
 }
 

@@ -85,6 +85,7 @@ struct AFKAgentMain {
                 onConfigChanged: { newConfig in
                     sbc.updateConfig(newConfig)
                     sbc.onSettingsChanged?(newConfig)
+                    Task { await agent.updateConfig(newConfig) }
                 },
                 onRemoteApprovalChanged: { enabled in
                     sbc.setRemoteApproval(enabled)
@@ -122,10 +123,14 @@ struct AFKAgentMain {
         }
 
         feedbackController = FeedbackWindowController()
-        statusBarController?.onSendFeedback = {
+        let showFeedback: () -> Void = {
             feedbackController?.showFeedbackWindow { category, message in
                 Task { await agent.submitFeedback(category: category, message: message) }
             }
+        }
+        statusBarController?.onSendFeedback = showFeedback
+        NotificationCenter.default.addObserver(forName: .settingsFeedbackRequested, object: nil, queue: .main) { _ in
+            showFeedback()
         }
 
         statusBarController?.onShareLogs = {

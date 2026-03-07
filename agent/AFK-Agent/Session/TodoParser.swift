@@ -8,6 +8,7 @@ import Foundation
 struct TodoItem: Sendable {
     let text: String
     let checked: Bool
+    let inProgress: Bool
     let line: Int
 }
 
@@ -31,18 +32,23 @@ struct TodoParser {
             if afterDash.hasPrefix("[ ] ") {
                 let text = String(afterDash.dropFirst(4))
                 if !text.isEmpty {
-                    items.append(TodoItem(text: text, checked: false, line: index + 1))
+                    items.append(TodoItem(text: text, checked: false, inProgress: false, line: index + 1))
+                }
+            } else if afterDash.hasPrefix("[*] ") {
+                let text = String(afterDash.dropFirst(4))
+                if !text.isEmpty {
+                    items.append(TodoItem(text: text, checked: false, inProgress: true, line: index + 1))
                 }
             } else if afterDash.hasPrefix("[x] ") || afterDash.hasPrefix("[X] ") {
                 let text = String(afterDash.dropFirst(4))
                 if !text.isEmpty {
-                    items.append(TodoItem(text: text, checked: true, line: index + 1))
+                    items.append(TodoItem(text: text, checked: true, inProgress: false, line: index + 1))
                 }
             } else {
                 // Plain list item with no checkbox
                 let text = afterDash
                 if !text.isEmpty {
-                    items.append(TodoItem(text: text, checked: false, line: index + 1))
+                    items.append(TodoItem(text: text, checked: false, inProgress: false, line: index + 1))
                 }
             }
         }

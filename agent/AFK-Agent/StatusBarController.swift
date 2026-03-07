@@ -450,6 +450,7 @@ final class StatusBarController: NSObject {
                 preventSleep: sleepPreventer.isActive,
                 ctrlClickTogglesRemoteAndSleep: config.ctrlClickTogglesRemoteAndSleep,
                 notifyOnIdle: config.notifyOnIdle,
+                usagePollingEnabled: config.usagePollingEnabled,
                 updateCheckInterval: config.updateCheckInterval
             )
             config.save()

@@ -126,6 +126,7 @@ struct SetupView: View {
             preventSleep: false,
             ctrlClickTogglesRemoteAndSleep: false,
             notifyOnIdle: true,
+            usagePollingEnabled: true,
             updateCheckInterval: 3600
         )
         config.save()

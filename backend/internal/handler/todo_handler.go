@@ -292,6 +292,7 @@ func (h *TodoHandler) HandleStartSession(w http.ResponseWriter, r *http.Request)
 		PromptHash:     promptHash,
 		UseWorktree:    req.UseWorktree,
 		PermissionMode: req.PermissionMode,
+		TodoText:       req.TodoText,
 		Nonce:          nonce,
 		ExpiresAt:      expiresAt,
 		Signature:      signedCmd.Signature,
