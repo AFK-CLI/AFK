@@ -322,18 +322,13 @@ actor CommandExecutor {
         return decrypted
     }
 
-    /// Saves attached images to temp files in the project directory and appends
-    /// a note to the prompt so Claude can read them with the Read tool.
+    /// Saves attached images to a temp directory and appends a note to the
+    /// prompt so Claude can read them with the Read tool.
     private func saveImagesAndBuildPrompt(prompt: String, images: [ImageAttachment]?, projectPath: String) -> String {
         guard let images, !images.isEmpty else { return prompt }
 
         let fm = FileManager.default
-        let tempDir: String
-        if !projectPath.isEmpty, fm.fileExists(atPath: projectPath) {
-            tempDir = (projectPath as NSString).appendingPathComponent(".afk-uploads")
-        } else {
-            tempDir = NSTemporaryDirectory() + "afk-uploads"
-        }
+        let tempDir = (NSTemporaryDirectory() as NSString).appendingPathComponent("afk-uploads")
         try? fm.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
 
         var savedPaths: [String] = []
