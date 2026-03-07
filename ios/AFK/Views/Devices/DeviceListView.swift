@@ -54,6 +54,10 @@ struct DeviceListView: View {
     }
 
     private func loadDevices() async {
+        if ScreenshotMode.isActive {
+            devices = ScreenshotData.devices
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         do {

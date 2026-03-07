@@ -16,6 +16,7 @@ final class TodoStore {
     // MARK: - Loading
 
     func loadTodos() async {
+        guard !ScreenshotMode.isActive else { return }
         isLoading = true
         defer { isLoading = false }
 

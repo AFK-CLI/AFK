@@ -720,6 +720,7 @@ final class SessionStore {
     }
 
     func loadSessions() async {
+        guard !ScreenshotMode.isActive else { return }
         let result = await syncService.syncSessions()
         guard !result.isEmpty else {
             if sessions.isEmpty {
@@ -743,6 +744,7 @@ final class SessionStore {
     }
 
     func loadEvents(for sessionId: String) async {
+        guard !ScreenshotMode.isActive else { return }
         // Derive E2EE key for this session if we have the agent device's KA key
         if let session = sessions.first(where: { $0.id == sessionId }) {
             ensureE2EEKey(for: session)

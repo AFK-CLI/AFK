@@ -18,6 +18,7 @@ final class TaskStore {
     // MARK: - Loading
 
     func loadTasks() async {
+        guard !ScreenshotMode.isActive else { return }
         isLoading = true
         defer { isLoading = false }
 

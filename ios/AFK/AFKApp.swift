@@ -172,13 +172,27 @@ struct AFKApp: App {
         let taskStore = TaskStore(apiClient: client, localStore: store)
         let todoStore = TodoStore(apiClient: client)
 
-        // Clear local cache on sign-out so a different account starts fresh.
-        auth.onSignOut = { [weak sessionStore, weak taskStore, weak todoStore] in
-            store.clearAll()
-            sessionStore?.sessions = []
-            sessionStore?.events = [:]
-            taskStore?.tasks = []
-            todoStore?.todos = []
+        if ScreenshotMode.isActive {
+            // Screenshot mode: populate stores with mock data, skip network wiring
+            auth.isAuthenticated = true
+            auth.currentUser = ScreenshotData.user
+            auth.accessToken = "screenshot_mock_token"
+            sessionStore.sessions = ScreenshotData.sessions
+            sessionStore.events = ScreenshotData.eventsBySession
+            sessionStore.usageByDevice = [ScreenshotData.usage.deviceId: ScreenshotData.usage]
+            let perm = ScreenshotData.permissionRequest
+            sessionStore.pendingPermissions[perm.nonce] = perm
+            taskStore.tasks = ScreenshotData.tasks
+            todoStore.todos = ScreenshotData.todos
+        } else {
+            // Clear local cache on sign-out so a different account starts fresh.
+            auth.onSignOut = { [weak sessionStore, weak taskStore, weak todoStore] in
+                store.clearAll()
+                sessionStore?.sessions = []
+                sessionStore?.events = [:]
+                taskStore?.tasks = []
+                todoStore?.todos = []
+            }
         }
 
         _authService = State(initialValue: auth)
@@ -208,21 +222,25 @@ struct AFKApp: App {
             )
             #if DEBUG
             .overlay(alignment: .topLeading) {
-                Text("DEV")
-                    .font(.caption2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.red, in: Capsule())
-                    .padding(.leading, 70)
-                    .padding(.top, 2)
-                    .allowsHitTesting(false)
+                if !ScreenshotMode.isActive {
+                    Text("DEV")
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.red, in: Capsule())
+                        .padding(.leading, 70)
+                        .padding(.top, 2)
+                        .allowsHitTesting(false)
+                }
             }
             #endif
             .task {
+                guard !ScreenshotMode.isActive else { return }
                 await authService.restoreSession()
             }
             .onChange(of: authService.isAuthenticated) { _, isAuth in
+                guard !ScreenshotMode.isActive else { return }
                 if isAuth, let token = authService.accessToken {
                     // Enroll iOS device and cache E2EE keys BEFORE connecting WS,
                     // so device KA keys are available when WS events trigger decryption.
@@ -247,9 +265,11 @@ struct AFKApp: App {
                 }
             }
             .onChange(of: scenePhase) { oldPhase, newPhase in
+                guard !ScreenshotMode.isActive else { return }
                 handleScenePhaseChange(from: oldPhase, to: newPhase)
             }
             .onAppear {
+                guard !ScreenshotMode.isActive else { return }
                 // Wire live activity manager
                 sessionStore.liveActivityManager = liveActivityManager
 
