@@ -119,6 +119,14 @@ final class WebSocketService {
         try? await webSocketTask?.send(.data(data))
     }
 
+    func sendSessionStop(sessionId: String, deviceId: String) async {
+        struct Payload: Encodable { let sessionId: String; let deviceId: String }
+        guard let msg = try? WSMessage(type: "app.session.stop",
+                  payload: Payload(sessionId: sessionId, deviceId: deviceId)),
+              let data = try? msg.toJSONData() else { return }
+        try? await webSocketTask?.send(.data(data))
+    }
+
     func sendAgentControl(deviceId: String, remoteApproval: Bool? = nil, autoPlanExit: Bool? = nil) async {
         struct Payload: Encodable { let deviceId: String; let remoteApproval: Bool?; let autoPlanExit: Bool? }
         guard let msg = try? WSMessage(type: "app.agent_control",

@@ -264,6 +264,31 @@ func handleIOSMessage(hub *Hub, ic *IOSConn, database *sql.DB, msg *model.WSMess
 			slog.Info("forwarded agent control", "device_id", req.DeviceID)
 		}
 
+	case "app.session.stop":
+		var req model.AppSessionStop
+		if err := json.Unmarshal(msg.Payload, &req); err != nil {
+			slog.Error("failed to parse session stop", "error", err)
+			return
+		}
+		// Ownership check: verify the agent belongs to this iOS user.
+		if ac := hub.GetAgentConn(req.DeviceID); ac != nil && ac.UserID != ic.UserID {
+			slog.Warn("cross-user session.stop rejected",
+				"ios_user", ic.UserID, "agent_user", ac.UserID, "device_id", req.DeviceID)
+			return
+		}
+		fwd, err := NewWSMessage("server.session.stop", struct {
+			SessionID string `json:"sessionId"`
+		}{req.SessionID})
+		if err != nil {
+			slog.Error("failed to marshal session stop", "error", err)
+			return
+		}
+		if err := hub.SendToAgent(req.DeviceID, fwd); err != nil {
+			slog.Error("failed to forward session stop", "device_id", req.DeviceID, "error", err)
+		} else {
+			slog.Info("forwarded session stop", "session_id", req.SessionID, "device_id", req.DeviceID)
+		}
+
 	case "app.plan.restart":
 		var req model.AppPlanRestart
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {

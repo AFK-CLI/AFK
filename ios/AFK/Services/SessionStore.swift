@@ -1223,6 +1223,12 @@ final class SessionStore {
         pendingPermissions.values.first { $0.sessionId == sessionId && !$0.isExpired }
     }
 
+    // MARK: - Session Stop
+
+    func stopSession(sessionId: String, deviceId: String) async {
+        await wsService.sendSessionStop(sessionId: sessionId, deviceId: deviceId)
+    }
+
     // MARK: - Permission Mode
 
     func setPermissionMode(deviceId: String, mode: String) async {

@@ -164,6 +164,8 @@ extension Agent {
             await handleCommandNew(msg)
         case "server.command.cancel":
             await handleCommandCancel(msg)
+        case "server.session.stop":
+            await handleSessionStop(msg)
         case "server.plan.restart":
             await handlePlanRestart(msg)
         case "device.key_rotated":

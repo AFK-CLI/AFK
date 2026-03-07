@@ -300,6 +300,13 @@ type DeviceKeyRotated struct {
 	PublicKey  string `json:"publicKey"`
 }
 
+// Session stop (iOS → Agent via backend)
+
+type AppSessionStop struct {
+	SessionID string `json:"sessionId"`
+	DeviceID  string `json:"deviceId"`
+}
+
 // Plan restart (iOS → Agent via backend)
 
 type AppPlanRestart struct {

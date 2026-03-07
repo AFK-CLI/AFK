@@ -96,6 +96,55 @@ extension Agent {
         }
     }
 
+    // MARK: - Session Stop
+
+    func handleSessionStop(_ msg: WSMessage) async {
+        struct StopPayload: Codable {
+            let sessionId: String
+        }
+        guard let payload = try? JSONDecoder().decode(StopPayload.self, from: msg.payloadJSON) else {
+            AppLogger.command.error("Failed to parse session stop payload")
+            return
+        }
+
+        let sessionId = payload.sessionId
+        AppLogger.command.info("Session stop requested: \(sessionId.prefix(8), privacy: .public)")
+
+        // First, try cancelling any active command from CommandExecutor
+        if let executor = commandExecutor {
+            await executor.cancel(commandId: sessionId)
+        }
+
+        // Find claude processes with this session ID in their arguments and send SIGINT.
+        // Claude Code processes use --resume <sessionId> or write to session JSONL files.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        process.arguments = ["-f", sessionId]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            let pids = output.split(separator: "\n").compactMap { Int32($0.trimmingCharacters(in: .whitespaces)) }
+
+            if pids.isEmpty {
+                AppLogger.command.warning("No claude process found for session \(sessionId.prefix(8), privacy: .public)")
+            }
+
+            for pid in pids {
+                kill(pid, SIGINT)
+                AppLogger.command.info("Sent SIGINT to pid \(pid, privacy: .public) for session \(sessionId.prefix(8), privacy: .public)")
+            }
+        } catch {
+            AppLogger.command.error("Failed to find processes for session stop: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
     func handleCommandCancel(_ msg: WSMessage) async {
         struct CancelPayload: Codable {
             let commandId: String

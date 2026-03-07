@@ -101,6 +101,14 @@ struct SessionDetailView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
+                if let session, session.status == .running || session.status == .idle || session.status == .waitingInput || session.status == .waitingPermission {
+                    Button {
+                        Task { await sessionStore.stopSession(sessionId: session.id, deviceId: session.deviceId) }
+                    } label: {
+                        Image(systemName: "stop.circle")
+                            .foregroundStyle(.red)
+                    }
+                }
                 if let session {
                     PermissionModeMenu(
                         currentMode: sessionStore.permissionMode(for: session.deviceId),
