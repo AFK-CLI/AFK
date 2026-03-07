@@ -83,6 +83,19 @@ enum AnyCodableContent: Codable, Sendable {
             return dict.map { "\($0.key): \($0.value.stringValue)" }.joined(separator: "\n")
         }
     }
+
+    /// Extract image sources from content blocks (used for tool_result image content)
+    var imageBlocks: [ImageSource] {
+        switch self {
+        case .blocks(let blocks):
+            return blocks.compactMap { block -> ImageSource? in
+                guard block.type == "image", let source = block.source else { return nil }
+                return source
+            }
+        default:
+            return []
+        }
+    }
 }
 
 /// A loosely-typed JSON value for tool input dictionaries
@@ -146,7 +159,7 @@ enum AnyCodableValue: Codable, Sendable {
 }
 
 struct ContentBlock: Codable, Sendable {
-    let type: String              // "text", "tool_use", "tool_result", "thinking"
+    let type: String              // "text", "tool_use", "tool_result", "thinking", "image"
     let text: String?
     let id: String?               // tool_use ID
     let name: String?             // tool name
@@ -154,12 +167,25 @@ struct ContentBlock: Codable, Sendable {
     let toolUseId: String?        // for tool_result, references tool_use id
     let isError: Bool?
     let content: AnyCodableContent?  // tool_result can have nested content
+    let source: ImageSource?      // for "image" type blocks
 
     enum CodingKeys: String, CodingKey {
-        case type, text, id, name, input
+        case type, text, id, name, input, source
         case toolUseId = "tool_use_id"
         case isError = "is_error"
         case content
+    }
+}
+
+struct ImageSource: Codable, Sendable {
+    let type: String              // "base64"
+    let mediaType: String         // "image/png", "image/jpeg", etc.
+    let data: String              // base64-encoded image data
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case mediaType = "media_type"
+        case data
     }
 }
 

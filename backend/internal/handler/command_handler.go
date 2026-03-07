@@ -32,7 +32,7 @@ func HandleContinue(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, 
 		}
 
 		// 3. Decode ContinueRequest from body.
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1 MB
+		r.Body = http.MaxBytesReader(w, r.Body, 5<<20) // 5 MB (images can be large)
 		var req model.ContinueRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, "invalid request body", http.StatusBadRequest)
@@ -44,6 +44,10 @@ func HandleContinue(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, 
 		}
 		if len(req.Prompt) > 100*1024 {
 			writeError(w, "prompt exceeds maximum length", http.StatusBadRequest)
+			return
+		}
+		if len(req.Images) > 5 {
+			writeError(w, "too many images (max 5)", http.StatusBadRequest)
 			return
 		}
 		if req.Nonce == "" {
@@ -143,6 +147,7 @@ func HandleContinue(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, 
 			SessionID:       sessionID,
 			Prompt:          req.Prompt,
 			PromptEncrypted: req.PromptEncrypted,
+			Images:          req.Images,
 			PromptHash:      promptHash,
 			Nonce:           req.Nonce,
 			ExpiresAt:       req.ExpiresAt,
