@@ -12,6 +12,7 @@ struct PromptComposer: View {
     @State private var isSending = false
     @State private var errorMessage: String?
     @State private var showTemplates = false
+    @State private var showPhotoPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
 
@@ -43,6 +44,7 @@ struct PromptComposer: View {
                 inputField
             }
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 3, matching: .images)
         .onChange(of: selectedPhotos) { _, newItems in
             Task { await loadPhotos(from: newItems) }
         }
@@ -73,11 +75,27 @@ struct PromptComposer: View {
         }
     }
 
+    private var canPasteImage: Bool {
+        UIPasteboard.general.hasImages
+    }
+
     @ViewBuilder
     private var inputField: some View {
         HStack(alignment: .bottom, spacing: 12) {
-            PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
-                Image(systemName: "photo.on.rectangle")
+            Menu {
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    Label("Photo Library", systemImage: "photo.on.rectangle")
+                }
+                Button {
+                    pasteImageFromClipboard()
+                } label: {
+                    Label("Paste Image", systemImage: "doc.on.clipboard")
+                }
+                .disabled(!canPasteImage)
+            } label: {
+                Image(systemName: "plus.circle.fill")
                     .font(.title2)
                     .foregroundStyle(.secondary)
                     .frame(width: 36, height: 36)
@@ -180,6 +198,21 @@ struct PromptComposer: View {
         }
         let data = scaledImage.jpegData(compressionQuality: 0.7) ?? Data()
         return (data.base64EncodedString(), "image/jpeg")
+    }
+
+    private func pasteImageFromClipboard() {
+        guard let uiImage = UIPasteboard.general.image else { return }
+        guard attachedImages.count < 3 else {
+            errorMessage = "Maximum 3 images allowed"
+            return
+        }
+        let compressed = compressImage(uiImage)
+        attachedImages.append(AttachedImage(
+            itemIdentifier: nil,
+            thumbnail: uiImage,
+            base64Data: compressed.base64,
+            mediaType: compressed.mediaType
+        ))
     }
 
     private func send() async {
