@@ -83,6 +83,12 @@ struct EventNormalizer: Sendable {
                     if !userText.isEmpty {
                         turnContent = ["userSnippet": redactor.redactSnippet(userText)]
                     }
+                    // Extract images from user message (e.g. screenshots pasted to Claude Code)
+                    let images = msgContent.imageBlocks
+                    if !images.isEmpty {
+                        if turnContent == nil { turnContent = [:] }
+                        Self.encodeResultImages(images, into: &turnContent!)
+                    }
                 }
 
                 events.append(NormalizedEvent(
