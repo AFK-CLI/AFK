@@ -153,6 +153,18 @@ func (h *Hub) UnregisterIOS(userID string, conn *IOSConn) {
 	}
 }
 
+// HasIOSDeviceConn returns true if at least one iOS connection exists for the given deviceID.
+func (h *Hub) HasIOSDeviceConn(userID, deviceID string) bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, c := range h.ios[userID] {
+		if c.DeviceID == deviceID {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *Hub) BroadcastToUser(userID string, msg *model.WSMessage) {
 	h.mu.RLock()
 	original := h.ios[userID]

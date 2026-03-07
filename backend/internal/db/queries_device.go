@@ -132,6 +132,13 @@ func DeleteDevice(db *sql.DB, deviceID, userID string) error {
 	return nil
 }
 
+// ResetAllDevicesOffline marks all devices as offline. Call on server startup
+// since no WS connections survive a restart.
+func ResetAllDevicesOffline(db *sql.DB) error {
+	_, err := db.Exec(`UPDATE devices SET is_online = 0`)
+	return err
+}
+
 func UpdateDeviceStatus(db *sql.DB, deviceID string, isOnline bool, lastSeenAt time.Time) error {
 	online := 0
 	if isOnline {

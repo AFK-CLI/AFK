@@ -324,7 +324,9 @@ final class APIClient {
         isRetryAfterRefresh: Bool = false
     ) async throws -> T {
         var components = URLComponents(string: "\(baseURL)\(path)")!
-        components.queryItems = queryItems
+        if let queryItems {
+            components.queryItems = (components.queryItems ?? []) + queryItems
+        }
 
         var req = URLRequest(url: components.url!)
         req.httpMethod = method

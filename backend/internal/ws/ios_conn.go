@@ -95,8 +95,8 @@ func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID, deviceID strin
 		hub.UnregisterIOS(userID, ic)
 		ic.Conn.Close()
 
-		// Mark iOS device offline.
-		if deviceID != "" {
+		// Only mark device offline if no other connection from the same device exists.
+		if deviceID != "" && !hub.HasIOSDeviceConn(userID, deviceID) {
 			_ = db.UpdateDeviceStatus(database, deviceID, false, time.Now())
 
 			device, _ := db.GetDevice(database, deviceID)

@@ -53,6 +53,11 @@ func main() {
 	}
 	slog.Info("migrations applied successfully")
 
+	// Reset all devices to offline on startup since no WS connections survive a restart.
+	if err := db.ResetAllDevicesOffline(database); err != nil {
+		slog.Warn("failed to reset device status", "error", err)
+	}
+
 	hub := ws.NewHub()
 
 	// Initialize allowed WebSocket origins.
