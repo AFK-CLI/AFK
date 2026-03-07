@@ -76,18 +76,8 @@ struct PromptComposer: View {
     @ViewBuilder
     private var inputField: some View {
         HStack(alignment: .bottom, spacing: 12) {
-            Menu {
-                Button {
-                    showTemplates = true
-                } label: {
-                    Label("Templates", systemImage: "text.badge.star")
-                }
-
-                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
-                    Label("Photo Library", systemImage: "photo.on.rectangle")
-                }
-            } label: {
-                Image(systemName: "plus.circle")
+            PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
+                Image(systemName: "photo.on.rectangle")
                     .font(.title2)
                     .foregroundStyle(.secondary)
                     .frame(width: 36, height: 36)
