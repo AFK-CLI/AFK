@@ -107,6 +107,65 @@ struct E2EEncryption: Sendable {
         return result
     }
 
+    // MARK: - Decrypt
+
+    /// Decrypt base64(nonce || ciphertext || tag) back to plaintext string.
+    static func decrypt(_ ciphertext: String, key: SymmetricKey) throws -> String {
+        guard let combined = Data(base64Encoded: ciphertext) else {
+            throw E2EError.decryptionFailed
+        }
+        let sealedBox = try AES.GCM.SealedBox(combined: combined)
+        let data = try AES.GCM.open(sealedBox, using: key)
+        guard let plaintext = String(data: data, encoding: .utf8) else {
+            throw E2EError.decryptionFailed
+        }
+        return plaintext
+    }
+
+    /// Decrypt raw Data from base64(nonce || ciphertext || tag).
+    static func decryptData(_ ciphertext: String, key: SymmetricKey) throws -> Data {
+        guard let combined = Data(base64Encoded: ciphertext) else {
+            throw E2EError.decryptionFailed
+        }
+        let sealedBox = try AES.GCM.SealedBox(combined: combined)
+        return try AES.GCM.open(sealedBox, using: key)
+    }
+
+    /// Encrypt raw Data. Returns base64(nonce || ciphertext || tag).
+    static func encryptData(_ data: Data, key: SymmetricKey) throws -> String {
+        let box = try AES.GCM.seal(data, using: key)
+        guard let combined = box.combined else {
+            throw E2EError.encryptionFailed
+        }
+        return combined.base64EncodedString()
+    }
+
+    /// Parse a versioned wire format value and extract the raw ciphertext.
+    /// Supports: legacy (raw base64), "e1:ver:device:base64", "e2:ver:device:rver:base64"
+    static func extractCiphertext(_ value: String) -> String {
+        if value.hasPrefix("e2:") {
+            let parts = value.split(separator: ":", maxSplits: 4)
+            if parts.count == 5 { return String(parts[4]) }
+        }
+        if value.hasPrefix("e1:") {
+            let parts = value.split(separator: ":", maxSplits: 3)
+            if parts.count == 4 { return String(parts[3]) }
+        }
+        return value
+    }
+
+    /// Decrypt a versioned wire format value (e1:... or e2:... or legacy base64).
+    static func decryptVersioned(_ value: String, key: SymmetricKey) throws -> String {
+        let raw = extractCiphertext(value)
+        return try decrypt(raw, key: key)
+    }
+
+    /// Decrypt versioned wire format value to raw Data.
+    static func decryptVersionedData(_ value: String, key: SymmetricKey) throws -> Data {
+        let raw = extractCiphertext(value)
+        return try decryptData(raw, key: key)
+    }
+
     // MARK: - Permission Signing
 
     private static let permissionInfo = "afk-permission-hmac-v1".data(using: .utf8)!
@@ -141,4 +200,5 @@ enum E2EError: Error {
     case invalidPeerKey
     case encodingFailed
     case encryptionFailed
+    case decryptionFailed
 }

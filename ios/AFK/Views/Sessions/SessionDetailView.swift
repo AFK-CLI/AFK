@@ -91,6 +91,7 @@ struct SessionDetailView: View {
                     sessionId: sessionId,
                     commandStore: commandStore,
                     apiClient: apiClient,
+                    sessionStore: sessionStore,
                     isDisabled: isPromptDisabled
                 )
             }

@@ -5,6 +5,7 @@ struct PromptComposer: View {
     let sessionId: String
     let commandStore: CommandStore
     let apiClient: APIClient
+    var sessionStore: SessionStore?
     var isDisabled: Bool = false
     @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
     @State private var prompt = ""
@@ -209,16 +210,36 @@ struct PromptComposer: View {
         errorMessage = nil
         defer { isSending = false }
 
-        let images: [ImageAttachment]? = attachedImages.isEmpty ? nil : attachedImages.map {
-            ImageAttachment(mediaType: $0.mediaType, data: $0.base64Data)
-        }
         let promptText = text.isEmpty ? "Look at the attached image(s)." : text
+        let useE2EE = sessionStore?.hasE2EEKey(for: sessionId) == true
+
+        // Encrypt prompt if E2EE is available
+        let promptEncrypted: String? = useE2EE ? sessionStore?.encryptPrompt(promptText, sessionId: sessionId) : nil
+
+        // Build image attachments (encrypted or plaintext)
+        var images: [ImageAttachment]?
+        var imagesEncrypted: [ImageAttachment]?
+
+        if !attachedImages.isEmpty {
+            if useE2EE {
+                imagesEncrypted = attachedImages.compactMap { img in
+                    guard let encData = sessionStore?.encryptImageData(img.base64Data, sessionId: sessionId) else { return nil }
+                    return ImageAttachment(mediaType: img.mediaType, data: encData)
+                }
+            } else {
+                images = attachedImages.map {
+                    ImageAttachment(mediaType: $0.mediaType, data: $0.base64Data)
+                }
+            }
+        }
 
         do {
             let response = try await apiClient.continueSession(
                 sessionId: sessionId,
                 prompt: promptText,
-                images: images
+                promptEncrypted: promptEncrypted,
+                images: images,
+                imagesEncrypted: imagesEncrypted
             )
             commandStore.startCommand(id: response.commandId, sessionId: sessionId, prompt: promptText)
             prompt = ""

@@ -203,6 +203,7 @@ type ContinueRequest struct {
 	Prompt          string            `json:"prompt"`
 	PromptEncrypted string            `json:"promptEncrypted,omitempty"`
 	Images          []ImageAttachment `json:"images,omitempty"`
+	ImagesEncrypted []ImageAttachment `json:"imagesEncrypted,omitempty"`
 	Nonce           string            `json:"nonce"`
 	ExpiresAt       int64             `json:"expiresAt"`
 }
@@ -316,6 +317,7 @@ type ServerCommand struct {
 	Prompt          string            `json:"prompt"`
 	PromptEncrypted string            `json:"promptEncrypted,omitempty"`
 	Images          []ImageAttachment `json:"images,omitempty"`
+	ImagesEncrypted []ImageAttachment `json:"imagesEncrypted,omitempty"`
 	PromptHash      string            `json:"promptHash"`
 	Nonce           string            `json:"nonce"`
 	ExpiresAt       int64             `json:"expiresAt"`

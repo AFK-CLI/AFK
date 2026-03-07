@@ -320,6 +320,56 @@ final class SessionStore {
         return true
     }
 
+    // MARK: - E2EE Outbound Encryption (prompts + images)
+
+    /// Encrypt a prompt string for a given session using the cached E2EE key.
+    /// Returns the versioned wire format string, or nil if E2EE is not available.
+    func encryptPrompt(_ prompt: String, sessionId: String) -> String? {
+        guard let key = e2eeSessionKeys[sessionId],
+              let deviceId = myDeviceId else { return nil }
+        let keyVersion = myKeyVersion ?? 1
+        let sessionVersion = sessionKeyVersions[sessionId] ?? 1
+        do {
+            if sessionVersion >= 2, let peerDeviceId = sessionPeerDeviceId[sessionId] {
+                let receiverVer = deviceKAKeys[peerDeviceId] != nil ? (myKeyVersion ?? 1) : 1
+                return try E2EEService.encryptVersionedV2(prompt, key: key, keyVersion: keyVersion, senderDeviceId: deviceId, receiverKeyVersion: receiverVer)
+            }
+            return try E2EEService.encryptVersioned(prompt, key: key, keyVersion: keyVersion, senderDeviceId: deviceId)
+        } catch {
+            AppLogger.e2ee.error("Failed to encrypt prompt: \(error, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Encrypt image data for a given session using the cached E2EE key.
+    /// Returns the versioned wire format string, or nil if E2EE is not available.
+    func encryptImageData(_ base64Data: String, sessionId: String) -> String? {
+        guard let key = e2eeSessionKeys[sessionId],
+              let deviceId = myDeviceId else { return nil }
+        let keyVersion = myKeyVersion ?? 1
+        let sessionVersion = sessionKeyVersions[sessionId] ?? 1
+        // Image data can be large; encrypt the raw bytes, not the base64 string
+        guard let rawData = Data(base64Encoded: base64Data) else { return nil }
+        do {
+            let sealedBox = try AES.GCM.seal(rawData, using: key)
+            guard let combined = sealedBox.combined else { return nil }
+            let ciphertext = combined.base64EncodedString()
+            if sessionVersion >= 2, let peerDeviceId = sessionPeerDeviceId[sessionId] {
+                let receiverVer = deviceKAKeys[peerDeviceId] != nil ? (myKeyVersion ?? 1) : 1
+                return "e2:\(keyVersion):\(deviceId):\(receiverVer):\(ciphertext)"
+            }
+            return "e1:\(keyVersion):\(deviceId):\(ciphertext)"
+        } catch {
+            AppLogger.e2ee.error("Failed to encrypt image data: \(error, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Check whether E2EE encryption is available for a session.
+    func hasE2EEKey(for sessionId: String) -> Bool {
+        e2eeSessionKeys[sessionId] != nil && myDeviceId != nil
+    }
+
     /// Decrypt event content fields using the cached session key.
     /// Handles both multi-peer (device-prefixed) and legacy (un-prefixed) content formats.
     /// When no key exists, sanitize ciphertext-looking values to "[encrypted]".
