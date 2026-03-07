@@ -21,6 +21,32 @@ The agent reads Claude Code's JSONL output files, normalizes events, and streams
 
 Content encryption uses Curve25519 ECDH key agreement between the agent and iOS app directly — the backend routes encrypted blobs without access to plaintext.
 
+## Screenshots
+
+### iOS App
+
+<p align="center">
+  <img src="backend/internal/handler/static/landing/screenshots/now.png" alt="Now — live usage and session overview" width="230">
+  &nbsp;&nbsp;
+  <img src="backend/internal/handler/static/landing/screenshots/sessions.png" alt="Sessions — project-grouped session list" width="230">
+  &nbsp;&nbsp;
+  <img src="backend/internal/handler/static/landing/screenshots/conversation.png" alt="Conversation — streaming output and tool cards" width="230">
+</p>
+
+<p align="center">
+  <img src="backend/internal/handler/static/landing/screenshots/permission.png" alt="Permission — remote approve or deny" width="230">
+  &nbsp;&nbsp;
+  <img src="backend/internal/handler/static/landing/screenshots/commands.png" alt="Commands — remote command menu" width="230">
+  &nbsp;&nbsp;
+  <img src="backend/internal/handler/static/landing/screenshots/todos.png" alt="Todos — task tracking" width="230">
+</p>
+
+### macOS Agent
+
+<p align="center">
+  <img src="backend/internal/handler/static/landing/screenshots/agent-menubar.png" alt="Agent — macOS menu bar" width="340">
+</p>
+
 ## Self-Hosting
 
 ```bash
