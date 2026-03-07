@@ -12,7 +12,6 @@ struct SessionDetailView: View {
     @State private var showSessionInfo = false
     @State private var showTodoPopover = false
     @State private var compactSheetData: CompactSheetData?
-
     private var session: Session? {
         sessionStore.sessions.first { $0.id == sessionId }
     }
@@ -249,7 +248,7 @@ struct SessionDetailView: View {
 
     @ViewBuilder
     private var content: some View {
-        LazyVStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             ConversationView(sessionId: sessionId, sessionStore: sessionStore, commandStore: commandStore)
 
             if let activeCmd = commandStore.activeCommand(for: sessionId) {
