@@ -39,7 +39,7 @@ func LandingFileServer() http.Handler {
 		path := r.URL.Path
 
 		// Serve static assets directly.
-		if path == "/icon.png" {
+		if path == "/icon.png" || strings.HasPrefix(path, "/screenshots/") {
 			w.Header().Set("Cache-Control", "public, max-age=86400")
 			fileServer.ServeHTTP(w, r)
 			return

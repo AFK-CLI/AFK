@@ -68,3 +68,5 @@ node_modules/
 backend/internal/handler/static/admin/
 *.tsbuildinfo
 **.trace
+
+AFK-screenshots/
