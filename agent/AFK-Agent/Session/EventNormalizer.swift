@@ -106,6 +106,12 @@ struct EventNormalizer: Sendable {
                                 if !resultText.isEmpty {
                                     resultContent = ["toolResultSummary": redactor.redactToolResult(resultText)]
                                 }
+                                // Extract image data from tool result (e.g. Read tool on image files)
+                                let images = resultBody.imageBlocks
+                                if !images.isEmpty {
+                                    if resultContent == nil { resultContent = [:] }
+                                    Self.encodeResultImages(images, into: &resultContent!)
+                                }
                             }
 
                             let toolTurnIndex = pendingToolUses[toolUseId].map { "\($0.turnIndex)" } ?? currentTurnIndex(for: sessionId)
@@ -398,6 +404,30 @@ struct EventNormalizer: Sendable {
             // MCP tools or unknown — show the tool name itself
             return toolName
         }
+    }
+
+    /// Max total base64 image data to include in a single event (500 KB).
+    private static let maxImageDataBytes = 500 * 1024
+
+    /// Encodes image blocks into the content dictionary as JSON.
+    /// Stores as `toolResultImages`: `[{"mediaType":"image/png","data":"base64..."}]`
+    private static func encodeResultImages(_ images: [ImageSource], into content: inout [String: String]) {
+        struct ImageEntry: Codable {
+            let mediaType: String
+            let data: String
+        }
+        var entries: [ImageEntry] = []
+        var totalBytes = 0
+        for img in images {
+            let dataBytes = img.data.utf8.count
+            if totalBytes + dataBytes > maxImageDataBytes { break }
+            entries.append(ImageEntry(mediaType: img.mediaType, data: img.data))
+            totalBytes += dataBytes
+        }
+        guard !entries.isEmpty,
+              let json = try? JSONEncoder().encode(entries),
+              let str = String(data: json, encoding: .utf8) else { return }
+        content["toolResultImages"] = str
     }
 
     /// Shortens a file path to just the last 2 components.

@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct PromptComposer: View {
     let sessionId: String
@@ -10,9 +11,13 @@ struct PromptComposer: View {
     @State private var isSending = false
     @State private var errorMessage: String?
     @State private var showTemplates = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var attachedImages: [AttachedImage] = []
 
     private var canSend: Bool {
-        !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSending && !isDisabled
+        let hasText = !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasImages = !attachedImages.isEmpty
+        return (hasText || hasImages) && !isSending && !isDisabled
     }
 
     var body: some View {
@@ -26,12 +31,19 @@ struct PromptComposer: View {
                         .padding(.top, 4)
                 }
 
-                if prompt.isEmpty && !isDisabled {
+                if !attachedImages.isEmpty {
+                    attachedImagesStrip
+                }
+
+                if prompt.isEmpty && attachedImages.isEmpty && !isDisabled {
                     quickActionButtons
                 }
 
                 inputField
             }
+        }
+        .onChange(of: selectedPhotos) { _, newItems in
+            Task { await loadPhotos(from: newItems) }
         }
         .sheet(isPresented: $showTemplates) {
             NavigationStack {
@@ -63,8 +75,16 @@ struct PromptComposer: View {
     @ViewBuilder
     private var inputField: some View {
         HStack(alignment: .bottom, spacing: 12) {
-            Button {
-                showTemplates.toggle()
+            Menu {
+                Button {
+                    showTemplates = true
+                } label: {
+                    Label("Templates", systemImage: "text.badge.star")
+                }
+
+                PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
+                    Label("Photo Library", systemImage: "photo.on.rectangle")
+                }
             } label: {
                 Image(systemName: "plus.circle")
                     .font(.title2)
@@ -95,6 +115,35 @@ struct PromptComposer: View {
         .padding(.vertical, 8)
     }
 
+    private var attachedImagesStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attachedImages) { img in
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: img.thumbnail)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 60, height: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                        Button {
+                            attachedImages.removeAll { $0.id == img.id }
+                            selectedPhotos.removeAll { $0.itemIdentifier == img.itemIdentifier }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white)
+                                .background(Circle().fill(.black.opacity(0.6)))
+                        }
+                        .offset(x: 4, y: -4)
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 6)
+        }
+    }
+
     private var quickActionButtons: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -110,9 +159,41 @@ struct PromptComposer: View {
         }
     }
 
+    private func loadPhotos(from items: [PhotosPickerItem]) async {
+        var loaded: [AttachedImage] = []
+        for item in items {
+            guard let data = try? await item.loadTransferable(type: Data.self),
+                  let uiImage = UIImage(data: data) else { continue }
+            let compressed = compressImage(uiImage)
+            loaded.append(AttachedImage(
+                itemIdentifier: item.itemIdentifier,
+                thumbnail: uiImage,
+                base64Data: compressed.base64,
+                mediaType: compressed.mediaType
+            ))
+        }
+        attachedImages = loaded
+    }
+
+    private func compressImage(_ image: UIImage) -> (base64: String, mediaType: String) {
+        // Downscale if needed (max 1024px on longest side)
+        let maxDim: CGFloat = 1024
+        let scaledImage: UIImage
+        if max(image.size.width, image.size.height) > maxDim {
+            let scale = maxDim / max(image.size.width, image.size.height)
+            let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            let renderer = UIGraphicsImageRenderer(size: newSize)
+            scaledImage = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+        } else {
+            scaledImage = image
+        }
+        let data = scaledImage.jpegData(compressionQuality: 0.7) ?? Data()
+        return (data.base64EncodedString(), "image/jpeg")
+    }
+
     private func send() async {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || !attachedImages.isEmpty else { return }
 
         if biometricGateEnabled {
             let biometric = BiometricService()
@@ -128,14 +209,40 @@ struct PromptComposer: View {
         errorMessage = nil
         defer { isSending = false }
 
+        let images: [ImageAttachment]? = attachedImages.isEmpty ? nil : attachedImages.map {
+            ImageAttachment(mediaType: $0.mediaType, data: $0.base64Data)
+        }
+        let promptText = text.isEmpty ? "Look at the attached image(s)." : text
+
         do {
-            let response = try await apiClient.continueSession(sessionId: sessionId, prompt: text)
-            commandStore.startCommand(id: response.commandId, sessionId: sessionId, prompt: text)
+            let response = try await apiClient.continueSession(
+                sessionId: sessionId,
+                prompt: promptText,
+                images: images
+            )
+            commandStore.startCommand(id: response.commandId, sessionId: sessionId, prompt: promptText)
             prompt = ""
+            attachedImages = []
+            selectedPhotos = []
         } catch {
             errorMessage = "Failed to send: \(error.localizedDescription)"
         }
     }
+}
+
+// MARK: - Attached Image Model
+
+struct AttachedImage: Identifiable {
+    let id = UUID()
+    let itemIdentifier: String?
+    let thumbnail: UIImage
+    let base64Data: String
+    let mediaType: String
+}
+
+struct ImageAttachment: Codable {
+    let mediaType: String
+    let data: String
 }
 
 // MARK: - Quick Action Pill

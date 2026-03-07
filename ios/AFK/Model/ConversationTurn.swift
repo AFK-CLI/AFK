@@ -133,6 +133,7 @@ struct ToolCallPair: Identifiable {
 
     var toolInputSummary: String? { started.toolInputSummary }
     var toolResultSummary: String? { finished?.toolResultSummary }
+    var toolResultImages: [ToolResultImage]? { finished?.toolResultImages }
 
     // Provider-agnostic display properties
     var toolIcon: String? { started.toolIcon }

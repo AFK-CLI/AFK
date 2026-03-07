@@ -12,10 +12,16 @@ actor CommandExecutor {
     private var activeCommandId: String?
     private var isCancelled = false
 
+    struct ImageAttachment: Codable, Sendable {
+        let mediaType: String
+        let data: String
+    }
+
     struct CommandRequest: Codable, Sendable {
         let commandId: String
         let sessionId: String
         let prompt: String
+        let images: [ImageAttachment]?
         let promptHash: String
         let nonce: String
         let expiresAt: Int64
@@ -65,7 +71,10 @@ actor CommandExecutor {
             // 2. Resolve claude path and build args — resume in-place (no forking)
             let claudePath = try CommandValidator.resolveClaudePath()
 
-            let args = [claudePath, "--resume", request.sessionId, "-p", request.prompt, "--output-format", "json"]
+            // Save attached images to temp files and build prompt with references
+            let effectivePrompt = saveImagesAndBuildPrompt(prompt: request.prompt, images: request.images, projectPath: projectPath)
+
+            let args = [claudePath, "--resume", request.sessionId, "-p", effectivePrompt, "--output-format", "json"]
             try CommandValidator.validate(args: args)
 
             AppLogger.command.info("Resuming session: \(request.sessionId.prefix(8), privacy: .public)")
@@ -271,6 +280,40 @@ actor CommandExecutor {
         try await wsClient.send(doneMsg)
 
         return newSessionId
+    }
+
+    // MARK: - Image Handling
+
+    /// Saves attached images to temp files in the project directory and appends
+    /// a note to the prompt so Claude can read them with the Read tool.
+    private func saveImagesAndBuildPrompt(prompt: String, images: [ImageAttachment]?, projectPath: String) -> String {
+        guard let images, !images.isEmpty else { return prompt }
+
+        let fm = FileManager.default
+        let tempDir: String
+        if !projectPath.isEmpty, fm.fileExists(atPath: projectPath) {
+            tempDir = (projectPath as NSString).appendingPathComponent(".afk-uploads")
+        } else {
+            tempDir = NSTemporaryDirectory() + "afk-uploads"
+        }
+        try? fm.createDirectory(atPath: tempDir, withIntermediateDirectories: true)
+
+        var savedPaths: [String] = []
+        for (index, img) in images.enumerated() {
+            guard let data = Data(base64Encoded: img.data) else { continue }
+            let ext = img.mediaType.contains("png") ? "png" : "jpg"
+            let filename = "upload-\(UUID().uuidString.prefix(8))-\(index).\(ext)"
+            let filePath = (tempDir as NSString).appendingPathComponent(filename)
+            if fm.createFile(atPath: filePath, contents: data) {
+                savedPaths.append(filePath)
+                AppLogger.command.info("Saved uploaded image to \(filePath, privacy: .public)")
+            }
+        }
+
+        guard !savedPaths.isEmpty else { return prompt }
+
+        let fileList = savedPaths.enumerated().map { "  \($0.offset + 1). \($0.element)" }.joined(separator: "\n")
+        return "\(prompt)\n\n[The user has attached image(s) from their mobile device. Use the Read tool to view them:\n\(fileList)]"
     }
 
     /// Cancel the active command if it matches

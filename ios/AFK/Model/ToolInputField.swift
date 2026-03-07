@@ -7,3 +7,10 @@ struct ToolInputField: Codable, Identifiable {
 
     var id: String { "\(label)-\(value.prefix(20))" }
 }
+
+struct ToolResultImage: Codable, Identifiable {
+    let mediaType: String
+    let data: String
+
+    var id: String { String(data.prefix(32)) }
+}

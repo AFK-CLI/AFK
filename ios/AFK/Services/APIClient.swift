@@ -65,10 +65,11 @@ final class APIClient {
 
     // MARK: - Commands
 
-    func continueSession(sessionId: String, prompt: String, promptEncrypted: String? = nil) async throws -> ContinueResponse {
+    func continueSession(sessionId: String, prompt: String, promptEncrypted: String? = nil, images: [ImageAttachment]? = nil) async throws -> ContinueResponse {
         let body = ContinueBody(
             prompt: prompt,
             promptEncrypted: promptEncrypted,
+            images: images,
             nonce: UUID().uuidString,
             expiresAt: Int64(Date().timeIntervalSince1970) + 120
         )
@@ -423,6 +424,7 @@ private struct PaginatedEventsResponse: Codable {
 private struct ContinueBody: Codable {
     let prompt: String
     let promptEncrypted: String?
+    let images: [ImageAttachment]?
     let nonce: String
     let expiresAt: Int64
 }

@@ -194,11 +194,17 @@ type SetProjectPrivacyRequest struct {
 
 // Command continue
 
+type ImageAttachment struct {
+	MediaType string `json:"mediaType"`
+	Data      string `json:"data"`
+}
+
 type ContinueRequest struct {
-	Prompt          string `json:"prompt"`
-	PromptEncrypted string `json:"promptEncrypted,omitempty"`
-	Nonce           string `json:"nonce"`
-	ExpiresAt       int64  `json:"expiresAt"`
+	Prompt          string            `json:"prompt"`
+	PromptEncrypted string            `json:"promptEncrypted,omitempty"`
+	Images          []ImageAttachment `json:"images,omitempty"`
+	Nonce           string            `json:"nonce"`
+	ExpiresAt       int64             `json:"expiresAt"`
 }
 
 type Command struct {
@@ -305,14 +311,15 @@ type AppPlanRestart struct {
 // Server -> Agent command payload
 
 type ServerCommand struct {
-	CommandID       string `json:"commandId"`
-	SessionID       string `json:"sessionId"`
-	Prompt          string `json:"prompt"`
-	PromptEncrypted string `json:"promptEncrypted,omitempty"`
-	PromptHash      string `json:"promptHash"`
-	Nonce           string `json:"nonce"`
-	ExpiresAt       int64  `json:"expiresAt"`
-	Signature       string `json:"signature"`
+	CommandID       string            `json:"commandId"`
+	SessionID       string            `json:"sessionId"`
+	Prompt          string            `json:"prompt"`
+	PromptEncrypted string            `json:"promptEncrypted,omitempty"`
+	Images          []ImageAttachment `json:"images,omitempty"`
+	PromptHash      string            `json:"promptHash"`
+	Nonce           string            `json:"nonce"`
+	ExpiresAt       int64             `json:"expiresAt"`
+	Signature       string            `json:"signature"`
 }
 
 // New Chat

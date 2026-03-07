@@ -71,6 +71,12 @@ struct SessionEvent: Codable, Identifiable, Sendable {
         return try? JSONDecoder().decode([ToolInputField].self, from: data)
     }
 
+    var toolResultImages: [ToolResultImage]? {
+        guard let json = content?["toolResultImages"],
+              let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode([ToolResultImage].self, from: data)
+    }
+
     func withContent(_ newContent: [String: String]?) -> SessionEvent {
         SessionEvent(
             id: id, sessionId: sessionId, deviceId: deviceId,

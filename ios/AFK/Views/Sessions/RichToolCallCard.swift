@@ -86,7 +86,15 @@ struct RichToolCallCard: View {
                         }
                     }
 
-                    if pair.toolInputFields == nil && pair.toolInputSummary == nil && pair.toolResultSummary == nil {
+                    if let images = pair.toolResultImages, !images.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(images) { img in
+                                ToolResultImageView(image: img)
+                            }
+                        }
+                    }
+
+                    if pair.toolInputFields == nil && pair.toolInputSummary == nil && pair.toolResultSummary == nil && (pair.toolResultImages ?? []).isEmpty {
                         Text("No content available")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
