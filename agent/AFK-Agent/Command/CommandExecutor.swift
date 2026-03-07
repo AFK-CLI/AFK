@@ -351,7 +351,7 @@ actor CommandExecutor {
         guard !savedPaths.isEmpty else { return prompt }
 
         let fileList = savedPaths.enumerated().map { "  \($0.offset + 1). \($0.element)" }.joined(separator: "\n")
-        return "\(prompt)\n\n[The user has attached image(s) from their mobile device. Use the Read tool to view them:\n\(fileList)]"
+        return "\(prompt)\n\nThe user has attached images from their mobile device. Use the Read tool to view them:\n\(fileList)"
     }
 
     /// Cancel the active command if it matches
