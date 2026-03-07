@@ -46,28 +46,16 @@ struct PlanApprovalSheet: View {
                     VStack(spacing: 10) {
                         // Approve options
                         Button {
-                            onAction(.acceptClearAutoAccept)
+                            onAction(.acceptAutoAccept)
                             dismiss()
                         } label: {
-                            Label("Approve, clear context & auto-accept", systemImage: "checkmark.circle.fill")
+                            Label("Approve & auto-accept edits", systemImage: "checkmark.circle.fill")
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 6)
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.green)
-
-                        Button {
-                            onAction(.acceptAutoAccept)
-                            dismiss()
-                        } label: {
-                            Label("Approve & auto-accept edits", systemImage: "checkmark.circle")
-                                .font(.subheadline.weight(.semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.blue)
 
                         Button {
                             onAction(.acceptManual)

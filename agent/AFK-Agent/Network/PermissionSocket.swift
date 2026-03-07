@@ -55,16 +55,17 @@ actor PermissionSocket {
 
     struct RestartIntent: Sendable {
         let planContent: String
+        let permissionMode: PermissionMode
         let recordedAt: Date
     }
     private var pendingRestarts: [String: RestartIntent] = [:]
 
-    func recordRestartIntent(sessionId: String, planContent: String) {
+    func recordRestartIntent(sessionId: String, planContent: String, permissionMode: PermissionMode = .acceptEdits) {
         let plansDir = BuildEnvironment.configDirectoryPath + "/plans"
         try? FileManager.default.createDirectory(atPath: plansDir, withIntermediateDirectories: true)
         let planPath = "\(plansDir)/\(sessionId).md"
         try? planContent.write(toFile: planPath, atomically: true, encoding: .utf8)
-        pendingRestarts[sessionId] = RestartIntent(planContent: planContent, recordedAt: Date())
+        pendingRestarts[sessionId] = RestartIntent(planContent: planContent, permissionMode: permissionMode, recordedAt: Date())
     }
 
     func consumeRestartIntent(sessionId: String) -> RestartIntent? {
@@ -249,9 +250,6 @@ actor PermissionSocket {
     func start() throws {
         guard !isRunning else { return }
 
-        // Remove stale plan-approved flag files from previous runs
-        Self.cleanStalePlanFlags()
-
         // Remove stale socket file
         unlink(PermissionSocket.socketPath)
 
@@ -311,19 +309,7 @@ actor PermissionSocket {
             req.continuation.resume(returning: PermissionDecision(action: "deny"))
         }
         pending.removeAll()
-        // Clean stale plan-approved flag files
-        Self.cleanStalePlanFlags()
         AppLogger.permission.info("Stopped")
-    }
-
-    /// Remove leftover plan-approved-* flag files from the run directory.
-    nonisolated static func cleanStalePlanFlags() {
-        let runDir = BuildEnvironment.configDirectoryPath + "/run"
-        if let files = try? FileManager.default.contentsOfDirectory(atPath: runDir) {
-            for f in files where f.hasPrefix("plan-approved-") {
-                try? FileManager.default.removeItem(atPath: "\(runDir)/\(f)")
-            }
-        }
     }
 
     /// Called when iOS sends a permission response through the backend.
@@ -685,37 +671,46 @@ actor PermissionSocket {
         }
 
         // Handle ExitPlanMode plan actions from iOS.
-        // For accept actions: ALLOW ExitPlanMode so the tool succeeds, then PostToolUse
-        // hook injects Shift+Tab to complete the UI toggle. Drop a flag file for PostToolUse.
+        // All accept actions use deny+restart: the session stops, agent saves the plan
+        // to disk, and spawns a fresh `claude -p` session to implement it. This avoids
+        // Claude Code's interactive "Ready to code?" TUI menu which can't be controlled
+        // programmatically from a remote iOS app.
         // For reject/feedback: DENY so Claude stays in plan mode and reads the reason.
-        // For clear-context: DENY with continue=false, record restart intent for Agent.
         if toolName == "ExitPlanMode", decision.action.hasPrefix("plan:") {
             let planAction = decision.action
 
             switch planAction {
             case "plan:accept-auto":
-                // Allow ExitPlanMode → PostToolUse will inject Shift+Tab
-                writeHookResponse(fd: fd, decision: "allow", reason: "Plan approved by user from AFK mobile. Auto-accept edits. Proceed with implementation.")
-                createPlanApprovedFlag(sessionId: sessionId)
-                let sem = DispatchSemaphore(value: 0)
-                Task { await self.setMode(.acceptEdits); sem.signal() }
-                sem.wait()
-                AppLogger.permission.info("ExitPlanMode: accept + auto-accept (mode → acceptEdits)")
-
-            case "plan:accept-manual":
-                // Allow ExitPlanMode → PostToolUse will inject Shift+Tab
-                writeHookResponse(fd: fd, decision: "allow", reason: "Plan approved by user from AFK mobile. Manually approve each edit.")
-                createPlanApprovedFlag(sessionId: sessionId)
-                let sem = DispatchSemaphore(value: 0)
-                Task { await self.setMode(.ask); sem.signal() }
-                sem.wait()
-                AppLogger.permission.info("ExitPlanMode: accept + manual (mode → ask)")
-
-            case "plan:accept-clear-auto":
-                // Deny — session will stop, Agent spawns fresh session with the plan
                 let planText = toolInputDisplay["plan"] ?? ""
                 let sem = DispatchSemaphore(value: 0)
-                Task { await self.recordRestartIntent(sessionId: sessionId, planContent: planText); sem.signal() }
+                Task {
+                    await self.recordRestartIntent(sessionId: sessionId, planContent: planText, permissionMode: .acceptEdits)
+                    await self.setMode(.acceptEdits)
+                    sem.signal()
+                }
+                sem.wait()
+                writeHookResponse(fd: fd, decision: "deny", reason: "Plan approved via AFK mobile. Session restarting with clean context and auto-accept edits.", shouldContinue: false)
+                AppLogger.permission.info("ExitPlanMode: accept + auto-accept (restart + acceptEdits)")
+
+            case "plan:accept-manual":
+                let planText = toolInputDisplay["plan"] ?? ""
+                let sem = DispatchSemaphore(value: 0)
+                Task {
+                    await self.recordRestartIntent(sessionId: sessionId, planContent: planText, permissionMode: .ask)
+                    await self.setMode(.ask)
+                    sem.signal()
+                }
+                sem.wait()
+                writeHookResponse(fd: fd, decision: "deny", reason: "Plan approved via AFK mobile. Session restarting with clean context.", shouldContinue: false)
+                AppLogger.permission.info("ExitPlanMode: accept + manual (restart + ask)")
+
+            case "plan:accept-clear-auto":
+                let planText = toolInputDisplay["plan"] ?? ""
+                let sem = DispatchSemaphore(value: 0)
+                Task {
+                    await self.recordRestartIntent(sessionId: sessionId, planContent: planText, permissionMode: .acceptEdits)
+                    sem.signal()
+                }
                 sem.wait()
                 writeHookResponse(fd: fd, decision: "deny", reason: "Plan approved by user from AFK mobile. Session will restart with clean context to implement the plan.", shouldContinue: false)
                 AppLogger.permission.info("ExitPlanMode: accept + clear context (continue=false)")
@@ -741,27 +736,6 @@ actor PermissionSocket {
         let permissionDecision = decision.action == "allow" ? "allow" : "deny"
         let reason = decision.action == "allow" ? "Approved via AFK mobile" : "Denied via AFK mobile"
         writeHookResponse(fd: fd, decision: permissionDecision, reason: reason)
-
-        // ExitPlanMode with plain "allow" (backwards compat): same flag + mode switch
-        if toolName == "ExitPlanMode" && decision.action == "allow" {
-            createPlanApprovedFlag(sessionId: sessionId)
-            let sem = DispatchSemaphore(value: 0)
-            Task {
-                if await self.getMode() == .plan { await self.setMode(.acceptEdits) }
-                sem.signal()
-            }
-            sem.wait()
-        }
-    }
-
-    /// Create a flag file for the PostToolUse hook to detect, and schedule cleanup.
-    private nonisolated func createPlanApprovedFlag(sessionId: String) {
-        let flagPath = BuildEnvironment.configDirectoryPath + "/run/plan-approved-\(sessionId)"
-        FileManager.default.createFile(atPath: flagPath, contents: nil)
-        // Clean stale flag after 10s if PostToolUse didn't consume it
-        DispatchQueue.global().asyncAfter(deadline: .now() + 10) {
-            try? FileManager.default.removeItem(atPath: flagPath)
-        }
     }
 
     // MARK: - Actor-isolated request processing

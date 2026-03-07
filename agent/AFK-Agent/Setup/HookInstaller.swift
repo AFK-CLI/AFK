@@ -13,7 +13,7 @@ struct HookInstaller {
     private let hookInstallDir: String   // e.g. ~/.claude/hooks
     private let settingsPath: String     // ~/.claude/settings.json
     private let hookScriptName = "afk-permission-hook.sh"
-    private let postToolHookScriptName = "afk-plan-exit-hook.sh"
+
     private let notificationHookScriptName = "afk-notification-hook.sh"
     private let stopHookScriptName = "afk-stop-hook.sh"
     private let sessionStartHookScriptName = "afk-session-start-hook.sh"
@@ -22,9 +22,12 @@ struct HookInstaller {
 
     /// All AFK hook script names for install/uninstall management.
     private var allScriptNames: [String] {
-        [hookScriptName, postToolHookScriptName, notificationHookScriptName,
+        [hookScriptName, notificationHookScriptName,
          stopHookScriptName, sessionStartHookScriptName, promptSubmitHookScriptName]
     }
+
+    /// Legacy script names to clean up from older installs.
+    private let legacyScriptNames = ["afk-plan-exit-hook.sh"]
 
     /// OTLP telemetry environment variables to inject into Claude Code settings.
     private static let otlpEnvValues: [String: String] = [
@@ -53,10 +56,6 @@ struct HookInstaller {
 
     var installedHookPath: String {
         "\(hookInstallDir)/\(hookScriptName)"
-    }
-
-    var installedPostToolHookPath: String {
-        "\(hookInstallDir)/\(postToolHookScriptName)"
     }
 
     private func scriptPath(_ name: String) -> String {
@@ -105,6 +104,31 @@ struct HookInstaller {
             }
         }
 
+        // Remove legacy PostToolUse hook (no longer used — Shift+Tab injection removed).
+        if var postToolHooks = hooks["PostToolUse"] as? [[String: Any]] {
+            postToolHooks.removeAll { entry in
+                if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                    return entryHooks.contains { cmd in
+                        guard let command = cmd["command"] as? String else { return false }
+                        return legacyScriptNames.contains(where: { command.contains($0) })
+                    }
+                }
+                return false
+            }
+            if postToolHooks.isEmpty {
+                hooks.removeValue(forKey: "PostToolUse")
+            } else {
+                hooks["PostToolUse"] = postToolHooks
+            }
+        }
+        // Delete legacy PostToolUse script file
+        for name in legacyScriptNames {
+            let path = scriptPath(name)
+            if fm.fileExists(atPath: path) {
+                try? fm.removeItem(atPath: path)
+            }
+        }
+
         // Register under PreToolUse — this fires before the permission check
         // and can auto-approve/deny tool calls.
         var preToolHooks = hooks["PreToolUse"] as? [[String: Any]] ?? []
@@ -120,53 +144,25 @@ struct HookInstaller {
             hooks["PreToolUse"] = preToolHooks
         }
 
-        // 4. Install PostToolUse hook for ExitPlanMode TTY injection
-        let postToolScript = bundledPostToolHookContents()
-        try postToolScript.write(toFile: installedPostToolHookPath, atomically: true, encoding: .utf8)
-        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: installedPostToolHookPath)
-
-        let postToolHookEntry: [String: Any] = [
-            "type": "command",
-            "command": installedPostToolHookPath,
-            "timeout": 10000  // 10s timeout for PostToolUse
-        ]
-        let postToolMatcherEntry: [String: Any] = [
-            "matcher": "ExitPlanMode",
-            "hooks": [postToolHookEntry]
-        ]
-
-        var postToolHooks = hooks["PostToolUse"] as? [[String: Any]] ?? []
-        let postToolAlreadyInstalled = postToolHooks.contains { entry in
-            if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                return entryHooks.contains { ($0["command"] as? String)?.contains(postToolHookScriptName) == true }
-            }
-            return false
-        }
-
-        if !postToolAlreadyInstalled {
-            postToolHooks.append(postToolMatcherEntry)
-            hooks["PostToolUse"] = postToolHooks
-        }
-
-        // 5. Install Notification hook (async, fire-and-forget)
+        // 4. Install Notification hook (async, fire-and-forget)
         try installScript(notificationHookScriptName, contents: bundledNotificationHookContents(), fm: fm)
         registerHook(
             &hooks, key: "Notification", matcher: "permission_prompt|idle_prompt",
             scriptName: notificationHookScriptName, timeout: 5000
         )
 
-        // 6. Install Stop hook (async, fire-and-forget)
+        // 5. Install Stop hook (async, fire-and-forget)
         try installScript(stopHookScriptName, contents: bundledStopHookContents(), fm: fm)
         registerHook(&hooks, key: "Stop", matcher: "", scriptName: stopHookScriptName, timeout: 5000)
 
-        // 7. Install SessionStart hook (sync, returns additionalContext)
+        // 6. Install SessionStart hook (sync, returns additionalContext)
         try installScript(sessionStartHookScriptName, contents: bundledSessionStartHookContents(), fm: fm)
         registerHook(
             &hooks, key: "SessionStart", matcher: "startup|resume",
             scriptName: sessionStartHookScriptName, timeout: 5000
         )
 
-        // 8. Install UserPromptSubmit hook (sync, returns additionalContext)
+        // 7. Install UserPromptSubmit hook (sync, returns additionalContext)
         try installScript(promptSubmitHookScriptName, contents: bundledPromptSubmitHookContents(), fm: fm)
         registerHook(
             &hooks, key: "UserPromptSubmit", matcher: "",
@@ -191,8 +187,8 @@ struct HookInstaller {
     func uninstall() throws {
         let fm = FileManager.default
 
-        // 1. Remove all script files
-        for name in allScriptNames {
+        // 1. Remove all script files (current + legacy)
+        for name in allScriptNames + legacyScriptNames {
             let path = scriptPath(name)
             if fm.fileExists(atPath: path) {
                 try fm.removeItem(atPath: path)
@@ -211,7 +207,7 @@ struct HookInstaller {
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
                         return entryHooks.contains { cmd in
                             guard let command = cmd["command"] as? String else { return false }
-                            return allScriptNames.contains(where: { command.contains($0) })
+                            return (allScriptNames + legacyScriptNames).contains(where: { command.contains($0) })
                         }
                     }
                     return false
@@ -311,101 +307,6 @@ struct HookInstaller {
         try data.write(to: URL(fileURLWithPath: settingsPath), options: .atomic)
     }
 
-    private func bundledPostToolHookContents() -> String {
-        // PostToolUse hook for ExitPlanMode — injects Shift+Tab to Claude Code's TTY
-        // to complete the plan mode toggle after iOS approves ExitPlanMode.
-        // IMPORTANT: Must NEVER exit non-zero — PostToolUse errors can break the session.
-        let configDir = BuildEnvironment.configDirectoryName
-        return """
-        #!/bin/bash
-        # AFK Agent — Claude Code PostToolUse hook (ExitPlanMode)
-        # When ExitPlanMode fires after iOS approval, inject Shift+Tab into Claude's TTY
-        # to complete the UI toggle from plan mode to normal mode.
-        #
-        # IMPORTANT: No 'set -e' — this script must ALWAYS exit 0.
-        # A non-zero exit from PostToolUse causes Claude Code to raise an error.
-
-        LOG="$HOME/\(configDir)/run/plan-hook-debug.log"
-        mkdir -p "$HOME/\(configDir)/run"
-
-        INPUT=$(cat 2>/dev/null) || true
-        SESSION_ID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
-        FLAG="$HOME/\(configDir)/run/plan-approved-${SESSION_ID:-unknown}"
-
-        echo "$(date '+%H:%M:%S') PostToolUse fired: session=${SESSION_ID:-?}, flag=$FLAG" >> "$LOG" 2>/dev/null
-
-        # Only act if the Agent left a flag file (meaning iOS approved ExitPlanMode)
-        if [ ! -f "$FLAG" ]; then
-            echo "$(date '+%H:%M:%S') No flag file — skipping (not AFK-approved)" >> "$LOG" 2>/dev/null
-            exit 0
-        fi
-        rm -f "$FLAG"
-
-        echo "$(date '+%H:%M:%S') Flag found — attempting Shift+Tab injection" >> "$LOG" 2>/dev/null
-
-        # Method 1: /dev/tty — the controlling terminal of the process group.
-        # This is the most reliable path for interactive sessions. Even though
-        # the hook's stdin/stdout are pipes, /dev/tty opens the controlling terminal.
-        if [ -w /dev/tty ] 2>/dev/null; then
-            # Poll up to 2s at 100ms intervals for the prompt to appear
-            for _attempt in $(seq 1 20); do
-                sleep 0.1
-                if printf '\\033[Z' > /dev/tty 2>/dev/null; then
-                    echo "$(date '+%H:%M:%S') Sent Shift+Tab via /dev/tty on attempt $_attempt" >> "$LOG" 2>/dev/null
-                    exit 0
-                fi
-            done
-            exit 0
-        fi
-
-        echo "$(date '+%H:%M:%S') /dev/tty not writable, trying PPID chain" >> "$LOG" 2>/dev/null
-
-        # Method 2: Walk PPID chain to find Claude Code's TTY via lsof + ps.
-        PID=$PPID
-        CLAUDE_TTY=""
-        for i in 1 2 3 4 5 6 7 8; do
-            PID=$(ps -p "$PID" -o ppid= 2>/dev/null | tr -d ' ') || true
-            [ -z "$PID" ] || [ "$PID" = "1" ] && break
-
-            # Try lsof to find stdin device (fd 0)
-            TTY_DEV=$(lsof -a -p "$PID" -d 0 -Fn 2>/dev/null | grep '^n/dev/' | sed 's/^n//') || true
-            if [ -n "$TTY_DEV" ] && [ -w "$TTY_DEV" ]; then
-                CLAUDE_TTY="$TTY_DEV"
-                echo "$(date '+%H:%M:%S') Found TTY via lsof: $CLAUDE_TTY (pid=$PID)" >> "$LOG" 2>/dev/null
-                break
-            fi
-
-            # Fallback: ps tty column
-            TTY=$(ps -p "$PID" -o tty= 2>/dev/null | tr -d ' ') || true
-            if [ -n "$TTY" ] && [ "$TTY" != "??" ]; then
-                DEV="/dev/$TTY"
-                if [ -w "$DEV" ]; then
-                    CLAUDE_TTY="$DEV"
-                    echo "$(date '+%H:%M:%S') Found TTY via ps: $CLAUDE_TTY (pid=$PID)" >> "$LOG" 2>/dev/null
-                    break
-                fi
-            fi
-        done
-
-        if [ -n "$CLAUDE_TTY" ]; then
-            for _attempt in $(seq 1 20); do
-                sleep 0.1
-                if printf '\\033[Z' > "$CLAUDE_TTY" 2>/dev/null; then
-                    echo "$(date '+%H:%M:%S') Sent Shift+Tab via $CLAUDE_TTY on attempt $_attempt" >> "$LOG" 2>/dev/null
-                    exit 0
-                fi
-            done
-            exit 0
-        fi
-
-        echo "$(date '+%H:%M:%S') No TTY found — non-interactive session or TTY not accessible" >> "$LOG" 2>/dev/null
-
-        # For non-interactive (-p) sessions, ExitPlanMode exits plan mode via the
-        # hook's "allow" response alone — no Shift+Tab needed. Exit cleanly.
-        exit 0
-        """
-    }
-
     private func bundledHookScriptContents() -> String {
         // Inline the script contents so the agent binary is self-contained.
         // Uses Python for reliable bidirectional Unix socket communication.
@@ -502,40 +403,6 @@ struct HookInstaller {
 
         if [ -z "${RESPONSE:-}" ]; then
             exit 0
-        fi
-
-        # ExitPlanMode: spawn background Shift+Tab injector (only when Auto Plan Exit is enabled).
-        # Claude Code has an internal "Ready to code?" prompt for ExitPlanMode
-        # that requires user interaction EVEN when the hook returns "allow".
-        # The background process waits for the prompt to appear, then injects
-        # Shift+Tab to answer it (selects option 1: clear context + auto-accept).
-        PLAN_AUTOEXIT="$HOME/\(configDir)/run/plan-autoexit"
-        if echo "$INPUT" | grep -q '"ExitPlanMode"' 2>/dev/null; then
-            if echo "$RESPONSE" | grep -q '"allow"' 2>/dev/null; then
-                PLOG="$HOME/\(configDir)/run/plan-hook-debug.log"
-                # Clean up the PostToolUse flag file (PostToolUse doesn't fire for ExitPlanMode)
-                _SID=$(echo "$INPUT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('session_id',''))" 2>/dev/null) || true
-                rm -f "$HOME/\(configDir)/run/plan-approved-${_SID:-}" 2>/dev/null
-                if [ -f "$PLAN_AUTOEXIT" ]; then
-                    echo "$(date '+%H:%M:%S') ExitPlanMode allowed — spawning Shift+Tab injector" >> "$PLOG" 2>/dev/null
-                    # Spawn detached background process — MUST close inherited pipes so
-                    # Claude Code doesn't block waiting for our stdout/stderr to close.
-                    (
-                        exec </dev/null >/dev/null 2>/dev/null
-                        # Poll up to 2s at 100ms intervals for the prompt to appear,
-                        # then inject Shift+Tab. More robust than a fixed sleep on slow machines.
-                        for _attempt in $(seq 1 20); do
-                            sleep 0.1
-                            if osascript -e 'tell application "System Events" to key code 48 using shift down' 2>/dev/null; then
-                                echo "$(date '+%H:%M:%S') Injected Shift+Tab on attempt $_attempt" >> "$PLOG" 2>/dev/null
-                                break
-                            fi
-                        done
-                    ) &
-                else
-                    echo "$(date '+%H:%M:%S') ExitPlanMode allowed — Auto Plan Exit disabled, skipping injection" >> "$PLOG" 2>/dev/null
-                fi
-            fi
         fi
 
         echo "$RESPONSE"

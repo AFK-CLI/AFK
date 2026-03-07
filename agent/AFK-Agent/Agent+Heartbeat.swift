@@ -60,14 +60,14 @@ extension Agent {
                     if status == .idle || status == .completed {
                         if let intent = await socket.consumeRestartIntent(sessionId: sid) {
                             AppLogger.agent.info("Session \(sid.prefix(8), privacy: .public) stopped — executing plan restart")
-                            await spawnPlanRestart(sessionId: sid, planContent: intent.planContent)
+                            await spawnPlanRestart(sessionId: sid, planContent: intent.planContent, permissionMode: intent.permissionMode)
                         }
                     }
                 }
                 // Stale fallback: force-execute after 5 minutes
                 for (sid, intent) in await socket.consumeStaleRestartIntents(olderThan: 300) {
                     AppLogger.agent.warning("Stale restart intent for \(sid.prefix(8), privacy: .public) — force-spawning")
-                    await spawnPlanRestart(sessionId: sid, planContent: intent.planContent)
+                    await spawnPlanRestart(sessionId: sid, planContent: intent.planContent, permissionMode: intent.permissionMode)
                 }
             }
 
@@ -114,7 +114,7 @@ extension Agent {
 
     // MARK: - Plan Restart
 
-    func spawnPlanRestart(sessionId: String, planContent: String) async {
+    func spawnPlanRestart(sessionId: String, planContent: String, permissionMode: PermissionSocket.PermissionMode = .acceptEdits) async {
         let projectPath = await sessionIndex.projectPath(for: sessionId) ?? ""
         guard !projectPath.isEmpty else {
             AppLogger.agent.error("Cannot restart \(sessionId.prefix(8), privacy: .public) — no project path")
@@ -124,7 +124,10 @@ extension Agent {
         let prompt = "Read and implement the plan at \(planPath). Begin immediately."
         do {
             let claudePath = try CommandValidator.resolveClaudePath()
-            let args = ["-p", prompt, "--output-format", "json"]
+            var args = ["-p", prompt, "--output-format", "json"]
+            if permissionMode == .acceptEdits {
+                args += ["--permission-mode", "acceptEdits"]
+            }
             try CommandValidator.validate(args: [claudePath] + args)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: claudePath)

@@ -18,7 +18,7 @@ import Sparkle
 final class StatusBarController: NSObject {
     private var statusItem: NSStatusItem!
     private var hookMenuItem: NSMenuItem!
-    private var planAutoExitMenuItem: NSMenuItem!
+
     private var loginItemMenuItem: NSMenuItem!
     private var checkForUpdatesMenuItem: NSMenuItem!
     private var accountMenuItem: NSMenuItem!
@@ -68,9 +68,6 @@ final class StatusBarController: NSObject {
     /// Flag file path — the hook script checks this before connecting to the socket.
     static var bypassFlagPath: String { "\(runDir)/hook-bypass" }
 
-    /// Flag file path — when present, the hook script injects Shift+Tab after ExitPlanMode approval.
-    static var planAutoExitFlagPath: String { "\(runDir)/plan-autoexit" }
-
     // Thread-safe bypass flag — also checked inside PermissionSocket as secondary guard.
     private static let lock = NSLock()
     private static var _hookBypassed = false
@@ -79,10 +76,6 @@ final class StatusBarController: NSObject {
         lock.lock()
         defer { lock.unlock() }
         return _hookBypassed
-    }
-
-    static var isPlanAutoExitEnabled: Bool {
-        FileManager.default.fileExists(atPath: planAutoExitFlagPath)
     }
 
     /// Remote-control setter: enable/disable remote approval without confirmation dialog.
@@ -111,26 +104,11 @@ final class StatusBarController: NSObject {
         onControlStateChanged?()
     }
 
-    /// Remote-control setter: enable/disable auto plan exit without confirmation dialog.
-    func setAutoPlanExit(_ enabled: Bool) {
-        if enabled {
-            createPlanAutoExitFlag()
-            planAutoExitMenuItem.state = .on
-            AppLogger.statusBar.info("Auto Plan Exit enabled (remote)")
-        } else {
-            removePlanAutoExitFlag()
-            planAutoExitMenuItem.state = .off
-            AppLogger.statusBar.info("Auto Plan Exit disabled (remote)")
-        }
-        onControlStateChanged?()
-    }
-
     init(config: AgentConfig? = nil) {
         self.agentConfig = config
         super.init()
-        // Clean up stale flag files on startup (default: remote approval ON, auto plan exit OFF)
+        // Clean up stale flag files on startup (default: remote approval ON)
         removeFlagFile()
-        removePlanAutoExitFlag()
         setupStatusBar()
 
         // Sync sleep preventer with config on startup
@@ -203,14 +181,6 @@ final class StatusBarController: NSObject {
         hookMenuItem.target = self
         hookMenuItem.state = .on
 
-        planAutoExitMenuItem = NSMenuItem(
-            title: "Auto Plan Exit",
-            action: #selector(togglePlanAutoExit),
-            keyEquivalent: ""
-        )
-        planAutoExitMenuItem.target = self
-        planAutoExitMenuItem.state = .off
-
         loginItemMenuItem = NSMenuItem(
             title: "Start at Login",
             action: #selector(toggleLoginItem),
@@ -255,7 +225,6 @@ final class StatusBarController: NSObject {
         menu.addItem(copyResumeMenuItem)
         menu.addItem(.separator())
         menu.addItem(hookMenuItem)
-        menu.addItem(planAutoExitMenuItem)
         menu.addItem(preventSleepMenuItem)
         menu.addItem(loginItemMenuItem)
 
@@ -339,40 +308,6 @@ final class StatusBarController: NSObject {
         }
 
         AppLogger.statusBar.info("Remote approval \(bypassed ? "disabled — terminal prompts active" : "enabled — forwarding to iOS", privacy: .public)")
-        onControlStateChanged?()
-    }
-
-    @objc private func togglePlanAutoExit() {
-        let enabling = planAutoExitMenuItem.state == .off
-
-        if enabling {
-            // Show warning alert before enabling
-            let alert = NSAlert()
-            alert.messageText = "Auto Plan Exit"
-            alert.informativeText = """
-                When enabled, AFK will automatically send Shift+Tab to the frontmost \
-                application when a plan is approved from iOS. This requires:
-
-                \u{2022} Terminal app (VS Code / Terminal / iTerm) must be the focused window
-                \u{2022} Accessibility permission must be granted in System Preferences \u{2192} \
-                Privacy & Security \u{2192} Accessibility
-
-                If the terminal is not focused, the keystroke will go to the wrong application.
-                """
-            alert.addButton(withTitle: "Enable")
-            alert.addButton(withTitle: "Cancel")
-
-            let response = alert.runModal()
-            guard response == .alertFirstButtonReturn else { return }
-
-            createPlanAutoExitFlag()
-            planAutoExitMenuItem.state = .on
-            AppLogger.statusBar.info("Auto Plan Exit enabled — keystroke injection active")
-        } else {
-            removePlanAutoExitFlag()
-            planAutoExitMenuItem.state = .off
-            AppLogger.statusBar.info("Auto Plan Exit disabled — no keystroke injection")
-        }
         onControlStateChanged?()
     }
 
@@ -550,7 +485,6 @@ final class StatusBarController: NSObject {
 
     @objc private func quitApp() {
         removeFlagFile()
-        removePlanAutoExitFlag()
         sleepPreventer.stop()
         AppLogger.agent.info("Shutting down via menu bar...")
         exit(0)
@@ -672,14 +606,6 @@ final class StatusBarController: NSObject {
 
     private func removeFlagFile() {
         try? FileManager.default.removeItem(atPath: Self.bypassFlagPath)
-    }
-
-    private func createPlanAutoExitFlag() {
-        FileManager.default.createFile(atPath: Self.planAutoExitFlagPath, contents: nil)
-    }
-
-    private func removePlanAutoExitFlag() {
-        try? FileManager.default.removeItem(atPath: Self.planAutoExitFlagPath)
     }
 }
 

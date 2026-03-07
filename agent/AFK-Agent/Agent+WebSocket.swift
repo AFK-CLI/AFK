@@ -185,7 +185,6 @@ extension Agent {
             if let sbc = statusBarController {
                 DispatchQueue.main.async {
                     if let ra = payload.remoteApproval { sbc.setRemoteApproval(ra) }
-                    if let ape = payload.autoPlanExit { sbc.setAutoPlanExit(ape) }
                 }
             }
             // Small delay to let main-thread UI updates complete before reading state
