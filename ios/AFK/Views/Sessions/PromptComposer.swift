@@ -15,6 +15,7 @@ struct PromptComposer: View {
     @State private var showPhotoPicker = false
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
+    @State private var clipboardHasImage = false
 
     private var canSend: Bool {
         let hasText = !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -37,7 +38,11 @@ struct PromptComposer: View {
                     attachedImagesStrip
                 }
 
-                if prompt.isEmpty && attachedImages.isEmpty && !isDisabled {
+                if clipboardHasImage && attachedImages.count < 3 {
+                    clipboardImageBanner
+                }
+
+                if prompt.isEmpty && attachedImages.isEmpty && !clipboardHasImage && !isDisabled {
                     quickActionButtons
                 }
 
@@ -47,6 +52,12 @@ struct PromptComposer: View {
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotos, maxSelectionCount: 3, matching: .images)
         .onChange(of: selectedPhotos) { _, newItems in
             Task { await loadPhotos(from: newItems) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            clipboardHasImage = UIPasteboard.general.hasImages
+        }
+        .onAppear {
+            clipboardHasImage = UIPasteboard.general.hasImages
         }
         .sheet(isPresented: $showTemplates) {
             NavigationStack {
@@ -75,10 +86,6 @@ struct PromptComposer: View {
         }
     }
 
-    private var canPasteImage: Bool {
-        UIPasteboard.general.hasImages
-    }
-
     @ViewBuilder
     private var inputField: some View {
         HStack(alignment: .bottom, spacing: 12) {
@@ -89,11 +96,10 @@ struct PromptComposer: View {
                     Label("Photo Library", systemImage: "photo.on.rectangle")
                 }
                 Button {
-                    pasteImageFromClipboard()
+                    showTemplates = true
                 } label: {
-                    Label("Paste Image", systemImage: "doc.on.clipboard")
+                    Label("Templates", systemImage: "text.badge.star")
                 }
-                .disabled(!canPasteImage)
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
@@ -122,6 +128,24 @@ struct PromptComposer: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
+    }
+
+    private var clipboardImageBanner: some View {
+        Button {
+            pasteImageFromClipboard()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "doc.on.clipboard")
+                    .font(.caption)
+                Text("Paste copied image")
+                    .font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .capsule)
+        .padding(.vertical, 6)
     }
 
     private var attachedImagesStrip: some View {
@@ -185,7 +209,6 @@ struct PromptComposer: View {
     }
 
     private func compressImage(_ image: UIImage) -> (base64: String, mediaType: String) {
-        // Downscale if needed (max 1024px on longest side)
         let maxDim: CGFloat = 1024
         let scaledImage: UIImage
         if max(image.size.width, image.size.height) > maxDim {
@@ -236,10 +259,8 @@ struct PromptComposer: View {
         let promptText = text.isEmpty ? "Look at the attached image(s)." : text
         let useE2EE = sessionStore?.hasE2EEKey(for: sessionId) == true
 
-        // Encrypt prompt if E2EE is available
         let promptEncrypted: String? = useE2EE ? sessionStore?.encryptPrompt(promptText, sessionId: sessionId) : nil
 
-        // Build image attachments (encrypted or plaintext)
         var images: [ImageAttachment]?
         var imagesEncrypted: [ImageAttachment]?
 
