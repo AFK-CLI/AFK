@@ -12,6 +12,15 @@ struct ConversationTurnView: View {
                 UserMessageBubble(text: userText)
             }
 
+            // User-attached images (screenshots pasted to Claude Code)
+            if let images = turn.userImages, !images.isEmpty {
+                ForEach(images) { img in
+                    ToolResultImageView(image: img)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.trailing, 8)
+                }
+            }
+
             // Teammate/task cards from user messages
             if let userBlocks = turn.userContentBlocks {
                 ForEach(userBlocks) { block in

@@ -51,6 +51,10 @@ struct ConversationTurn: Identifiable, Equatable {
         return cleaned.isEmpty ? nil : cleaned
     }
 
+    var userImages: [ToolResultImage]? {
+        events.first(where: { $0.eventType == "turn_started" })?.toolResultImages
+    }
+
     var assistantSnippet: String? {
         // Take the last assistant_responding event with actual content
         // (earlier ones during thinking phase may have empty/nil snippets)
