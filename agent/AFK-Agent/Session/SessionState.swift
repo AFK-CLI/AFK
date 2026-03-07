@@ -132,12 +132,19 @@ actor SessionStateManager {
             sessions[sessionId] = SessionInfo()
         }
         guard sessions[sessionId]!.userPrompt.isEmpty else { return }
-        // Strip XML/HTML tags (e.g. <local-command-caveat>, <system-reminder>) from prompt
-        let cleaned = prompt.replacingOccurrences(
+        // Strip CLI system/meta XML blocks with their content (same tags as EventNormalizer)
+        var cleaned = prompt.replacingOccurrences(
+            of: "<(local-command-caveat|command-name|command-message|command-args|local-command-stdout|system-reminder)>[\\s\\S]*?</\\1>",
+            with: "",
+            options: .regularExpression
+        )
+        // Strip any remaining orphan XML/HTML tags
+        cleaned = cleaned.replacingOccurrences(
             of: "<[^>]+>",
             with: "",
             options: .regularExpression
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         sessions[sessionId]?.userPrompt = cleaned
     }
 
