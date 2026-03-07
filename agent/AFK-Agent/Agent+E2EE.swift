@@ -35,6 +35,29 @@ final class SessionKeyCache: @unchecked Sendable {
         self.peerKeyVersions = peerKeyVersions
     }
 
+    /// Decrypt a versioned encrypted string using the session key for the sender device.
+    /// Tries all peer keys for the session if sender is unknown.
+    func decryptString(_ encrypted: String, sessionId: String) -> String? {
+        let peerKeyMap = getOrDeriveKeys(sessionId: sessionId)
+        for (_, key) in peerKeyMap {
+            if let plaintext = try? E2EEncryption.decryptVersioned(encrypted, key: key) {
+                return plaintext
+            }
+        }
+        return nil
+    }
+
+    /// Decrypt versioned encrypted data (e.g. image) to raw bytes.
+    func decryptData(_ encrypted: String, sessionId: String) -> Data? {
+        let peerKeyMap = getOrDeriveKeys(sessionId: sessionId)
+        for (_, key) in peerKeyMap {
+            if let data = try? E2EEncryption.decryptVersionedData(encrypted, key: key) {
+                return data
+            }
+        }
+        return nil
+    }
+
     func setEphemeralKey(sessionId: String, key: Curve25519.KeyAgreement.PrivateKey) {
         lock.lock(); defer { lock.unlock() }
         ephemeralKeys[sessionId] = key

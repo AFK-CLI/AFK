@@ -21,7 +21,9 @@ actor CommandExecutor {
         let commandId: String
         let sessionId: String
         let prompt: String
+        let promptEncrypted: String?
         let images: [ImageAttachment]?
+        let imagesEncrypted: [ImageAttachment]?
         let promptHash: String
         let nonce: String
         let expiresAt: Int64
@@ -49,7 +51,7 @@ actor CommandExecutor {
         let is_error: Bool?
     }
 
-    func execute(request: CommandRequest, verifier: CommandVerifier?, nonceStore: NonceStore, projectPath: String, wsClient: WebSocketClient) async {
+    func execute(request: CommandRequest, verifier: CommandVerifier?, nonceStore: NonceStore, projectPath: String, wsClient: WebSocketClient, keyCache: SessionKeyCache? = nil) async {
         isCancelled = false
 
         do {
@@ -68,11 +70,29 @@ actor CommandExecutor {
                 AppLogger.command.warning("No verifier configured — skipping signature verification")
             }
 
-            // 2. Resolve claude path and build args — resume in-place (no forking)
+            // 2. Decrypt prompt and images if E2EE is active
+            let prompt: String
+            if let encrypted = request.promptEncrypted, !encrypted.isEmpty,
+               let keyCache,
+               let decrypted = keyCache.decryptString(encrypted, sessionId: request.sessionId) {
+                prompt = decrypted
+                AppLogger.command.info("Decrypted E2EE prompt for session \(request.sessionId.prefix(8), privacy: .public)")
+            } else {
+                prompt = request.prompt
+            }
+
+            let images: [ImageAttachment]?
+            if let encryptedImages = request.imagesEncrypted, !encryptedImages.isEmpty, let keyCache {
+                images = decryptImages(encryptedImages, sessionId: request.sessionId, keyCache: keyCache)
+            } else {
+                images = request.images
+            }
+
+            // 3. Resolve claude path and build args — resume in-place (no forking)
             let claudePath = try CommandValidator.resolveClaudePath()
 
             // Save attached images to temp files and build prompt with references
-            let effectivePrompt = saveImagesAndBuildPrompt(prompt: request.prompt, images: request.images, projectPath: projectPath)
+            let effectivePrompt = saveImagesAndBuildPrompt(prompt: prompt, images: images, projectPath: projectPath)
 
             let args = [claudePath, "--resume", request.sessionId, "-p", effectivePrompt, "--output-format", "json"]
             try CommandValidator.validate(args: args)
@@ -283,6 +303,24 @@ actor CommandExecutor {
     }
 
     // MARK: - Image Handling
+
+    /// Decrypt encrypted image attachments using the E2EE session key.
+    private func decryptImages(_ encrypted: [ImageAttachment], sessionId: String, keyCache: SessionKeyCache) -> [ImageAttachment] {
+        var decrypted: [ImageAttachment] = []
+        for img in encrypted {
+            // The `data` field contains the versioned-encrypted base64 image data
+            if let rawData = keyCache.decryptData(img.data, sessionId: sessionId) {
+                decrypted.append(ImageAttachment(
+                    mediaType: img.mediaType,
+                    data: rawData.base64EncodedString()
+                ))
+                AppLogger.command.debug("Decrypted E2EE image attachment (\(rawData.count, privacy: .public) bytes)")
+            } else {
+                AppLogger.command.warning("Failed to decrypt E2EE image attachment")
+            }
+        }
+        return decrypted
+    }
 
     /// Saves attached images to temp files in the project directory and appends
     /// a note to the prompt so Claude can read them with the Read tool.

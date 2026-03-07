@@ -27,13 +27,15 @@ extension Agent {
         // Look up project path from session index
         let projectPath = await sessionIndex.projectPath(for: request.sessionId) ?? ""
 
+        let keyCache = sessionKeyCache
         Task {
             await executor.execute(
                 request: request,
                 verifier: commandVerifier,
                 nonceStore: commandNonceStore,
                 projectPath: projectPath,
-                wsClient: client
+                wsClient: client,
+                keyCache: keyCache
             )
         }
     }
