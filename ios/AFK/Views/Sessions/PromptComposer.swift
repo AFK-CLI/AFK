@@ -7,6 +7,7 @@ struct PromptComposer: View {
     let apiClient: APIClient
     var sessionStore: SessionStore?
     var isDisabled: Bool = false
+    var contextPercentage: Double = 0
     @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
     @State private var prompt = ""
     @State private var isSending = false
@@ -16,6 +17,16 @@ struct PromptComposer: View {
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var attachedImages: [AttachedImage] = []
     @State private var clipboardHasImage = false
+
+    private var contextRingColor: Color {
+        if contextPercentage <= 0 { return .secondary }
+        switch contextPercentage {
+        case ..<0.5: return .green
+        case 0.5..<0.75: return .yellow
+        case 0.75..<0.9: return .orange
+        default: return .red
+        }
+    }
 
     private var canSend: Bool {
         let hasText = !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -103,10 +114,20 @@ struct PromptComposer: View {
             } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(contextRingColor)
                     .frame(width: 36, height: 36)
             }
             .glassEffect(.regular.interactive(), in: .circle)
+            .overlay {
+                if contextPercentage > 0 {
+                    Circle()
+                        .trim(from: 0, to: contextPercentage)
+                        .stroke(contextRingColor, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 40, height: 40)
+                        .animation(.spring(duration: 0.4), value: contextPercentage)
+                }
+            }
 
             TextField("Send a message...", text: $prompt, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -286,6 +307,10 @@ struct PromptComposer: View {
                 imagesEncrypted: imagesEncrypted
             )
             commandStore.startCommand(id: response.commandId, sessionId: sessionId, prompt: promptText)
+            if promptText.lowercased().contains("compact") {
+                commandStore.activeCommands[sessionId]?.isCompact = true
+                commandStore.compactStartEventCount = (sessionStore?.events[sessionId] ?? []).count
+            }
             prompt = ""
             attachedImages = []
             selectedPhotos = []

@@ -15,7 +15,7 @@ struct ContentRedactor: Sendable {
         let hashFilePaths: Bool
 
         static let `default` = Config(
-            maxSnippetLength: 2000,
+            maxSnippetLength: 8000,
             maxToolInputLength: 2000,
             maxToolResultLength: 4000,
             hashFilePaths: true

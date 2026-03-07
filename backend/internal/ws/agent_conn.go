@@ -264,6 +264,7 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 			ProjectID:          projectID,
 			Description:        update.Description,
 			EphemeralPublicKey: update.EphemeralPublicKey,
+			LastInputTokens:    update.LastInputTokens,
 		}
 		if err := db.UpsertSession(database, session); err != nil {
 			slog.Error("upsert session failed", "session_id", session.ID, "device_id", deviceID, "error", err)

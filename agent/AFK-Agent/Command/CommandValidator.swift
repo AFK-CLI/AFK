@@ -49,22 +49,22 @@ struct CommandValidator: Sendable {
         }
 
         // Check each argument (skip values that follow -p/--print since prompt
-        // text is user content that may legitimately contain metacharacters and
-        // is passed directly to Process, not through a shell)
-        var skipMetacharCheck = false
+        // text is user content that may legitimately contain metacharacters,
+        // path-like strings, and is passed directly to Process, not through a shell)
+        var skipPromptValue = false
         for arg in args.dropFirst() {
-            // Check for path traversal
-            if arg.contains("..") {
-                throw ValidationError.pathTraversal
-            }
+            if !skipPromptValue {
+                // Check for path traversal
+                if arg.contains("..") {
+                    throw ValidationError.pathTraversal
+                }
 
-            // Check for shell metacharacters (skip prompt values)
-            if !skipMetacharCheck {
+                // Check for shell metacharacters
                 if arg.unicodeScalars.contains(where: { Self.shellMetachars.contains($0) }) {
                     throw ValidationError.shellMetacharacter(arg)
                 }
             }
-            skipMetacharCheck = (arg == "-p" || arg == "--print")
+            skipPromptValue = (arg == "-p" || arg == "--print")
 
             // Check flags
             if arg.hasPrefix("-") {

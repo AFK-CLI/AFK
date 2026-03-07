@@ -11,6 +11,7 @@ struct SessionDetailView: View {
     @State private var showPlanSheet = false
     @State private var showSessionInfo = false
     @State private var showTodoPopover = false
+    @State private var compactSheetData: CompactSheetData?
 
     private var session: Session? {
         sessionStore.sessions.first { $0.id == sessionId }
@@ -92,7 +93,8 @@ struct SessionDetailView: View {
                     commandStore: commandStore,
                     apiClient: apiClient,
                     sessionStore: sessionStore,
-                    isDisabled: isPromptDisabled
+                    isDisabled: isPromptDisabled,
+                    contextPercentage: session.map { min(Double($0.lastInputTokens) / 200_000, 1.0) } ?? 0
                 )
             }
             .animation(.spring(duration: 0.3), value: sessionStore.pendingPermission(for: sessionId)?.nonce)
@@ -190,6 +192,59 @@ struct SessionDetailView: View {
                     .presentationDragIndicator(.visible)
             }
         }
+        .onChange(of: commandStore.compactCompletedSessionId) { _, newSessionId in
+            guard newSessionId == sessionId else { return }
+            commandStore.compactCompletedSessionId = nil
+            guard let cmd = commandStore.completedCommand(for: sessionId),
+                  cmd.error == nil,
+                  let session else { return }
+            let startCount = commandStore.compactStartEventCount ?? 0
+            commandStore.compactStartEventCount = nil
+            let projPath = session.projectPath
+            let devId = session.deviceId
+            // Prefer command chunks (full result text, not truncated) over
+            // assistantSnippet (capped at 2000 chars by the agent redactor).
+            let chunkText = cmd.chunks.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !chunkText.isEmpty, chunkText.count > 20 {
+                compactSheetData = CompactSheetData(
+                    summary: chunkText,
+                    projectPath: projPath,
+                    deviceId: devId
+                )
+                return
+            }
+            // Fallback: poll session events for the snippet
+            let sid = sessionId
+            Task {
+                for _ in 0..<8 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    let events = sessionStore.events[sid] ?? []
+                    guard events.count > startCount else { continue }
+                    if let snippet = events[startCount...]
+                        .last(where: {
+                            $0.eventType == "assistant_responding"
+                            && ($0.assistantSnippet ?? "").isEmpty == false
+                        })?
+                        .assistantSnippet {
+                        compactSheetData = CompactSheetData(
+                            summary: snippet,
+                            projectPath: projPath,
+                            deviceId: devId
+                        )
+                        return
+                    }
+                }
+            }
+        }
+        .sheet(item: $compactSheetData) { data in
+            CompactChatSheet(
+                summary: data.summary,
+                projectPath: data.projectPath,
+                deviceId: data.deviceId,
+                apiClient: apiClient,
+                commandStore: commandStore
+            )
+        }
     }
 
     @ViewBuilder
@@ -268,4 +323,11 @@ struct SessionDetailView: View {
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
+}
+
+struct CompactSheetData: Identifiable {
+    let id = UUID()
+    let summary: String
+    let projectPath: String
+    let deviceId: String
 }

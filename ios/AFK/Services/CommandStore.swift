@@ -9,6 +9,7 @@ final class CommandStore {
         var chunks: [String] = []
         var isComplete: Bool = false
         var isCancelled: Bool = false
+        var isCompact: Bool = false
         var error: String?
         var durationMs: Int?
         var costUsd: Double?
@@ -18,6 +19,8 @@ final class CommandStore {
 
     var activeCommands: [String: CommandState] = [:]  // sessionId -> state
     var commandHistory: [String: [CommandState]] = [:]  // sessionId -> past commands
+    var compactCompletedSessionId: String?  // set when a compact command finishes
+    var compactStartEventCount: Int?  // event array count when compact was initiated
 
     func startCommand(id: String, sessionId: String, prompt: String? = nil) {
         activeCommands[sessionId] = CommandState(id: id, sessionId: sessionId, prompt: prompt)
@@ -32,6 +35,9 @@ final class CommandStore {
         activeCommands[sessionId]?.costUsd = costUsd
         activeCommands[sessionId]?.newSessionId = newSessionId
         activeCommands[sessionId]?.isComplete = true
+        if activeCommands[sessionId]?.isCompact == true {
+            compactCompletedSessionId = sessionId
+        }
         archiveCommand(sessionId: sessionId)
     }
 

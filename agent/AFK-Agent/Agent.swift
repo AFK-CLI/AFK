@@ -391,7 +391,8 @@ actor Agent {
                     tokensOut: info.tokensOut,
                     turnCount: info.turnCount,
                     description: info.description,
-                    ephemeralPublicKey: ephPubKey
+                    ephemeralPublicKey: ephPubKey,
+                    lastInputTokens: info.lastInputTokens
                 )
                 try await client.send(updateMsg)
             } catch {

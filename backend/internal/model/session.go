@@ -33,6 +33,7 @@ type Session struct {
 	Description        string        `json:"description"`
 	EphemeralPublicKey string        `json:"ephemeralPublicKey,omitempty"`
 	CostUsd            float64       `json:"costUsd"`
+	LastInputTokens    int64         `json:"lastInputTokens,omitempty"`
 }
 
 type SessionEvent struct {

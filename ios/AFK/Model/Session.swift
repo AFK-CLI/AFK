@@ -75,6 +75,7 @@ struct Session: Codable, Identifiable, Sendable {
     var lastModel: String?
     var otlpCacheReadTokens: Int64 = 0
     var otlpCacheCreationTokens: Int64 = 0
+    var lastInputTokens: Int64 = 0
 
     /// Resolves worktree paths to their parent project path.
     /// e.g. `/path/to/AFK/.claude/worktrees/xyz` → `/path/to/AFK`
@@ -95,7 +96,8 @@ struct Session: Codable, Identifiable, Sendable {
          tokensIn: Int64, tokensOut: Int64, turnCount: Int,
          deviceName: String? = nil, projectId: String? = nil, description: String = "",
          ephemeralPublicKey: String? = nil, costUsd: Double = 0,
-         lastModel: String? = nil, otlpCacheReadTokens: Int64 = 0, otlpCacheCreationTokens: Int64 = 0) {
+         lastModel: String? = nil, otlpCacheReadTokens: Int64 = 0, otlpCacheCreationTokens: Int64 = 0,
+         lastInputTokens: Int64 = 0) {
         self.id = id
         self.deviceId = deviceId
         self.userId = userId
@@ -116,6 +118,7 @@ struct Session: Codable, Identifiable, Sendable {
         self.lastModel = lastModel
         self.otlpCacheReadTokens = otlpCacheReadTokens
         self.otlpCacheCreationTokens = otlpCacheCreationTokens
+        self.lastInputTokens = lastInputTokens
     }
 
     /// Preserves locally-accumulated OTLP fields (cost, model, cache tokens)
@@ -125,6 +128,7 @@ struct Session: Codable, Identifiable, Sendable {
         if lastModel == nil, let m = existing.lastModel { lastModel = m }
         if otlpCacheReadTokens == 0 { otlpCacheReadTokens = existing.otlpCacheReadTokens }
         if otlpCacheCreationTokens == 0 { otlpCacheCreationTokens = existing.otlpCacheCreationTokens }
+        if lastInputTokens == 0 && existing.lastInputTokens > 0 { lastInputTokens = existing.lastInputTokens }
     }
 
     init(from decoder: any Decoder) throws {
@@ -149,5 +153,6 @@ struct Session: Codable, Identifiable, Sendable {
         lastModel = try container.decodeIfPresent(String.self, forKey: .lastModel)
         otlpCacheReadTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheReadTokens) ?? 0
         otlpCacheCreationTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheCreationTokens) ?? 0
+        lastInputTokens = try container.decodeIfPresent(Int64.self, forKey: .lastInputTokens) ?? 0
     }
 }

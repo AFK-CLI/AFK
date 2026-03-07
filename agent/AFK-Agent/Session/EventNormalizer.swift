@@ -265,12 +265,16 @@ struct EventNormalizer: Sendable {
             // Usage update
             if let usage = entry.message?.usage,
                let input = usage.inputTokens, let output = usage.outputTokens {
+                let cacheRead = usage.cacheReadInputTokens ?? 0
+                let cacheCreation = usage.cacheCreationInputTokens ?? 0
                 events.append(NormalizedEvent(
                     sessionId: sessionId,
                     eventType: .usageUpdate,
                     data: [
                         "inputTokens": "\(input)",
                         "outputTokens": "\(output)",
+                        "cacheReadInputTokens": "\(cacheRead)",
+                        "cacheCreationInputTokens": "\(cacheCreation)",
                         "turnIndex": currentTurnIndex(for: sessionId)
                     ]
                 ))

@@ -72,6 +72,7 @@ type AgentSessionUpdate struct {
 	TurnCount          int    `json:"turnCount"`
 	Description        string `json:"description"`
 	EphemeralPublicKey string `json:"ephemeralPublicKey,omitempty"`
+	LastInputTokens    int64  `json:"lastInputTokens,omitempty"`
 }
 
 type AgentUsageUpdate struct {

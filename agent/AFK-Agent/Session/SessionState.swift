@@ -23,6 +23,7 @@ actor SessionStateManager {
         var tokensIn: Int64 = 0
         var tokensOut: Int64 = 0
         var turnCount: Int = 0
+        var lastInputTokens: Int64 = 0
         var description: String = ""
         var userPrompt: String = ""       // First external user message (raw, pre-encryption)
         var touchedFiles: [String] = []   // Unique file paths from Edit/Write/NotebookEdit tools
@@ -78,7 +79,11 @@ actor SessionStateManager {
             info.status = .error
         case .usageUpdate:
             if let inp = event.data["inputTokens"] {
-                info.tokensIn += Int64(inp) ?? 0
+                let inputVal = Int64(inp) ?? 0
+                info.tokensIn += inputVal
+                let cacheRead = Int64(event.data["cacheReadInputTokens"] ?? "0") ?? 0
+                let cacheCreation = Int64(event.data["cacheCreationInputTokens"] ?? "0") ?? 0
+                info.lastInputTokens = inputVal + cacheRead + cacheCreation
             }
             if let out = event.data["outputTokens"] {
                 info.tokensOut += Int64(out) ?? 0
