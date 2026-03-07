@@ -76,6 +76,11 @@ struct ConversationView: View {
             }
         }
 
+        // Compute aggregated task pairs across all turns and find the last turn with task activity
+        let taskToolNames: Set<String> = ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
+        let allTaskPairs = currentTurns.flatMap { $0.toolPairs.filter { taskToolNames.contains($0.toolName) } }
+        let lastTaskTurnId: String? = currentTurns.last(where: { $0.toolPairs.contains { taskToolNames.contains($0.toolName) } })?.id
+
         if currentTurns.isEmpty {
             if sessionStore.events[sessionId] == nil {
                 SkeletonLoadingView()
@@ -110,7 +115,8 @@ struct ConversationView: View {
                 ConversationTurnView(
                     turn: turn,
                     sessionStore: sessionStore,
-                    isActive: isLast && isSessionActive && !hasCommand
+                    isActive: isLast && isSessionActive && !hasCommand,
+                    accumulatedTaskPairs: turn.id == lastTaskTurnId ? allTaskPairs : nil
                 )
                 .id(turn.id)
             }

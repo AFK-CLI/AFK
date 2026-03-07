@@ -104,11 +104,14 @@ struct ClaudeCodeToolProvider: ToolProvider, Sendable {
             return Self.fields(from: input, specs: [
                 ("Subject", "subject", "text"),
                 ("Description", "description", "text"),
+                ("ActiveForm", "activeForm", "text"),
             ])
         case "TaskUpdate":
             return Self.fields(from: input, specs: [
                 ("TaskID", "taskId", "badge"),
                 ("Status", "status", "badge"),
+                ("Subject", "subject", "text"),
+                ("ActiveForm", "activeForm", "text"),
             ])
         case "TodoWrite":
             return Self.parseTodoWriteFields(input: input)
