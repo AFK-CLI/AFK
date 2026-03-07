@@ -34,12 +34,21 @@ struct AskUserQuestionCard: View {
         return parsed
     }
 
-    /// Extract the selected answer from toolResultSummary
-    /// Format: "User answered from AFK mobile: <answer>"
+    /// Extract the selected answer from toolResultSummary.
+    /// When answered from iOS: "User answered from AFK mobile: <answer>"
+    /// When answered from Mac terminal: the raw answer text (match against option labels)
     private var selectedAnswer: String? {
-        guard let result = pair.toolResultSummary,
-              let range = result.range(of: "User answered from AFK mobile: ") else { return nil }
-        return String(result[range.upperBound...])
+        guard let result = pair.toolResultSummary else { return nil }
+        // iOS answer with known prefix
+        if let range = result.range(of: "User answered from AFK mobile: ") {
+            return String(result[range.upperBound...])
+        }
+        // Mac terminal answer: try matching result text against option labels
+        let opts = questions.flatMap(\.options)
+        if let match = opts.first(where: { result.contains($0.label) }) {
+            return match.label
+        }
+        return nil
     }
 
     var body: some View {
