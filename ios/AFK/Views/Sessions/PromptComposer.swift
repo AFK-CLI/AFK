@@ -256,7 +256,7 @@ struct PromptComposer: View {
         errorMessage = nil
         defer { isSending = false }
 
-        let promptText = text.isEmpty ? "Look at the attached image(s)." : text
+        let promptText = text.isEmpty ? "Look at the attached images." : text
         let useE2EE = sessionStore?.hasE2EEKey(for: sessionId) == true
 
         let promptEncrypted: String? = useE2EE ? sessionStore?.encryptPrompt(promptText, sessionId: sessionId) : nil
