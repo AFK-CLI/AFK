@@ -14,6 +14,7 @@ import { SecurityPage } from './pages/SecurityPage'
 import { ServerPage } from './pages/ServerPage'
 import { LogsPage } from './pages/LogsPage'
 import { FeedbackPage } from './pages/FeedbackPage'
+import { BetaPage } from './pages/BetaPage'
 
 function AuthGate() {
   const { loggedIn } = useAuth()
@@ -52,6 +53,7 @@ const router = createBrowserRouter(
             { path: 'server', element: <ServerPage /> },
             { path: 'logs', element: <LogsPage /> },
             { path: 'feedback', element: <FeedbackPage /> },
+            { path: 'beta', element: <BetaPage /> },
           ],
         },
       ],

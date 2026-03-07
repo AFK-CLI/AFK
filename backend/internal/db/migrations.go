@@ -364,6 +364,19 @@ CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at);
 
 const m13SessionCostSQL = `ALTER TABLE sessions ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0;`
 
+const m14BetaRequestsSQL = `
+CREATE TABLE IF NOT EXISTS beta_requests (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    invited_at DATETIME
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_beta_requests_email ON beta_requests(email);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -392,6 +405,7 @@ var migrations = []struct {
 	{Name: "022_app_logs.up.sql", SQL: m12AppLogsSQL},
 	{Name: "023_feedback.up.sql", SQL: m12FeedbackSQL},
 	{Name: "024_session_cost.up.sql", SQL: m13SessionCostSQL},
+	{Name: "025_beta_requests.up.sql", SQL: m14BetaRequestsSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

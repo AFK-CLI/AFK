@@ -175,6 +175,16 @@ export interface AdminAppLog {
   createdAt: string
 }
 
+export interface BetaRequest {
+  id: string
+  email: string
+  name: string
+  status: string
+  notes: string
+  createdAt: string
+  invitedAt: string
+}
+
 export interface AdminFeedback {
   id: string
   userId: string

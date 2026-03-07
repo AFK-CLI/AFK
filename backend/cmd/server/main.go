@@ -260,6 +260,11 @@ func main() {
 	mux.Handle("GET /v1/subscription/status", authMiddleware(http.HandlerFunc(subscriptionHandler.HandleGetStatus)))
 	mux.Handle("POST /v1/subscription/sync", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(subscriptionHandler.HandleSync))))
 
+	// Beta request (public, tightly rate-limited: 3 tokens, 1 per 20min refill).
+	betaIPLimiter := middleware.NewRateLimiter(3, 1.0/1200.0, collector)
+	betaHandler := &handler.BetaHandler{DB: database}
+	mux.Handle("POST /v1/beta/request", betaIPLimiter.IPMiddleware(http.HandlerFunc(betaHandler.HandleBetaRequest)))
+
 	// Admin (secret-based auth with rate limiting, not JWT).
 	var adminSessionStore *handler.AdminSessionStore
 	if cfg.AdminSecret != "" {
@@ -296,6 +301,7 @@ func main() {
 	mux.Handle("GET /v1/admin/logs", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogs)))
 	mux.Handle("GET /v1/admin/logs/export", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogsExport)))
 	mux.Handle("GET /v1/admin/feedback", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminFeedback)))
+	mux.Handle("GET /v1/admin/beta-requests", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminBetaRequests)))
 
 	// Admin write endpoints — rate limited to prevent accidental spam.
 	mux.Handle("PUT /v1/admin/users/{id}/tier", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateUserTier)))
@@ -303,11 +309,13 @@ func main() {
 	mux.Handle("DELETE /v1/admin/devices/{id}", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminRevokeDevice)))
 	mux.Handle("POST /v1/admin/devices/{id}/rotate-keys", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminForceKeyRotation)))
 	mux.Handle("PUT /v1/admin/sessions/{id}/status", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateSessionStatus)))
+	mux.Handle("PUT /v1/admin/beta-requests/{id}", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateBetaRequest)))
 
 	// Landing page.
 	landingHandler := handler.LandingFileServer()
 	mux.Handle("GET /{$}", landingHandler)
 	mux.Handle("GET /icon.png", landingHandler)
+	mux.Handle("GET /screenshots/", landingHandler)
 
 	// Static pages (privacy policy, terms of service).
 	mux.HandleFunc("GET /privacy", handler.HandlePrivacy)
@@ -395,6 +403,7 @@ func main() {
 	registerIPLimiter.Stop()
 	adminLoginLimiter.Stop()
 	adminReadLimiter.Stop()
+	betaIPLimiter.Stop()
 	if adminSessionStore != nil {
 		adminSessionStore.Stop()
 	}

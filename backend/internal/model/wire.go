@@ -471,6 +471,18 @@ type BatchLogRequest struct {
 	Entries []AppLogEntry `json:"entries"`
 }
 
+// Beta Requests
+
+type BetaRequest struct {
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
+	Status    string `json:"status"`
+	Notes     string `json:"notes"`
+	CreatedAt string `json:"createdAt"`
+	InvitedAt string `json:"invitedAt,omitempty"`
+}
+
 // Feedback
 
 type Feedback struct {

@@ -1048,6 +1048,89 @@ func (h *AdminHandler) HandleAdminFeedback(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// HandleAdminBetaRequests returns a paginated list of beta access requests.
+// GET /v1/admin/beta-requests?status=&limit=50&offset=0
+func (h *AdminHandler) HandleAdminBetaRequests(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	status := r.URL.Query().Get("status")
+	limit := parseIntParam(r, "limit", 50)
+	offset := parseIntParam(r, "offset", 0)
+
+	requests, err := db.ListBetaRequests(h.DB, status, limit, offset)
+	if err != nil {
+		slog.Error("admin list beta requests failed", "error", err)
+		writeError(w, "failed to list beta requests", http.StatusInternalServerError)
+		return
+	}
+
+	total, err := db.CountBetaRequests(h.DB, status)
+	if err != nil {
+		slog.Error("admin count beta requests failed", "error", err)
+		writeError(w, "failed to count beta requests", http.StatusInternalServerError)
+		return
+	}
+
+	if requests == nil {
+		requests = []model.BetaRequest{}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"requests": requests,
+		"total":    total,
+	})
+}
+
+// HandleAdminUpdateBetaRequest updates the status and notes of a beta request.
+// PUT /v1/admin/beta-requests/{id}
+func (h *AdminHandler) HandleAdminUpdateBetaRequest(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+
+	id := r.PathValue("id")
+	if !validatePathParam(w, id, "beta request id") {
+		return
+	}
+
+	var req struct {
+		Status string `json:"status"`
+		Notes  string `json:"notes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	validStatuses := map[string]bool{"pending": true, "invited": true, "declined": true}
+	if !validStatuses[req.Status] {
+		writeError(w, "invalid status: must be pending, invited, or declined", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Notes) > 1000 {
+		req.Notes = req.Notes[:1000]
+	}
+
+	if err := db.UpdateBetaRequestStatus(h.DB, id, req.Status, req.Notes); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, "beta request not found", http.StatusNotFound)
+			return
+		}
+		slog.Error("admin update beta request failed", "error", err)
+		writeError(w, "failed to update beta request", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 func (h *AdminHandler) version() string {
 	if h.Version != "" {
 		return h.Version
