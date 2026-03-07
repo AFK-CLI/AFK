@@ -78,11 +78,12 @@ struct StarfieldView: View {
                         let tailY = headY - sin(m.angle) * visibleTrail
 
                         // Fade envelope: quick appear, gradual fade
-                        let fade: Double = if progress < 0.1 {
-                            Double(progress / 0.1)
-                        } else if progress > 0.6 {
-                            Double((1 - progress) / 0.4)
-                        } else { 1.0 }
+                        let fade: Double =
+                            if progress < 0.1 {
+                                Double(progress / 0.1)
+                            } else if progress > 0.6 {
+                                Double((1 - progress) / 0.4)
+                            } else { 1.0 }
                         guard fade > 0.01 else { continue }
 
                         // Trail
@@ -90,17 +91,21 @@ struct StarfieldView: View {
                         trail.move(to: CGPoint(x: tailX, y: tailY))
                         trail.addLine(to: CGPoint(x: headX, y: headY))
                         context.opacity = fade * 0.6
-                        context.stroke(trail, with: .linearGradient(
-                            Gradient(colors: [.clear, .white]),
-                            startPoint: CGPoint(x: tailX, y: tailY),
-                            endPoint: CGPoint(x: headX, y: headY)
-                        ), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+                        context.stroke(
+                            trail,
+                            with: .linearGradient(
+                                Gradient(colors: [.clear, .white]),
+                                startPoint: CGPoint(x: tailX, y: tailY),
+                                endPoint: CGPoint(x: headX, y: headY)
+                            ), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
 
                         // Bright head dot
                         context.opacity = fade * 0.9
-                        context.fill(Circle().path(in: CGRect(
-                            x: headX - 1, y: headY - 1, width: 2, height: 2
-                        )), with: .color(.white))
+                        context.fill(
+                            Circle().path(
+                                in: CGRect(
+                                    x: headX - 1, y: headY - 1, width: 2, height: 2
+                                )), with: .color(.white))
                     }
                 }
             }
@@ -180,7 +185,7 @@ private struct PrimaryButton: View {
                     LinearGradient(
                         colors: [
                             Color(red: 0.23, green: 0.48, blue: 0.97),
-                            Color(red: 0.15, green: 0.39, blue: 0.92)
+                            Color(red: 0.15, green: 0.39, blue: 0.92),
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -240,7 +245,7 @@ struct SignInView: View {
             LinearGradient(
                 colors: [
                     Color(red: 0.043, green: 0.102, blue: 0.18),
-                    Color(red: 0.086, green: 0.176, blue: 0.314)
+                    Color(red: 0.086, green: 0.176, blue: 0.314),
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -251,149 +256,153 @@ struct SignInView: View {
                 .ignoresSafeArea()
 
             // MARK: Content
-            ScrollView {
-                VStack(spacing: 0) {
-                    // MARK: Hero
-                    VStack(spacing: 12) {
-                        Image("AppIcon")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 88, height: 88)
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                            .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
-                            .modifier(BobAnimation())
+            GeometryReader { geo in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // MARK: Hero
+                        VStack(spacing: 12) {
+                            Image("AppIcon")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 88, height: 88)
+                                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                                .modifier(BobAnimation())
 
-                        Text("AFK")
-                            .font(.title.bold())
-                            .foregroundStyle(.white)
+                            Text("AFK")
+                                .font(.title.bold())
+                                .foregroundStyle(.white)
 
-                        Text("Monitor Claude Code sessions\nfrom your iPhone")
-                            .font(.body)
-                            .foregroundStyle(.white.opacity(0.6))
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.top, 48)
-                    .padding(.bottom, 28)
-
-                    // MARK: Text Fields
-                    VStack(spacing: 12) {
-                        if isRegistering {
-                            DarkTextField(
-                                icon: "person.fill",
-                                placeholder: "Display Name (optional)",
-                                text: $displayName,
-                                autocapitalization: .words
-                            )
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            Text("Monitor Claude Code sessions\nfrom your iPhone")
+                                .font(.body)
+                                .foregroundStyle(.white.opacity(0.6))
+                                .multilineTextAlignment(.center)
                         }
+                        .padding(.top, 100)
+                        .padding(.bottom, 32)
 
-                        DarkTextField(
-                            icon: "envelope",
-                            placeholder: "Email",
-                            text: $email,
-                            contentType: .emailAddress,
-                            keyboardType: .emailAddress
-                        )
+                        // MARK: Text Fields
+                        VStack(spacing: 12) {
+                            if isRegistering {
+                                DarkTextField(
+                                    icon: "person.fill",
+                                    placeholder: "Display Name (optional)",
+                                    text: $displayName,
+                                    autocapitalization: .words
+                                )
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
 
-                        DarkTextField(
-                            icon: "lock",
-                            placeholder: "Password",
-                            text: $password,
-                            isSecure: true,
-                            contentType: isRegistering ? .newPassword : .password,
-                            onSubmit: { if !isRegistering { submit() } }
-                        )
-
-                        if isRegistering {
                             DarkTextField(
-                                icon: "lock.fill",
-                                placeholder: "Confirm Password",
-                                text: $confirmPassword,
+                                icon: "envelope",
+                                placeholder: "Email",
+                                text: $email,
+                                contentType: .emailAddress,
+                                keyboardType: .emailAddress
+                            )
+
+                            DarkTextField(
+                                icon: "lock",
+                                placeholder: "Password",
+                                text: $password,
                                 isSecure: true,
-                                contentType: .newPassword,
-                                onSubmit: { submit() }
+                                contentType: isRegistering ? .newPassword : .password,
+                                onSubmit: { if !isRegistering { submit() } }
                             )
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-                    }
-                    .padding(.horizontal, 32)
 
-                    // MARK: Validation hints (register mode)
-                    if isRegistering {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if !password.isEmpty && !passwordLongEnough {
-                                Text("Password must be at least 8 characters")
-                                    .font(.caption)
-                                    .foregroundStyle(.red.opacity(0.9))
-                            }
-                            if !confirmPassword.isEmpty && !passwordsMatch {
-                                Text("Passwords do not match")
-                                    .font(.caption)
-                                    .foregroundStyle(.red.opacity(0.9))
+                            if isRegistering {
+                                DarkTextField(
+                                    icon: "lock.fill",
+                                    placeholder: "Confirm Password",
+                                    text: $confirmPassword,
+                                    isSecure: true,
+                                    contentType: .newPassword,
+                                    onSubmit: { submit() }
+                                )
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 36)
-                        .padding(.top, 4)
-                    }
-
-                    // MARK: Error Banner
-                    if !errorMessage.isEmpty {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red.opacity(0.9))
-                                .font(.caption)
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.9))
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.15))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
                         .padding(.horizontal, 32)
-                        .padding(.top, 12)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
 
-                    // MARK: Action Buttons
-                    VStack(spacing: 12) {
-                        PrimaryButton(
-                            title: isRegistering ? "Create Account" : "Sign In",
-                            isDisabled: !canSubmit,
-                            action: { submit() }
-                        )
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                isRegistering.toggle()
-                                errorMessage = ""
-                                confirmPassword = ""
+                        // MARK: Validation hints (register mode)
+                        if isRegistering {
+                            VStack(alignment: .leading, spacing: 4) {
+                                if !password.isEmpty && !passwordLongEnough {
+                                    Text("Password must be at least 8 characters")
+                                        .font(.caption)
+                                        .foregroundStyle(.red.opacity(0.9))
+                                }
+                                if !confirmPassword.isEmpty && !passwordsMatch {
+                                    Text("Passwords do not match")
+                                        .font(.caption)
+                                        .foregroundStyle(.red.opacity(0.9))
+                                }
                             }
-                        } label: {
-                            Text(
-                                isRegistering
-                                    ? "Already have an account? Sign In"
-                                    : "Don't have an account? Create one"
-                            )
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.5))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 36)
+                            .padding(.top, 4)
                         }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 32)
-                    .padding(.top, 20)
 
-                    Spacer().frame(height: 40)
+                        // MARK: Error Banner
+                        if !errorMessage.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.red.opacity(0.9))
+                                    .font(.caption)
+                                Text(errorMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.red.opacity(0.15))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 32)
+                            .padding(.top, 12)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
+                        Spacer()
+                            .frame(minHeight: 40)
+
+                        // MARK: Action Buttons
+                        VStack(spacing: 12) {
+                            PrimaryButton(
+                                title: isRegistering ? "Create Account" : "Sign In",
+                                isDisabled: !canSubmit,
+                                action: { submit() }
+                            )
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    isRegistering.toggle()
+                                    errorMessage = ""
+                                    confirmPassword = ""
+                                }
+                            } label: {
+                                Text(
+                                    isRegistering
+                                        ? "Already have an account? Sign In"
+                                        : "Don't have an account? Create one"
+                                )
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 40)
+                    }
+                    .frame(minHeight: geo.size.height)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
 
             // MARK: Loading Overlay
             if isLoading {
