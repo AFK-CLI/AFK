@@ -105,6 +105,8 @@ struct QuestionOverlay: View {
     let request: PermissionRequest
     let onAnswer: (String) -> Void
 
+    @State private var answers: [String: String] = [:]
+
     private var questions: [AskQuestion] {
         guard let json = request.toolInput["questions"],
               let data = json.data(using: .utf8),
@@ -112,6 +114,11 @@ struct QuestionOverlay: View {
             return []
         }
         return parsed
+    }
+
+    private var allAnswered: Bool {
+        let qs = questions
+        return !qs.isEmpty && qs.allSatisfy { answers[$0.id] != nil }
     }
 
     var body: some View {
@@ -124,9 +131,15 @@ struct QuestionOverlay: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Question from Claude")
                         .font(.subheadline.weight(.semibold))
-                    Text("Tap an option to answer")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if questions.count > 1 {
+                        Text("\(answers.count) of \(questions.count) answered")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Tap an option to answer")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 CountdownBadge(expiresAt: request.expiresAtDate)
@@ -138,8 +151,36 @@ struct QuestionOverlay: View {
                     .font(.caption.monospaced())
                     .lineLimit(5)
             } else {
-                ForEach(questions) { q in
-                    InteractiveQuestionSection(question: q, onAnswer: onAnswer)
+                let qs = questions
+                ForEach(qs) { q in
+                    InteractiveQuestionSection(
+                        question: q,
+                        selectedOption: answers[q.id],
+                        onSelect: { label in
+                            answers[q.id] = label
+                            // Single question: submit immediately
+                            if qs.count == 1 {
+                                onAnswer(label)
+                            }
+                        }
+                    )
+                }
+
+                // Multi-question: show submit button when all answered
+                if qs.count > 1 {
+                    Button {
+                        let combined = qs.compactMap { answers[$0.id] }.joined(separator: "; ")
+                        onAnswer(combined)
+                    } label: {
+                        Text("Submit Answers")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(allAnswered ? Color.orange : Color.gray.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(allAnswered ? .white : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!allAnswered)
                 }
             }
         }
@@ -264,7 +305,8 @@ private struct AnsweredQuestionSection: View {
 
 private struct InteractiveQuestionSection: View {
     let question: AskQuestion
-    let onAnswer: (String) -> Void
+    let selectedOption: String?
+    let onSelect: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -280,15 +322,18 @@ private struct InteractiveQuestionSection: View {
                 .font(.subheadline.weight(.medium))
 
             ForEach(question.options) { option in
-                Button { onAnswer(option.label) } label: {
+                let isSelected = option.label == selectedOption
+                Button { onSelect(option.label) } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: question.multiSelect == true ? "square" : "circle")
+                        Image(systemName: isSelected
+                              ? (question.multiSelect == true ? "checkmark.square.fill" : "checkmark.circle.fill")
+                              : (question.multiSelect == true ? "square" : "circle"))
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(isSelected ? .green : .orange)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(option.label)
-                                .font(.subheadline.weight(.medium))
+                                .font(.subheadline.weight(isSelected ? .semibold : .medium))
                             if let desc = option.description, !desc.isEmpty {
                                 Text(desc)
                                     .font(.caption)
@@ -296,14 +341,20 @@ private struct InteractiveQuestionSection: View {
                             }
                         }
                         Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                        if !isSelected {
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(UIColor.tertiarySystemGroupedBackground))
+                    .background(isSelected ? Color.green.opacity(0.1) : Color(UIColor.tertiarySystemGroupedBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.green.opacity(0.3) : .clear, lineWidth: 1)
+                    )
                 }
                 .buttonStyle(.plain)
             }
