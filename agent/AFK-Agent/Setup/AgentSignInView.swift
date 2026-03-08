@@ -206,6 +206,7 @@ struct AgentSignInView: View {
     @State private var displayName = ""
     @State private var isRegistering = false
     @State private var errorMessage = ""
+    @State private var successMessage = ""
     @State private var isLoading = false
     @State private var confirmPassword = ""
     @State private var pendingAuth: (token: String, refreshToken: String, userId: String, email: String)?
@@ -283,6 +284,23 @@ struct AgentSignInView: View {
                                 .font(.subheadline)
                         }
                         .padding(10)
+                        .background(Color.green.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.bottom, 12)
+                    }
+
+                    if !successMessage.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "envelope.fill")
+                                .foregroundStyle(.green.opacity(0.9))
+                                .font(.caption)
+                            Text(successMessage)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.9))
+                                .lineLimit(2)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.green.opacity(0.15))
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .padding(.bottom, 12)
@@ -439,6 +457,31 @@ struct AgentSignInView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 36)
                         .padding(.top, 4)
+                    }
+
+                    // MARK: Success banner
+                    if !successMessage.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "envelope.fill")
+                                .foregroundStyle(.green.opacity(0.9))
+                                .font(.caption)
+                            Text(successMessage)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.9))
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.green.opacity(0.15))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.green.opacity(0.3), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 32)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
                     // MARK: Error banner
@@ -654,10 +697,20 @@ struct AgentSignInView: View {
                         pendingAuth = (resp.accessToken, resp.refreshToken, resp.user.id, email)
                     }
                 }
+            } catch is EmailVerificationRequired {
+                await MainActor.run {
+                    isLoading = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        successMessage = "Check your email to verify your account, then sign in."
+                        errorMessage = ""
+                        isRegistering = false
+                    }
+                }
             } catch {
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         errorMessage = error.localizedDescription
+                        successMessage = ""
                     }
                     isLoading = false
                 }

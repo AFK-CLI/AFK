@@ -92,6 +92,11 @@ struct APIClient: Sendable {
             }
             throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: message])
         }
+        // Check if verification is required (no tokens returned).
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let status = json["status"] as? String, status == "verification_required" {
+            throw EmailVerificationRequired()
+        }
         return try JSONDecoder().decode(AuthResponse.self, from: data)
     }
 
@@ -244,6 +249,11 @@ struct APIClient: Sendable {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
+}
+
+/// Thrown when registration succeeds but email verification is required before sign-in.
+struct EmailVerificationRequired: LocalizedError {
+    var errorDescription: String? { "Check your email to verify your account, then sign in." }
 }
 
 struct AuthResponse: Codable, Sendable {
