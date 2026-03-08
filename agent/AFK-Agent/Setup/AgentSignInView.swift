@@ -693,6 +693,7 @@ struct AgentSignInView: View {
                 await MainActor.run {
                     isLoading = false
                     errorMessage = ""
+                    successMessage = ""
                     withAnimation(.easeInOut(duration: 0.25)) {
                         pendingAuth = (resp.accessToken, resp.refreshToken, resp.user.id, email)
                     }
