@@ -212,6 +212,7 @@ struct AgentSignInView: View {
     @State private var pendingAuth: (token: String, refreshToken: String, userId: String, email: String)?
     @State private var isRegisteringPasskey = false
     @State private var passkeySuccess = false
+    @State private var showResendButton = false
 
     private var passwordLongEnough: Bool { password.count >= 8 }
     private var passwordsMatch: Bool { password == confirmPassword }
@@ -486,18 +487,40 @@ struct AgentSignInView: View {
 
                     // MARK: Error banner
                     if !errorMessage.isEmpty {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.red.opacity(0.9))
-                                .font(.caption)
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.9))
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
+                        VStack(spacing: 8) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.red.opacity(0.9))
+                                    .font(.caption)
+                                Text(errorMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            if showResendButton {
+                                Button {
+                                    resendVerificationEmail()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "envelope.arrow.triangle.branch")
+                                            .font(.caption)
+                                        Text("Resend Verification Email")
+                                            .font(.caption.weight(.medium))
+                                    }
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 6)
+                                    .background(Color.white.opacity(0.1))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isLoading)
+                            }
                         }
                         .padding(10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color.red.opacity(0.15))
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
@@ -523,6 +546,8 @@ struct AgentSignInView: View {
                             withAnimation(.easeInOut(duration: 0.25)) {
                                 isRegistering.toggle()
                                 errorMessage = ""
+                                successMessage = ""
+                                showResendButton = false
                                 confirmPassword = ""
                             }
                         } label: {
@@ -663,6 +688,34 @@ struct AgentSignInView: View {
         }
     }
 
+    // MARK: - Resend Verification
+
+    private func resendVerificationEmail() {
+        guard !email.isEmpty, !password.isEmpty else { return }
+        isLoading = true
+
+        Task {
+            do {
+                try await APIClient.resendVerification(baseURL: httpBaseURL, email: email, password: password)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = ""
+                        showResendButton = false
+                        successMessage = "Verification email sent! Check your inbox."
+                    }
+                    isLoading = false
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+        }
+    }
+
     // MARK: - Email/Password Submit
 
     private func submit() {
@@ -705,6 +758,15 @@ struct AgentSignInView: View {
                         successMessage = "Check your email to verify your account, then sign in."
                         errorMessage = ""
                         isRegistering = false
+                    }
+                }
+            } catch is EmailNotVerified {
+                await MainActor.run {
+                    isLoading = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = "Please verify your email before signing in."
+                        showResendButton = true
+                        successMessage = ""
                     }
                 }
             } catch {

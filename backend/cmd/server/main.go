@@ -187,6 +187,7 @@ func main() {
 	mux.Handle("POST /v1/auth/register", registerIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailRegister)))
 	mux.Handle("POST /v1/auth/login", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailLogin)))
 	mux.Handle("POST /v1/auth/verify-email", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleVerifyEmail)))
+	mux.Handle("POST /v1/auth/resend-verification", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleResendVerification)))
 	mux.Handle("GET /verify", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleVerifyEmail)))
 	mux.Handle("DELETE /v1/auth/logout", authMiddleware(http.HandlerFunc(authHandler.HandleLogout)))
 

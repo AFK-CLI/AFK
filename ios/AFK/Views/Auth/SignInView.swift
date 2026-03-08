@@ -229,6 +229,7 @@ struct SignInView: View {
     @State private var successMessage = ""
     @State private var isLoading = false
     @State private var showPasskeySetup = false
+    @State private var showResendButton = false
     @AppStorage("hasOfferedPasskeySetup", store: BuildEnvironment.userDefaults) private var hasOfferedPasskeySetup = false
 
     private var passwordsMatch: Bool { password == confirmPassword }
@@ -402,18 +403,40 @@ struct SignInView: View {
 
                         // MARK: Error Banner
                         if !errorMessage.isEmpty {
-                            HStack(spacing: 8) {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.red.opacity(0.9))
-                                    .font(.caption)
-                                Text(errorMessage)
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .lineLimit(3)
-                                    .fixedSize(horizontal: false, vertical: true)
+                            VStack(spacing: 8) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "exclamationmark.triangle.fill")
+                                        .foregroundStyle(.red.opacity(0.9))
+                                        .font(.caption)
+                                    Text(errorMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .lineLimit(3)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if showResendButton {
+                                    Button {
+                                        resendVerificationEmail()
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "envelope.arrow.triangle.branch")
+                                                .font(.caption)
+                                            Text("Resend Verification Email")
+                                                .font(.caption.weight(.medium))
+                                        }
+                                        .foregroundStyle(.white.opacity(0.9))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .background(Color.white.opacity(0.1))
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(isLoading)
+                                }
                             }
                             .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color.red.opacity(0.15))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
@@ -441,6 +464,7 @@ struct SignInView: View {
                                     isRegistering.toggle()
                                     errorMessage = ""
                                     successMessage = ""
+                                    showResendButton = false
                                     confirmPassword = ""
                                 }
                             } label: {
@@ -486,15 +510,11 @@ struct SignInView: View {
                 authService.finalizeAuthentication()
             }
         }
-        .onChange(of: authService.accessToken) { _, token in
-            // Deep link verification stores tokens without setting isAuthenticated.
-            // Detect this and show passkey setup (or finalize immediately if already offered).
-            if token != nil, !authService.isAuthenticated, !showPasskeySetup {
-                if hasOfferedPasskeySetup {
-                    authService.finalizeAuthentication()
-                } else {
-                    showPasskeySetup = true
-                }
+        .onChange(of: authService.pendingPasskeySetup) { _, pending in
+            // Deep link verification or deferred sign-in set pendingPasskeySetup.
+            // Show passkey setup sheet when this becomes true.
+            if pending, !showPasskeySetup {
+                showPasskeySetup = true
             }
         }
     }
@@ -520,6 +540,34 @@ struct SignInView: View {
         Task {
             do {
                 try await authService.loginWithPasskey()
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    // MARK: - Resend Verification
+
+    private func resendVerificationEmail() {
+        guard !email.isEmpty, !password.isEmpty else { return }
+        isLoading = true
+
+        Task {
+            do {
+                try await authService.resendVerification(email: email, password: password)
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = ""
+                        showResendButton = false
+                        successMessage = "Verification email sent! Check your inbox."
+                    }
+                    isLoading = false
+                }
             } catch {
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.25)) {
@@ -575,7 +623,8 @@ struct SignInView: View {
             } catch AuthError.emailNotVerified {
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.25)) {
-                        errorMessage = "Please verify your email before signing in. Check your inbox."
+                        errorMessage = "Please verify your email before signing in."
+                        showResendButton = true
                     }
                     isLoading = false
                 }

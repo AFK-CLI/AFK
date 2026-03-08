@@ -345,6 +345,7 @@ struct AFKApp: App {
         // Handle /verify?token= Universal Links
         if components.path == "/verify",
            let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
+            guard !authService.isAuthenticated else { return }
             Task {
                 do {
                     try await authService.verifyEmail(token: token)

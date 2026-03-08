@@ -44,6 +44,9 @@ struct APIClient: Sendable {
         }
         guard (200...299).contains(http.statusCode) else {
             let code = http.statusCode
+            if code == 403 {
+                throw EmailNotVerified()
+            }
             let message: String
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let serverMsg = json["error"] as? String {
@@ -249,11 +252,32 @@ struct APIClient: Sendable {
         return try JSONDecoder().decode(T.self, from: data)
     }
 
+    static func resendVerification(baseURL: String, email: String, password: String) async throws {
+        guard let url = URL(string: "\(baseURL)/v1/auth/resend-verification") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: String] = ["email": email, "password": password]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw NSError(domain: "APIClient", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to resend verification email"])
+        }
+    }
+
 }
 
 /// Thrown when registration succeeds but email verification is required before sign-in.
 struct EmailVerificationRequired: LocalizedError {
     var errorDescription: String? { "Check your email to verify your account, then sign in." }
+}
+
+/// Thrown when login is attempted but email is not yet verified.
+struct EmailNotVerified: LocalizedError {
+    var errorDescription: String? { "Please verify your email before signing in." }
 }
 
 struct AuthResponse: Codable, Sendable {

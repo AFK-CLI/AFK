@@ -9,6 +9,10 @@ final class AuthService: @unchecked Sendable {
     var accessToken: String?
     private var refreshToken: String?
 
+    /// When true, tokens are stored but auth is deferred (waiting for passkey setup).
+    /// `restoreSession()` will not auto-set `isAuthenticated` while this is true.
+    var pendingPasskeySetup = false
+
     private var baseURL: String { AppConfig.apiBaseURL }
     private let keychain = KeychainService()
     private let refreshCoordinator = TokenRefreshCoordinator()
@@ -75,11 +79,16 @@ final class AuthService: @unchecked Sendable {
         switch http.statusCode {
         case 200:
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
             accessToken = authResponse.accessToken
             refreshToken = authResponse.refreshToken
             currentUser = authResponse.user
-            if !deferred {
+            if deferred {
+                // Keep tokens in memory only — don't persist to keychain until
+                // finalizeAuthentication(). This prevents restoreSession() from
+                // auto-authenticating on cold launch before passkey setup.
+                pendingPasskeySetup = true
+            } else {
+                storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
                 isAuthenticated = true
             }
         case 401:
@@ -93,8 +102,12 @@ final class AuthService: @unchecked Sendable {
         }
     }
 
-    /// Finalize a deferred sign-in by setting `isAuthenticated = true`.
+    /// Finalize a deferred sign-in: persist tokens to keychain and set `isAuthenticated`.
     func finalizeAuthentication() {
+        if let access = accessToken, let refresh = refreshToken {
+            storeTokens(access: access, refresh: refresh)
+        }
+        pendingPasskeySetup = false
         isAuthenticated = true
     }
 
@@ -117,15 +130,32 @@ final class AuthService: @unchecked Sendable {
         switch http.statusCode {
         case 200:
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
-            storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
+            // Keep tokens in memory only — don't persist to keychain.
+            // finalizeAuthentication() will persist them after passkey setup.
             accessToken = authResponse.accessToken
             refreshToken = authResponse.refreshToken
             currentUser = authResponse.user
-            // Don't set isAuthenticated — let SignInView show passkey setup first.
+            pendingPasskeySetup = true
         case 400:
             throw AuthError.invalidCredentials
         default:
             throw AuthError.serverError(http.statusCode)
+        }
+    }
+
+    /// Resend the verification email. Requires valid credentials.
+    func resendVerification(email: String, password: String) async throws {
+        let body = ["email": email, "password": password]
+        let bodyData = try JSONEncoder().encode(body)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/auth/resend-verification")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = bodyData
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw AuthError.serverError((response as? HTTPURLResponse)?.statusCode ?? 0)
         }
     }
 
@@ -331,7 +361,9 @@ final class AuthService: @unchecked Sendable {
         keychain.delete(forKey: Self.accessTokenKey)
         keychain.delete(forKey: Self.refreshTokenKey)
         BuildEnvironment.userDefaults.removeObject(forKey: Self.userDataKey)
+        BuildEnvironment.userDefaults.removeObject(forKey: "hasOfferedPasskeySetup")
         isAuthenticated = false
+        pendingPasskeySetup = false
         currentUser = nil
         accessToken = nil
         refreshToken = nil

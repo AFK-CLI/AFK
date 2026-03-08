@@ -426,7 +426,10 @@ func (h *AuthHandler) HandleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	if verified, err := db.IsEmailVerified(h.DB, user.ID); err == nil && !verified {
 		db.RecordLoginAttempt(h.DB, lockoutKey, true, ip)
 		db.RecordLoginAttempt(h.DB, ipKey, true, ip)
-		writeError(w, "please verify your email before logging in", http.StatusForbidden)
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":  "email_not_verified",
+			"message": "Please verify your email before signing in.",
+		})
 		return
 	}
 
@@ -630,6 +633,53 @@ func (h *AuthHandler) HandleVerifyEmail(w http.ResponseWriter, r *http.Request) 
 		ExpiresAt:    tokenPair.ExpiresAt,
 		User:         user,
 	})
+}
+
+// HandleResendVerification resends the verification email for an unverified user.
+// Requires email + password to prevent abuse (proves they own the credentials).
+func (h *AuthHandler) HandleResendVerification(w http.ResponseWriter, r *http.Request) {
+	if !h.requireTLS(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodySize)
+	var req model.EmailLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	user, err := db.GetUserByEmail(h.DB, email)
+	if err != nil {
+		// Don't reveal whether email exists.
+		bcrypt.CompareHashAndPassword(dummyBcryptHash, []byte(req.Password))
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	storedHash, err := db.GetPasswordHash(h.DB, user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	// Only resend if not yet verified.
+	if verified, err := db.IsEmailVerified(h.DB, user.ID); err == nil && verified {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "already_verified"})
+		return
+	}
+
+	if err := h.sendVerificationEmail(user.ID, email); err != nil {
+		slog.Error("failed to resend verification email", "user_id", user.ID, "error", err)
+		writeError(w, "failed to send email, try again later", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "verification email sent"})
 }
 
 // serveVerifyPage serves the embedded static HTML page for email verification results.
