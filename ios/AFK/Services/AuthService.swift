@@ -56,7 +56,9 @@ final class AuthService: @unchecked Sendable {
         currentUser = authResponse.user
     }
 
-    func signIn(email: String, password: String) async throws {
+    /// Sign in with email/password. When `deferred` is true, tokens are stored
+    /// but `isAuthenticated` is not set — call `finalizeAuthentication()` later.
+    func signIn(email: String, password: String, deferred: Bool = false) async throws {
         let body = ["email": email, "password": password]
         let bodyData = try JSONEncoder().encode(body)
 
@@ -77,7 +79,9 @@ final class AuthService: @unchecked Sendable {
             accessToken = authResponse.accessToken
             refreshToken = authResponse.refreshToken
             currentUser = authResponse.user
-            isAuthenticated = true
+            if !deferred {
+                isAuthenticated = true
+            }
         case 401:
             throw AuthError.invalidCredentials
         case 403:
@@ -89,7 +93,13 @@ final class AuthService: @unchecked Sendable {
         }
     }
 
-    /// Verify email via token from Universal Link. On success, stores tokens and signs in.
+    /// Finalize a deferred sign-in by setting `isAuthenticated = true`.
+    func finalizeAuthentication() {
+        isAuthenticated = true
+    }
+
+    /// Verify email via token from Universal Link. On success, stores tokens
+    /// but does NOT set `isAuthenticated` — caller should show passkey setup first.
     func verifyEmail(token: String) async throws {
         let body = ["token": token]
         let bodyData = try JSONEncoder().encode(body)
@@ -111,7 +121,7 @@ final class AuthService: @unchecked Sendable {
             accessToken = authResponse.accessToken
             refreshToken = authResponse.refreshToken
             currentUser = authResponse.user
-            isAuthenticated = true
+            // Don't set isAuthenticated — let SignInView show passkey setup first.
         case 400:
             throw AuthError.invalidCredentials
         default:

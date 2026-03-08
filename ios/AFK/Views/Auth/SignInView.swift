@@ -483,6 +483,18 @@ struct SignInView: View {
         .sheet(isPresented: $showPasskeySetup) {
             PasskeySetupView(authService: authService) {
                 showPasskeySetup = false
+                authService.finalizeAuthentication()
+            }
+        }
+        .onChange(of: authService.accessToken) { _, token in
+            // Deep link verification stores tokens without setting isAuthenticated.
+            // Detect this and show passkey setup (or finalize immediately if already offered).
+            if token != nil, !authService.isAuthenticated, !showPasskeySetup {
+                if hasOfferedPasskeySetup {
+                    authService.finalizeAuthentication()
+                } else {
+                    showPasskeySetup = true
+                }
             }
         }
     }
@@ -543,10 +555,11 @@ struct SignInView: View {
                         showPasskeySetup = true
                     }
                 } else {
-                    try await authService.signIn(email: email, password: password)
+                    let shouldOfferPasskey = !hasOfferedPasskeySetup
+                    try await authService.signIn(email: email, password: password, deferred: shouldOfferPasskey)
                     await MainActor.run {
                         isLoading = false
-                        if !hasOfferedPasskeySetup {
+                        if shouldOfferPasskey {
                             showPasskeySetup = true
                         }
                     }
