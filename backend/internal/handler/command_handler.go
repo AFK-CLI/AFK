@@ -128,6 +128,10 @@ func HandleContinue(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, 
 
 		// Store encrypted prompt if provided (E2EE mode).
 		if req.PromptEncrypted != "" {
+			if len(req.PromptEncrypted) > 200*1024 {
+				writeError(w, "promptEncrypted exceeds maximum length", http.StatusBadRequest)
+				return
+			}
 			cmdRecord.PromptEncrypted = req.PromptEncrypted
 		} else if privacyMode == "encrypted" {
 			// Fallback: if privacy mode is encrypted but no E2EE prompt was sent,

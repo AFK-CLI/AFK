@@ -65,7 +65,8 @@ func (h *BetaHandler) HandleBetaRequest(w http.ResponseWriter, r *http.Request) 
 
 	if err := db.CreateBetaRequest(h.DB, betaReq); err != nil {
 		if strings.Contains(err.Error(), "already registered") {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": "already registered"})
+			// Return 200 for duplicates to prevent email enumeration.
+			writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 			return
 		}
 		writeError(w, "failed to submit request", http.StatusInternalServerError)

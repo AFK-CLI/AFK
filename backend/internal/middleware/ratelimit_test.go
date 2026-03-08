@@ -216,7 +216,7 @@ func TestClientIP_NoProxy(t *testing.T) {
 	}
 }
 
-func TestClientIP_TrustsXRealIP_WhenNoProxiesConfigured(t *testing.T) {
+func TestClientIP_IgnoresXRealIP_WhenNoProxiesConfigured(t *testing.T) {
 	SetTrustedProxies(nil)
 	defer SetTrustedProxies(nil)
 
@@ -225,8 +225,9 @@ func TestClientIP_TrustsXRealIP_WhenNoProxiesConfigured(t *testing.T) {
 	req.Header.Set("X-Real-IP", "203.0.113.5")
 
 	ip := clientIP(req)
-	if ip != "203.0.113.5" {
-		t.Errorf("clientIP = %q, want %q", ip, "203.0.113.5")
+	// When no trusted proxies are configured, X-Real-IP should be ignored.
+	if ip != "10.0.0.1" {
+		t.Errorf("clientIP = %q, want %q (should ignore X-Real-IP without trusted proxies)", ip, "10.0.0.1")
 	}
 }
 
@@ -275,12 +276,8 @@ func TestSetTrustedProxies_EmptySlice(t *testing.T) {
 	SetTrustedProxies([]string{})
 	defer SetTrustedProxies(nil)
 
-	trustedProxyMu.RLock()
-	tp := trustedProxies
-	trustedProxyMu.RUnlock()
-
-	if tp != nil {
-		t.Error("empty slice should set trustedProxies to nil")
+	if IsTrustedProxy("10.0.0.1") {
+		t.Error("empty slice should not trust any IP")
 	}
 }
 
@@ -288,15 +285,41 @@ func TestSetTrustedProxies_SkipsEmptyStrings(t *testing.T) {
 	SetTrustedProxies([]string{"10.0.0.1", "", "10.0.0.2"})
 	defer SetTrustedProxies(nil)
 
-	trustedProxyMu.RLock()
-	tp := trustedProxies
-	trustedProxyMu.RUnlock()
-
-	if len(tp) != 2 {
-		t.Errorf("trustedProxies should have 2 entries, got %d", len(tp))
-	}
-	if !tp["10.0.0.1"] || !tp["10.0.0.2"] {
+	if !IsTrustedProxy("10.0.0.1") || !IsTrustedProxy("10.0.0.2") {
 		t.Error("expected both non-empty IPs in trusted set")
+	}
+	if IsTrustedProxy("10.0.0.3") {
+		t.Error("should not trust unlisted IP")
+	}
+}
+
+func TestSetTrustedProxies_CIDR(t *testing.T) {
+	SetTrustedProxies([]string{"172.16.0.0/12"})
+	defer SetTrustedProxies(nil)
+
+	if !IsTrustedProxy("172.22.0.1") {
+		t.Error("172.22.0.1 should be trusted within 172.16.0.0/12")
+	}
+	if !IsTrustedProxy("172.31.255.254") {
+		t.Error("172.31.255.254 should be trusted within 172.16.0.0/12")
+	}
+	if IsTrustedProxy("10.0.0.1") {
+		t.Error("10.0.0.1 should not be trusted in 172.16.0.0/12")
+	}
+}
+
+func TestSetTrustedProxies_MixedIPAndCIDR(t *testing.T) {
+	SetTrustedProxies([]string{"10.0.0.1", "172.16.0.0/12"})
+	defer SetTrustedProxies(nil)
+
+	if !IsTrustedProxy("10.0.0.1") {
+		t.Error("exact IP should be trusted")
+	}
+	if !IsTrustedProxy("172.22.0.5") {
+		t.Error("IP in CIDR range should be trusted")
+	}
+	if IsTrustedProxy("192.168.1.1") {
+		t.Error("IP outside both should not be trusted")
 	}
 }
 

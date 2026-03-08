@@ -1,29 +1,31 @@
 package handler
 
 import (
-	"crypto/subtle"
 	"net/http"
 
 	"github.com/AFK/afk-cloud/internal/metrics"
 )
 
 // MetricsHandler serves Prometheus-format metrics.
-// NOTE: main.go should place this behind admin auth middleware, or
-// use the built-in AdminSecret check below.
+// Uses admin session cookie authentication.
 type MetricsHandler struct {
-	Collector   *metrics.Collector
-	AdminSecret string
+	Collector    *metrics.Collector
+	SessionStore *AdminSessionStore
 }
 
 func (h *MetricsHandler) Handle(w http.ResponseWriter, r *http.Request) {
-	// Require admin secret to be configured.
-	if h.AdminSecret == "" {
+	if h.SessionStore == nil {
 		writeError(w, "metrics endpoint not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	secret := r.Header.Get("X-Admin-Secret")
-	if subtle.ConstantTimeCompare([]byte(secret), []byte(h.AdminSecret)) != 1 {
+	cookie, err := r.Cookie(adminCookieName)
+	if err != nil || cookie.Value == "" {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if _, ok := h.SessionStore.ValidateAndGetAdminID(cookie.Value, adminClientIP(r)); !ok {
 		writeError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}

@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -11,14 +15,20 @@ import (
 	"github.com/AFK/afk-cloud/internal/auth"
 	"github.com/AFK/afk-cloud/internal/db"
 	"github.com/AFK/afk-cloud/internal/model"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // productIDRe validates Apple product identifiers (reverse DNS style, e.g. com.afk.pro.monthly).
 var productIDRe = regexp.MustCompile(`^[a-zA-Z0-9._]+$`)
 
 type SubscriptionHandler struct {
-	DB              *sql.DB
-	StoreKitKeySet  bool // true when AFK_STOREKIT_SERVER_KEY is configured
+	DB                     *sql.DB
+	StoreKitKeySet         bool   // true when AFK_STOREKIT_SERVER_KEY is configured
+	StoreKitServerKey      string // PEM-encoded key for App Store Server API auth
+	StoreKitKeyID          string // Key ID for StoreKit Server API
+	StoreKitIssuerID       string // Issuer ID for StoreKit Server API
+	StoreKitBundleID       string // App bundle ID for StoreKit Server API
+	StoreKitEnvironment    string // "Production" or "Sandbox"
 }
 
 // HandleWebhook processes App Store Server Notifications V2.
@@ -206,21 +216,32 @@ func (h *SubscriptionHandler) HandleSync(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var expiresAt *time.Time
-	if req.ExpiresAt != "" {
-		t, err := time.Parse(time.RFC3339, req.ExpiresAt)
-		if err == nil {
-			expiresAt = &t
-		}
+	// Verify transaction with Apple's App Store Server API.
+	verifiedTx, err := h.verifyTransactionWithApple(req.OriginalTransactionId)
+	if err != nil {
+		slog.Warn("subscription sync: server-side verification failed",
+			"user_id", userID,
+			"original_transaction_id", req.OriginalTransactionId,
+			"error", err,
+		)
+		writeError(w, "transaction verification failed", http.StatusForbidden)
+		return
 	}
 
-	if err := db.UpdateUserSubscription(h.DB, userID, "pro", req.ProductId, req.OriginalTransactionId, expiresAt); err != nil {
+	// Use server-verified expiry and product ID (ignore client-provided values).
+	expiresAt := verifiedTx.ExpiresTime()
+	verifiedProductID := verifiedTx.ProductId
+	if verifiedProductID == "" {
+		verifiedProductID = req.ProductId
+	}
+
+	if err := db.UpdateUserSubscription(h.DB, userID, "pro", verifiedProductID, req.OriginalTransactionId, expiresAt); err != nil {
 		slog.Error("failed to sync subscription", "user_id", userID, "error", err)
 		writeError(w, "failed to sync subscription", http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("subscription synced from iOS", "user_id", userID, "product_id", req.ProductId, "original_transaction_id", req.OriginalTransactionId)
+	slog.Info("subscription synced from iOS (server-verified)", "user_id", userID, "product_id", verifiedProductID, "original_transaction_id", req.OriginalTransactionId)
 
 	// Audit log.
 	details, _ := json.Marshal(map[string]string{
@@ -234,4 +255,85 @@ func (h *SubscriptionHandler) HandleSync(w http.ResponseWriter, r *http.Request)
 	})
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "tier": "pro"})
+}
+
+// verifyTransactionWithApple calls Apple's App Store Server API to verify
+// a transaction and returns the server-authoritative transaction info.
+func (h *SubscriptionHandler) verifyTransactionWithApple(originalTransactionID string) (*auth.TransactionInfo, error) {
+	// Generate a short-lived JWT for App Store Server API authentication.
+	token, err := h.generateStoreKitJWT()
+	if err != nil {
+		return nil, fmt.Errorf("generate StoreKit JWT: %w", err)
+	}
+
+	// Call App Store Server API: GET /inApps/v1/transactions/{transactionId}
+	baseURL := "https://api.storekit.itunes.apple.com"
+	if h.StoreKitEnvironment == "Sandbox" {
+		baseURL = "https://api.storekit-sandbox.itunes.apple.com"
+	}
+	url := fmt.Sprintf("%s/inApps/v1/transactions/%s", baseURL, originalTransactionID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("API request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var apiResp struct {
+		SignedTransactionInfo string `json:"signedTransactionInfo"`
+	}
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("decode API response: %w", err)
+	}
+
+	if apiResp.SignedTransactionInfo == "" {
+		return nil, fmt.Errorf("API response missing signedTransactionInfo")
+	}
+
+	// Verify the signed transaction using Apple's certificate chain.
+	txInfo, err := auth.VerifySignedTransaction(apiResp.SignedTransactionInfo)
+	if err != nil {
+		return nil, fmt.Errorf("verify signed transaction: %w", err)
+	}
+
+	return txInfo, nil
+}
+
+// generateStoreKitJWT creates a short-lived JWT for App Store Server API authentication.
+func (h *SubscriptionHandler) generateStoreKitJWT() (string, error) {
+	block, _ := pem.Decode([]byte(h.StoreKitServerKey))
+	if block == nil {
+		return "", fmt.Errorf("failed to decode PEM key")
+	}
+	key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+	if err != nil {
+		return "", fmt.Errorf("parse private key: %w", err)
+	}
+
+	now := time.Now()
+	claims := jwt.MapClaims{
+		"iss": h.StoreKitIssuerID,
+		"iat": now.Unix(),
+		"exp": now.Add(5 * time.Minute).Unix(),
+		"aud": "appstoreconnect-v1",
+		"bid": h.StoreKitBundleID,
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodES256, claims)
+	token.Header["kid"] = h.StoreKitKeyID
+
+	return token.SignedString(key)
 }

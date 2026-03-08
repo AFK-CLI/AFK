@@ -62,20 +62,27 @@ func TestSubscriptionSync_CWE345_RejectsInvalidTransactionID(t *testing.T) {
 	}
 }
 
-func TestSubscriptionSync_CWE345_AcceptsValidTransactionID(t *testing.T) {
+func TestSubscriptionSync_CWE345_RequiresServerVerification(t *testing.T) {
 	database := testDB(t)
 	userID := createTestUser(t, database, "sub3@test.com", "Sub User3", "hashedpass")
 
-	h := &SubscriptionHandler{DB: database, StoreKitKeySet: true}
+	// Without StoreKit key configured, sync should return 503.
+	h := &SubscriptionHandler{DB: database, StoreKitKeySet: false}
 	body := map[string]string{
 		"originalTransactionId": "123456789012345",
 		"productId":             "com.afk.pro.monthly",
 		"expiresAt":             "2030-01-01T00:00:00Z",
 	}
 	rr := doAuthedRequest(t, h.HandleSync, "POST", "/v1/subscription/sync", body, userID)
-	// Should succeed (200) since key is set and format is valid.
-	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 for valid transaction ID, got %d (body: %s)", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 without StoreKit key, got %d (body: %s)", rr.Code, rr.Body.String())
+	}
+
+	// With key set but no valid PEM, server-side verification should fail (403).
+	h2 := &SubscriptionHandler{DB: database, StoreKitKeySet: true}
+	rr2 := doAuthedRequest(t, h2.HandleSync, "POST", "/v1/subscription/sync", body, userID)
+	if rr2.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when server verification fails, got %d (body: %s)", rr2.Code, rr2.Body.String())
 	}
 }
 
@@ -212,7 +219,7 @@ func TestEmailRegister_CWE79_SanitizesDisplayName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			body := model.EmailRegisterRequest{
 				Email:       strings.Replace("xss_user@test.com", "xss", tc.name, 1),
-				Password:    "securepassword123",
+				Password:    "Secure@Pass1",
 				DisplayName: tc.display,
 			}
 			// Use unique email per test.
@@ -227,13 +234,13 @@ func TestEmailRegister_CWE79_SanitizesDisplayName(t *testing.T) {
 				t.Fatalf("expected 201, got %d (body: %s)", rr.Code, rr.Body.String())
 			}
 
-			var resp model.AuthResponse
-			json.NewDecoder(rr.Body).Decode(&resp)
-			if resp.User == nil {
-				t.Fatal("expected user in response")
+			// Registration returns verification_required, check DB directly.
+			user, err := db.GetUserByEmail(database, body.Email)
+			if err != nil {
+				t.Fatalf("failed to get user: %v", err)
 			}
-			if strings.Contains(resp.User.DisplayName, "<") || strings.Contains(resp.User.DisplayName, ">") {
-				t.Errorf("displayName still contains HTML tags: %q", resp.User.DisplayName)
+			if strings.Contains(user.DisplayName, "<") || strings.Contains(user.DisplayName, ">") {
+				t.Errorf("displayName still contains HTML tags: %q", user.DisplayName)
 			}
 		})
 	}
@@ -330,40 +337,45 @@ func TestTaskCreate_CWE79_NormalTextPassesThrough(t *testing.T) {
 // RED-009 (CWE-200): Metrics auth gate
 // =============================================================================
 
-func TestMetrics_CWE200_ReturnsServiceUnavailableWhenNoSecret(t *testing.T) {
-	h := &MetricsHandler{Collector: nil, AdminSecret: ""}
+func TestMetrics_CWE200_ReturnsServiceUnavailableWhenNoSessionStore(t *testing.T) {
+	h := &MetricsHandler{Collector: nil, SessionStore: nil}
 	req := httptest.NewRequest("GET", "/metrics", nil)
 	rr := httptest.NewRecorder()
 	h.Handle(rr, req)
 
 	if rr.Code != http.StatusServiceUnavailable {
-		t.Errorf("expected 503 when AdminSecret is empty, got %d", rr.Code)
+		t.Errorf("expected 503 when SessionStore is nil, got %d", rr.Code)
 	}
 }
 
-func TestMetrics_CWE200_ReturnsUnauthorizedWithWrongSecret(t *testing.T) {
-	h := &MetricsHandler{Collector: nil, AdminSecret: "correct-secret"}
+func TestMetrics_CWE200_ReturnsUnauthorizedWithoutSession(t *testing.T) {
+	store := NewAdminSessionStore()
+	h := &MetricsHandler{Collector: nil, SessionStore: store}
 	req := httptest.NewRequest("GET", "/metrics", nil)
-	req.Header.Set("X-Admin-Secret", "wrong-secret")
 	rr := httptest.NewRecorder()
 	h.Handle(rr, req)
 
 	if rr.Code != http.StatusUnauthorized {
-		t.Errorf("expected 401 with wrong secret, got %d", rr.Code)
+		t.Errorf("expected 401 without session cookie, got %d", rr.Code)
 	}
+	store.Stop()
 }
 
-func TestMetrics_CWE200_ReturnsOKWithCorrectSecret(t *testing.T) {
+func TestMetrics_CWE200_ReturnsOKWithValidSession(t *testing.T) {
 	collector := newTestCollector()
-	h := &MetricsHandler{Collector: collector, AdminSecret: "correct-secret"}
+	store := NewAdminSessionStore()
+	sessionID, _ := store.Create("admin-user-1", "127.0.0.1")
+	h := &MetricsHandler{Collector: collector, SessionStore: store}
 	req := httptest.NewRequest("GET", "/metrics", nil)
-	req.Header.Set("X-Admin-Secret", "correct-secret")
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: sessionID})
 	rr := httptest.NewRecorder()
 	h.Handle(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Errorf("expected 200 with correct secret, got %d", rr.Code)
+		t.Errorf("expected 200 with valid session, got %d", rr.Code)
 	}
+	store.Stop()
 }
 
 // =============================================================================
@@ -414,7 +426,7 @@ func TestEmailRegister_CWE204_NoEmailEnumeration(t *testing.T) {
 	// Register first user.
 	body1 := model.EmailRegisterRequest{
 		Email:    "existing@test.com",
-		Password: "securepassword123",
+		Password: "Secure@Pass1",
 	}
 	rr1 := doRequest(t, h.HandleEmailRegister, "POST", "/v1/auth/register", body1)
 	if rr1.Code != http.StatusCreated {
@@ -424,7 +436,7 @@ func TestEmailRegister_CWE204_NoEmailEnumeration(t *testing.T) {
 	// Try to register the same email again.
 	body2 := model.EmailRegisterRequest{
 		Email:    "existing@test.com",
-		Password: "anotherpassword456",
+		Password: "Another@Pass456",
 	}
 	rr2 := doRequest(t, h.HandleEmailRegister, "POST", "/v1/auth/register", body2)
 
@@ -449,7 +461,7 @@ func TestEmailRegister_CWE204_NewEmailReturns201(t *testing.T) {
 
 	body := model.EmailRegisterRequest{
 		Email:    "newuser@test.com",
-		Password: "securepassword123",
+		Password: "Secure@Pass1",
 	}
 	rr := doRequest(t, h.HandleEmailRegister, "POST", "/v1/auth/register", body)
 	if rr.Code != http.StatusCreated {
@@ -484,7 +496,7 @@ func TestNewChat_CWE20_PathTraversalInWorktreeName(t *testing.T) {
 }
 
 func TestNewChat_CWE20_InvalidPermissionMode(t *testing.T) {
-	invalid := []string{"root", "admin", "sudo", "../../etc", "<script>", "autoApprove; rm -rf /"}
+	invalid := []string{"root", "admin", "sudo", "../../etc", "<script>", "autoApprove; rm -rf /", "autoApprove", "dontAsk", "bypassPermissions", "ask"}
 	for _, mode := range invalid {
 		if validPermissionModes[mode] {
 			t.Errorf("invalid permission mode %q was accepted", mode)
@@ -493,7 +505,7 @@ func TestNewChat_CWE20_InvalidPermissionMode(t *testing.T) {
 }
 
 func TestNewChat_CWE20_ValidPermissionModes(t *testing.T) {
-	valid := []string{"", "ask", "acceptEdits", "plan", "autoApprove"}
+	valid := []string{"", "default", "acceptEdits", "plan"}
 	for _, mode := range valid {
 		if !validPermissionModes[mode] {
 			t.Errorf("valid permission mode %q was rejected", mode)

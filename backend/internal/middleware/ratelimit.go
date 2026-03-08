@@ -11,25 +11,40 @@ import (
 )
 
 var (
-	trustedProxyMu sync.RWMutex
-	trustedProxies map[string]bool
+	trustedProxyMu   sync.RWMutex
+	trustedProxyIPs  map[string]bool
+	trustedProxyCIDR []*net.IPNet
 )
 
 // SetTrustedProxies configures the set of IPs allowed to set X-Real-IP.
-// Call once at startup. An empty slice means trust all sources (backward compat).
+// Supports both exact IPs ("10.0.0.1") and CIDR ranges ("172.16.0.0/12").
+// Call once at startup. An empty slice means no trusted proxies.
 func SetTrustedProxies(proxies []string) {
 	trustedProxyMu.Lock()
 	defer trustedProxyMu.Unlock()
 	if len(proxies) == 0 {
-		trustedProxies = nil
+		trustedProxyIPs = nil
+		trustedProxyCIDR = nil
 		return
 	}
-	trustedProxies = make(map[string]bool, len(proxies))
+	ips := make(map[string]bool)
+	var cidrs []*net.IPNet
 	for _, p := range proxies {
-		if p != "" {
-			trustedProxies[p] = true
+		if p == "" {
+			continue
+		}
+		if _, ipNet, err := net.ParseCIDR(p); err == nil {
+			cidrs = append(cidrs, ipNet)
+		} else {
+			ips[p] = true
 		}
 	}
+	if len(ips) == 0 {
+		trustedProxyIPs = nil
+	} else {
+		trustedProxyIPs = ips
+	}
+	trustedProxyCIDR = cidrs
 }
 
 // TokenBucket implements a token bucket rate limiter.
@@ -152,16 +167,43 @@ func clientIP(r *http.Request) string {
 	}
 
 	if forwarded := r.Header.Get("X-Real-IP"); forwarded != "" {
-		trustedProxyMu.RLock()
-		tp := trustedProxies
-		trustedProxyMu.RUnlock()
-
-		if tp == nil || tp[directIP] {
+		if isTrusted(directIP) {
 			return forwarded
 		}
 	}
 
 	return directIP
+}
+
+// isTrusted checks if an IP matches the configured trusted proxies (exact or CIDR).
+func isTrusted(ip string) bool {
+	trustedProxyMu.RLock()
+	ips := trustedProxyIPs
+	cidrs := trustedProxyCIDR
+	trustedProxyMu.RUnlock()
+
+	if ips == nil && len(cidrs) == 0 {
+		return false
+	}
+	if ips != nil && ips[ip] {
+		return true
+	}
+	if len(cidrs) > 0 {
+		parsed := net.ParseIP(ip)
+		if parsed != nil {
+			for _, cidr := range cidrs {
+				if cidr.Contains(parsed) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// IsTrustedProxy checks if the given IP is in the configured trusted proxy set.
+func IsTrustedProxy(ip string) bool {
+	return isTrusted(ip)
 }
 
 // cleanupStale removes buckets that haven't been accessed in over 10 minutes.

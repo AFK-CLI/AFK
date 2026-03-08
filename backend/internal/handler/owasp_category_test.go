@@ -108,7 +108,7 @@ func TestAPI2_BrokenAuth_GenericErrorMessages(t *testing.T) {
 	// Register a user first.
 	regBody := model.EmailRegisterRequest{
 		Email:    "auth_generic@test.com",
-		Password: "securepassword123",
+		Password: "Secure@Pass1",
 	}
 	doRequest(t, h.HandleEmailRegister, "POST", "/v1/auth/register", regBody)
 
@@ -174,17 +174,20 @@ func TestAPI3_PropertyAuth_AllTextFieldsSanitized(t *testing.T) {
 			email := "api3_dn_" + string(rune('a'+i)) + "@test.com"
 			body := model.EmailRegisterRequest{
 				Email:       email,
-				Password:    "securepassword123",
+				Password:    "Secure@Pass1",
 				DisplayName: payload,
 			}
 			rr := doRequest(t, h.HandleEmailRegister, "POST", "/v1/auth/register", body)
 			if rr.Code != http.StatusCreated {
-				t.Fatalf("registration failed for payload %q: %d", payload, rr.Code)
+				t.Fatalf("registration failed for payload %q: %d (body: %s)", payload, rr.Code, rr.Body.String())
 			}
-			var resp model.AuthResponse
-			json.NewDecoder(rr.Body).Decode(&resp)
-			if strings.Contains(resp.User.DisplayName, "<") {
-				t.Errorf("displayName not sanitized for %q: got %q", payload, resp.User.DisplayName)
+			// Registration now returns verification_required, so check DB directly.
+			user, err := db.GetUserByEmail(database, email)
+			if err != nil {
+				t.Fatalf("failed to get user after registration: %v", err)
+			}
+			if strings.Contains(user.DisplayName, "<") {
+				t.Errorf("displayName not sanitized for %q: got %q", payload, user.DisplayName)
 			}
 		}
 	})

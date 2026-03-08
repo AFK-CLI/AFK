@@ -286,6 +286,15 @@ func (h *PasskeyHandler) HandleAASA(w http.ResponseWriter, r *http.Request) {
 		"webcredentials": map[string]interface{}{
 			"apps": apps,
 		},
+		"applinks": map[string]interface{}{
+			"apps":    []string{},
+			"details": []map[string]interface{}{
+				{
+					"appIDs": apps,
+					"paths":  []string{"/verify*"},
+				},
+			},
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

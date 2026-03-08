@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strings"
 )
@@ -10,7 +11,17 @@ type contextKey string
 
 const userIDKey contextKey = "userID"
 
+// EmailVerifiedChecker is a function that checks if a user's email is verified.
+// Injected from the db package to avoid circular imports.
+type EmailVerifiedChecker func(userID string) (bool, error)
+
 func AuthMiddleware(secret string) func(http.Handler) http.Handler {
+	return AuthMiddlewareWithVerification(secret, nil)
+}
+
+// AuthMiddlewareWithVerification creates auth middleware that also checks email verification.
+// If verifyFn is nil, email verification is not checked (backward compat).
+func AuthMiddlewareWithVerification(secret string, verifyFn EmailVerifiedChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var tokenStr string
@@ -38,9 +49,30 @@ func AuthMiddleware(secret string) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Block unverified users from all authenticated endpoints.
+			if verifyFn != nil {
+				if verified, err := verifyFn(userID); err == nil && !verified {
+					http.Error(w, `{"error":"please verify your email before using the API"}`, http.StatusForbidden)
+					return
+				}
+			}
+
 			ctx := context.WithValue(r.Context(), userIDKey, userID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
+	}
+}
+
+// NewEmailVerifiedChecker creates an EmailVerifiedChecker backed by a database.
+func NewEmailVerifiedChecker(database *sql.DB) EmailVerifiedChecker {
+	return func(userID string) (bool, error) {
+		var verified int
+		err := database.QueryRow(`SELECT email_verified FROM users WHERE id = ?`, userID).Scan(&verified)
+		if err != nil {
+			// If we can't check (e.g., column doesn't exist yet), allow through.
+			return true, err
+		}
+		return verified != 0, nil
 	}
 }
 

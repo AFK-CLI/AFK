@@ -26,12 +26,8 @@ var worktreeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]*$`)
 var validPermissionModes = map[string]bool{
 	"":            true, // empty is valid (uses Claude's default)
 	"default":     true,
-	"ask":         true,
-	"acceptEdits": true,
 	"plan":        true,
-	"autoApprove": true,
-	"dontAsk":     true,
-	"bypassPermissions": true,
+	"acceptEdits": true,
 }
 
 func HandleNewChat(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, serverPrivateKey ed25519.PrivateKey) http.HandlerFunc {
@@ -157,6 +153,10 @@ func HandleNewChat(hub *ws.Hub, database *sql.DB, nonceStore *auth.NonceStore, s
 		}
 
 		if req.PromptEncrypted != "" {
+			if len(req.PromptEncrypted) > 200*1024 {
+				writeError(w, "promptEncrypted exceeds maximum length", http.StatusBadRequest)
+				return
+			}
 			cmdRecord.PromptEncrypted = req.PromptEncrypted
 		}
 

@@ -13,9 +13,10 @@ const (
 )
 
 type adminSession struct {
-	UserIP    string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	AdminUserID string
+	UserIP      string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
 }
 
 // AdminSessionStore provides server-side session management for the admin panel.
@@ -27,7 +28,7 @@ type AdminSessionStore struct {
 }
 
 // NewAdminSessionStore creates a new in-memory session store.
-func NewAdminSessionStore(adminSecret string) *AdminSessionStore {
+func NewAdminSessionStore() *AdminSessionStore {
 	s := &AdminSessionStore{
 		sessions: make(map[string]*adminSession),
 		stop:     make(chan struct{}),
@@ -36,8 +37,8 @@ func NewAdminSessionStore(adminSecret string) *AdminSessionStore {
 	return s
 }
 
-// Create generates a new cryptographic session ID bound to the client IP.
-func (s *AdminSessionStore) Create(clientIP string) (string, error) {
+// Create generates a new cryptographic session ID bound to the client IP and admin user.
+func (s *AdminSessionStore) Create(adminUserID, clientIP string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -47,13 +48,34 @@ func (s *AdminSessionStore) Create(clientIP string) (string, error) {
 	now := time.Now()
 	s.mu.Lock()
 	s.sessions[sessionID] = &adminSession{
-		UserIP:    clientIP,
-		CreatedAt: now,
-		ExpiresAt: now.Add(adminSessionMaxLifetime),
+		AdminUserID: adminUserID,
+		UserIP:      clientIP,
+		CreatedAt:   now,
+		ExpiresAt:   now.Add(adminSessionMaxLifetime),
 	}
 	s.mu.Unlock()
 
 	return sessionID, nil
+}
+
+// ValidateAndGetAdminID checks that a session ID exists, is not expired, matches the
+// client IP, and returns the associated admin user ID.
+func (s *AdminSessionStore) ValidateAndGetAdminID(sessionID, clientIP string) (string, bool) {
+	s.mu.Lock()
+	sess, ok := s.sessions[sessionID]
+	s.mu.Unlock()
+
+	if !ok {
+		return "", false
+	}
+	if time.Now().After(sess.ExpiresAt) {
+		s.Revoke(sessionID)
+		return "", false
+	}
+	if sess.UserIP != clientIP {
+		return "", false
+	}
+	return sess.AdminUserID, true
 }
 
 // Validate checks that a session ID exists, is not expired, and matches the client IP.

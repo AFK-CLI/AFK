@@ -24,33 +24,19 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 	return func(w http.ResponseWriter, r *http.Request) {
 		var userID, deviceID string
 
-		// Try ws_ticket auth first, fall back to token.
-		if wsTicket := r.URL.Query().Get("ws_ticket"); wsTicket != "" {
-			ticket, err := ticketStore.Redeem(wsTicket)
-			if err != nil {
-				http.Error(w, `{"error":"invalid or expired ws_ticket"}`, http.StatusUnauthorized)
-				return
-			}
-			userID = ticket.UserID
-			deviceID = ticket.DeviceID
-		} else {
-			// Legacy token auth (deprecated).
-			tokenStr := r.URL.Query().Get("token")
-			if tokenStr == "" {
-				http.Error(w, `{"error":"missing ws_ticket"}`, http.StatusUnauthorized)
-				return
-			}
-
-			slog.Warn("DEPRECATED: iOS client using query-param token auth, will be removed in a future release; switch to ws-ticket")
-
-			var err error
-			userID, err = auth.ValidateAccessToken(tokenStr, secret)
-			if err != nil {
-				http.Error(w, `{"error":"invalid token"}`, http.StatusUnauthorized)
-				return
-			}
-			deviceID = r.URL.Query().Get("deviceId")
+		// Authenticate via ws_ticket only.
+		wsTicket := r.URL.Query().Get("ws_ticket")
+		if wsTicket == "" {
+			http.Error(w, `{"error":"missing ws_ticket"}`, http.StatusUnauthorized)
+			return
 		}
+		ticket, err := ticketStore.Redeem(wsTicket)
+		if err != nil {
+			http.Error(w, `{"error":"invalid or expired ws_ticket"}`, http.StatusUnauthorized)
+			return
+		}
+		userID = ticket.UserID
+		deviceID = ticket.DeviceID
 
 		slog.Info("upgrading iOS connection", "user_id", userID, "device_id", deviceID)
 		conn, err := upgrader.Upgrade(w, r, nil)
