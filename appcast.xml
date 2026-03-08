@@ -3,12 +3,12 @@
     <channel>
         <title>AFK-Agent</title>
         <item>
-            <title>1.3.0</title>
-            <pubDate>Sat, 07 Mar 2026 21:05:06 +0000</pubDate>
-            <sparkle:version>1.3.0</sparkle:version>
-            <sparkle:shortVersionString>1.3.0</sparkle:shortVersionString>
+            <title>1.4.0</title>
+            <pubDate>Sun, 08 Mar 2026 20:40:47 +0000</pubDate>
+            <sparkle:version>1.4.0</sparkle:version>
+            <sparkle:shortVersionString>1.4.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.6</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/AFK-CLI/AFK/releases/download/agent-v1.3.0/AFK-Agent-1.3.0.dmg" length="5280951" type="application/octet-stream"/>
+            <enclosure url="https://github.com/AFK-CLI/AFK/releases/download/agent-v1.4.0/AFK-Agent-1.4.0.dmg" length="5387930" type="application/octet-stream"/>
         </item>
     </channel>
 </rss>
