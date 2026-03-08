@@ -121,6 +121,17 @@ func main() {
 		}
 	}()
 
+	// WebAuthn for passkey authentication.
+	webAuthn, err := auth.NewWebAuthn(cfg.WebAuthnRPID, cfg.WebAuthnRPOrigin, cfg.WebAuthnRPName)
+	if err != nil {
+		slog.Error("failed to initialize WebAuthn", "error", err)
+		os.Exit(1)
+	}
+
+	webauthnSessionStore := auth.NewWebAuthnSessionStore()
+	webauthnSessionStop := make(chan struct{})
+	webauthnSessionStore.StartCleanup(webauthnSessionStop)
+
 	// Ticket store for short-lived WS auth tickets.
 	ticketStore := auth.NewTicketStore()
 	stop := make(chan os.Signal, 1)
@@ -174,6 +185,21 @@ func main() {
 	mux.Handle("POST /v1/auth/register", registerIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailRegister)))
 	mux.Handle("POST /v1/auth/login", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailLogin)))
 	mux.Handle("DELETE /v1/auth/logout", authMiddleware(http.HandlerFunc(authHandler.HandleLogout)))
+
+	// Passkey/WebAuthn auth.
+	passkeyHandler := &handler.PasskeyHandler{
+		DB:             database,
+		JWTSecret:      cfg.JWTSecret,
+		WebAuthn:       webAuthn,
+		SessionStore:   webauthnSessionStore,
+		TeamID:         cfg.APNsTeamID,
+		AppleBundleIDs: cfg.AppleBundleIDs,
+	}
+	mux.Handle("POST /v1/auth/passkey/register/begin", authMiddleware(authIPLimiter.IPMiddleware(http.HandlerFunc(passkeyHandler.HandleRegisterBegin))))
+	mux.Handle("POST /v1/auth/passkey/register/finish", authMiddleware(authIPLimiter.IPMiddleware(http.HandlerFunc(passkeyHandler.HandleRegisterFinish))))
+	mux.Handle("POST /v1/auth/passkey/login/begin", authIPLimiter.IPMiddleware(http.HandlerFunc(passkeyHandler.HandleLoginBegin)))
+	mux.Handle("POST /v1/auth/passkey/login/finish", authIPLimiter.IPMiddleware(http.HandlerFunc(passkeyHandler.HandleLoginFinish)))
+	mux.HandleFunc("GET /.well-known/apple-app-site-association", passkeyHandler.HandleAASA)
 
 	// WS ticket (with auth).
 	mux.Handle("POST /v1/auth/ws-ticket", authMiddleware(http.HandlerFunc(handler.HandleCreateTicket(ticketStore))))
@@ -395,6 +421,7 @@ func main() {
 
 	close(ticketStop)
 	close(nonceStop)
+	close(webauthnSessionStop)
 	close(loginCleanupStop)
 	close(retentionStop)
 	rateLimiter.Stop()

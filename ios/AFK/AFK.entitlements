@@ -4,5 +4,10 @@
 <dict>
 	<key>aps-environment</key>
 	<string>production</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:afk.ahmetbirinci.dev</string>
+		<string>webcredentials:afk-dev.ahmetbirinci.dev?mode=developer</string>
+	</array>
 </dict>
 </plist>

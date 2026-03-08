@@ -283,3 +283,97 @@ func GetUserTier(db *sql.DB, userID string) (string, error) {
 	}
 	return tier, nil
 }
+
+// Passkey Credentials
+
+type PasskeyCredential struct {
+	ID              string
+	UserID          string
+	CredentialID    []byte
+	PublicKey       []byte
+	AttestationType string
+	Transport       string
+	SignCount       int
+	AAGUID          []byte
+	CloneWarning    int
+	BackupEligible  bool
+	BackupState     bool
+	FriendlyName    string
+	CreatedAt       time.Time
+	LastUsedAt      time.Time
+}
+
+func CreatePasskeyCredential(db *sql.DB, id, userID string, credentialID, publicKey []byte, attestationType, transport string, aaguid []byte, friendlyName string, backupEligible, backupState bool) error {
+	be, bs := 0, 0
+	if backupEligible {
+		be = 1
+	}
+	if backupState {
+		bs = 1
+	}
+	_, err := db.Exec(`
+		INSERT INTO passkey_credentials (id, user_id, credential_id, public_key, attestation_type, transport, aaguid, friendly_name, backup_eligible, backup_state)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, userID, credentialID, publicKey, attestationType, transport, aaguid, friendlyName, be, bs)
+	if err != nil {
+		return fmt.Errorf("create passkey credential: %w", err)
+	}
+	return nil
+}
+
+func GetPasskeyCredentials(db *sql.DB, userID string) ([]PasskeyCredential, error) {
+	rows, err := db.Query(`
+		SELECT id, user_id, credential_id, public_key, attestation_type, transport, sign_count, aaguid, clone_warning, backup_eligible, backup_state, friendly_name, created_at, last_used_at
+		FROM passkey_credentials WHERE user_id = ?
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get passkey credentials: %w", err)
+	}
+	defer rows.Close()
+
+	var creds []PasskeyCredential
+	for rows.Next() {
+		var c PasskeyCredential
+		var be, bs int
+		if err := rows.Scan(&c.ID, &c.UserID, &c.CredentialID, &c.PublicKey, &c.AttestationType, &c.Transport, &c.SignCount, &c.AAGUID, &c.CloneWarning, &be, &bs, &c.FriendlyName, &c.CreatedAt, &c.LastUsedAt); err != nil {
+			return nil, fmt.Errorf("scan passkey credential: %w", err)
+		}
+		c.BackupEligible = be != 0
+		c.BackupState = bs != 0
+		creds = append(creds, c)
+	}
+	return creds, nil
+}
+
+func UpdatePasskeySignCount(db *sql.DB, credentialIDBase64 string, signCount int) error {
+	_, err := db.Exec(`
+		UPDATE passkey_credentials SET sign_count = ?, last_used_at = CURRENT_TIMESTAMP WHERE id = ?
+	`, signCount, credentialIDBase64)
+	if err != nil {
+		return fmt.Errorf("update passkey sign count: %w", err)
+	}
+	return nil
+}
+
+func GetUserByPasskeyCredentialID(db *sql.DB, credentialID []byte) (*model.User, string, error) {
+	var u model.User
+	var appleUserID sql.NullString
+	var subscriptionExpiresAt sql.NullTime
+	var passkeyID string
+	err := db.QueryRow(`
+		SELECT u.id, u.apple_user_id, u.email, u.display_name, u.subscription_tier, u.subscription_expires_at, u.created_at, u.updated_at, pc.id
+		FROM passkey_credentials pc
+		JOIN users u ON u.id = pc.user_id
+		WHERE pc.credential_id = ?
+	`, credentialID).Scan(&u.ID, &appleUserID, &u.Email, &u.DisplayName, &u.SubscriptionTier, &subscriptionExpiresAt, &u.CreatedAt, &u.UpdatedAt, &passkeyID)
+	if err != nil {
+		return nil, "", fmt.Errorf("get user by passkey credential: %w", err)
+	}
+	if appleUserID.Valid {
+		u.AppleUserID = appleUserID.String
+	}
+	if subscriptionExpiresAt.Valid {
+		u.SubscriptionExpiresAt = &subscriptionExpiresAt.Time
+	}
+	return &u, passkeyID, nil
+}

@@ -45,10 +45,15 @@ struct APIClient: Sendable {
         guard (200...299).contains(http.statusCode) else {
             let code = http.statusCode
             let message: String
-            switch code {
-            case 401: message = "Invalid email or password"
-            case 429: message = "Too many login attempts"
-            default: message = "Login failed: HTTP \(code)"
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let serverMsg = json["error"] as? String {
+                message = serverMsg
+            } else {
+                switch code {
+                case 401: message = "Invalid email or password"
+                case 429: message = "Too many login attempts"
+                default: message = "Login failed: HTTP \(code)"
+                }
             }
             throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: message])
         }
@@ -74,10 +79,16 @@ struct APIClient: Sendable {
         }
         guard (200...299).contains(http.statusCode) else {
             let code = http.statusCode
+            // Parse server error message from JSON response body.
             let message: String
-            switch code {
-            case 409: message = "Email already registered"
-            default: message = "Registration failed: HTTP \(code)"
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let serverMsg = json["error"] as? String {
+                message = serverMsg
+            } else {
+                switch code {
+                case 409: message = "Email already registered"
+                default: message = "Registration failed: HTTP \(code)"
+                }
             }
             throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: message])
         }
@@ -243,6 +254,7 @@ struct AuthResponse: Codable, Sendable {
 
 struct AuthUser: Codable, Sendable {
     let id: String
+    let email: String?
     let displayName: String
 }
 
@@ -282,4 +294,114 @@ struct LogUploadEntry: Codable, Sendable {
     let subsystem: String
     let message: String
     let metadata: [String: String]?
+}
+
+// MARK: - Passkey API
+
+extension APIClient {
+    static func passkeyLoginBegin(baseURL: String) async throws -> [String: Any] {
+        guard let url = URL(string: "\(baseURL)/v1/auth/passkey/login/begin") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [String: String]())
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Passkey login begin failed: HTTP \(code)"])
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "APIClient", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid passkey response"])
+        }
+        return json
+    }
+
+    static func passkeyLoginFinish(baseURL: String, sessionKey: String, credentialID: Data, authenticatorData: Data, clientDataJSON: Data, signature: Data, userHandle: Data) async throws -> AuthResponse {
+        guard let url = URL(string: "\(baseURL)/v1/auth/passkey/login/finish") else {
+            throw URLError(.badURL)
+        }
+        let body: [String: Any] = [
+            "sessionKey": sessionKey,
+            "id": credentialID.base64URLEncodedString(),
+            "rawId": credentialID.base64URLEncodedString(),
+            "type": "public-key",
+            "response": [
+                "authenticatorData": authenticatorData.base64URLEncodedString(),
+                "clientDataJSON": clientDataJSON.base64URLEncodedString(),
+                "signature": signature.base64URLEncodedString(),
+                "userHandle": userHandle.base64URLEncodedString()
+            ]
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Passkey login finish failed: HTTP \(code)"])
+        }
+        return try JSONDecoder().decode(AuthResponse.self, from: data)
+    }
+
+    static func passkeyRegisterBegin(baseURL: String, token: String) async throws -> [String: Any] {
+        guard let url = URL(string: "\(baseURL)/v1/auth/passkey/register/begin") else {
+            throw URLError(.badURL)
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [String: String]())
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Passkey register begin failed: HTTP \(code)"])
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw NSError(domain: "APIClient", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid passkey response"])
+        }
+        return json
+    }
+
+    static func passkeyRegisterFinish(baseURL: String, token: String, sessionKey: String, credentialID: Data, attestationObject: Data, clientDataJSON: Data) async throws {
+        guard let url = URL(string: "\(baseURL)/v1/auth/passkey/register/finish") else {
+            throw URLError(.badURL)
+        }
+        let body: [String: Any] = [
+            "sessionKey": sessionKey,
+            "id": credentialID.base64URLEncodedString(),
+            "rawId": credentialID.base64URLEncodedString(),
+            "type": "public-key",
+            "response": [
+                "attestationObject": attestationObject.base64URLEncodedString(),
+                "clientDataJSON": clientDataJSON.base64URLEncodedString()
+            ]
+        ]
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            throw NSError(domain: "APIClient", code: code, userInfo: [NSLocalizedDescriptionKey: "Passkey register finish failed: HTTP \(code)"])
+        }
+    }
+}
+
+private extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
 }

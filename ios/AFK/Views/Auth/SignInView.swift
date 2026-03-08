@@ -227,13 +227,20 @@ struct SignInView: View {
     @State private var isRegistering = false
     @State private var errorMessage = ""
     @State private var isLoading = false
+    @State private var showPasskeySetup = false
+    @AppStorage("hasOfferedPasskeySetup", store: BuildEnvironment.userDefaults) private var hasOfferedPasskeySetup = false
 
     private var passwordsMatch: Bool { password == confirmPassword }
     private var passwordLongEnough: Bool { password.count >= 8 }
+    private var hasUppercase: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
+    private var hasLowercase: Bool { password.range(of: "[a-z]", options: .regularExpression) != nil }
+    private var hasDigit: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
+    private var hasSpecialChar: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
+    private var passwordMeetsComplexity: Bool { passwordLongEnough && hasUppercase && hasLowercase && hasDigit && hasSpecialChar }
 
     private var canSubmit: Bool {
         if isRegistering {
-            return !email.isEmpty && passwordLongEnough && passwordsMatch && !isLoading
+            return !email.isEmpty && passwordMeetsComplexity && passwordsMatch && !isLoading
         } else {
             return !email.isEmpty && !password.isEmpty && !isLoading
         }
@@ -281,6 +288,32 @@ struct SignInView: View {
                         .padding(.top, 100)
                         .padding(.bottom, 32)
 
+                        // MARK: Passkey
+                        if !isRegistering {
+                            Button {
+                                loginWithPasskey()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "person.badge.key.fill")
+                                        .font(.body)
+                                    Text("Sign in with Passkey")
+                                        .fontWeight(.medium)
+                                }
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 50)
+                                .background(Color.white.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 32)
+                            .padding(.bottom, 8)
+                        }
+
                         // MARK: Text Fields
                         VStack(spacing: 12) {
                             if isRegistering {
@@ -325,17 +358,15 @@ struct SignInView: View {
                         .padding(.horizontal, 32)
 
                         // MARK: Validation hints (register mode)
-                        if isRegistering {
+                        if isRegistering && !password.isEmpty {
                             VStack(alignment: .leading, spacing: 4) {
-                                if !password.isEmpty && !passwordLongEnough {
-                                    Text("Password must be at least 8 characters")
-                                        .font(.caption)
-                                        .foregroundStyle(.red.opacity(0.9))
-                                }
+                                hintRow(met: passwordLongEnough, text: "At least 8 characters")
+                                hintRow(met: hasUppercase, text: "One uppercase letter")
+                                hintRow(met: hasLowercase, text: "One lowercase letter")
+                                hintRow(met: hasDigit, text: "One digit")
+                                hintRow(met: hasSpecialChar, text: "One special character")
                                 if !confirmPassword.isEmpty && !passwordsMatch {
-                                    Text("Passwords do not match")
-                                        .font(.caption)
-                                        .foregroundStyle(.red.opacity(0.9))
+                                    hintRow(met: false, text: "Passwords match")
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -422,6 +453,43 @@ struct SignInView: View {
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showPasskeySetup) {
+            PasskeySetupView(authService: authService) {
+                showPasskeySetup = false
+            }
+        }
+    }
+
+    // MARK: - Hint Row
+
+    @ViewBuilder
+    private func hintRow(met: Bool, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: met ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundStyle(met ? .green.opacity(0.8) : .white.opacity(0.35))
+                .font(.caption2)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(met ? .white.opacity(0.7) : .white.opacity(0.4))
+        }
+    }
+
+    // MARK: - Passkey
+
+    private func loginWithPasskey() {
+        isLoading = true
+        Task {
+            do {
+                try await authService.loginWithPasskey()
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+        }
     }
 
     // MARK: - Submit
@@ -440,8 +508,18 @@ struct SignInView: View {
                         password: password,
                         displayName: displayName
                     )
+                    await MainActor.run {
+                        isLoading = false
+                        showPasskeySetup = true
+                    }
                 } else {
                     try await authService.signIn(email: email, password: password)
+                    await MainActor.run {
+                        isLoading = false
+                        if !hasOfferedPasskeySetup {
+                            showPasskeySetup = true
+                        }
+                    }
                 }
             } catch {
                 await MainActor.run {

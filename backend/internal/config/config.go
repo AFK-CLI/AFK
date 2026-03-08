@@ -24,6 +24,9 @@ type Config struct {
 	LogLevel         string
 	AdminSecret      string
 	TrustedProxies   []string
+	WebAuthnRPID     string
+	WebAuthnRPOrigin string
+	WebAuthnRPName   string
 }
 
 func Load() *Config {
@@ -47,6 +50,9 @@ func Load() *Config {
 		LogLevel:         getEnv("AFK_LOG_LEVEL", "info"),
 		AdminSecret:      getEnv("AFK_ADMIN_SECRET", ""),
 		TrustedProxies:   splitCSV(getEnv("AFK_TRUSTED_PROXIES", "")),
+		WebAuthnRPID:     getEnv("AFK_WEBAUTHN_RP_ID", "afk.ahmetbirinci.dev"),
+		WebAuthnRPOrigin: getEnv("AFK_WEBAUTHN_RP_ORIGIN", "https://afk.ahmetbirinci.dev"),
+		WebAuthnRPName:   getEnv("AFK_WEBAUTHN_RP_NAME", "AFK"),
 	}
 }
 

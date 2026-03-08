@@ -3,6 +3,7 @@
 //  AFK-Agent
 //
 
+import AuthenticationServices
 import SwiftUI
 
 // MARK: - Starfield Background
@@ -206,6 +207,18 @@ struct AgentSignInView: View {
     @State private var isRegistering = false
     @State private var errorMessage = ""
     @State private var isLoading = false
+    @State private var confirmPassword = ""
+    @State private var pendingAuth: (token: String, refreshToken: String, userId: String, email: String)?
+    @State private var isRegisteringPasskey = false
+    @State private var passkeySuccess = false
+
+    private var passwordLongEnough: Bool { password.count >= 8 }
+    private var passwordsMatch: Bool { password == confirmPassword }
+    private var hasUppercase: Bool { password.range(of: "[A-Z]", options: .regularExpression) != nil }
+    private var hasLowercase: Bool { password.range(of: "[a-z]", options: .regularExpression) != nil }
+    private var hasDigit: Bool { password.range(of: "[0-9]", options: .regularExpression) != nil }
+    private var hasSpecialChar: Bool { password.range(of: "[^A-Za-z0-9]", options: .regularExpression) != nil }
+    private var passwordMeetsComplexity: Bool { passwordLongEnough && hasUppercase && hasLowercase && hasDigit && hasSpecialChar }
 
     private var httpBaseURL: String {
         serverURL
@@ -230,111 +243,262 @@ struct AgentSignInView: View {
                 .ignoresSafeArea()
 
             // MARK: - Content
-            VStack(spacing: 0) {
-                // MARK: Hero
-                VStack(spacing: 12) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
-                        .frame(width: 88, height: 88)
-                        .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
-                        .modifier(BobAnimation())
+            if let auth = pendingAuth {
+                // MARK: Passkey Setup
+                VStack(spacing: 0) {
+                    Spacer()
 
-                    Text("AFK Agent")
-                        .font(.title.weight(.bold))
+                    Image(systemName: "person.badge.key.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.23, green: 0.48, blue: 0.97),
+                                    Color(red: 0.15, green: 0.39, blue: 0.92)
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .padding(.bottom, 16)
+
+                    Text("Secure your account with a Passkey")
+                        .font(.headline)
                         .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 6)
 
-                    Text("Connect this Mac to your AFK server")
-                        .font(.body)
+                    Text("Sign in faster next time with Touch ID.\nNo password needed.")
+                        .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.6))
-                }
-                .padding(.top, 32)
-                .padding(.bottom, 24)
+                        .multilineTextAlignment(.center)
+                        .padding(.bottom, 20)
 
-                // MARK: Text fields
-                VStack(spacing: 12) {
-                    if isRegistering {
-                        DarkTextField(
-                            icon: "person.fill",
-                            placeholder: "Display Name",
-                            text: $displayName
-                        )
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-
-                    DarkTextField(
-                        icon: "envelope",
-                        placeholder: "Email",
-                        text: $email,
-                        contentType: .emailAddress
-                    )
-
-                    DarkTextField(
-                        icon: "lock",
-                        placeholder: "Password",
-                        text: $password,
-                        isSecure: true,
-                        contentType: isRegistering ? .newPassword : .password,
-                        onSubmit: { submit() }
-                    )
-                }
-                .padding(.horizontal, 32)
-
-                // MARK: Error banner
-                if !errorMessage.isEmpty {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red.opacity(0.9))
-                            .font(.caption)
-                        Text(errorMessage)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.15))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .padding(.horizontal, 32)
-                    .padding(.top, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                // MARK: Action buttons
-                VStack(spacing: 12) {
-                    PrimaryButton(
-                        title: isRegistering ? "Create Account" : "Sign In",
-                        isDisabled: email.isEmpty || password.isEmpty
-                            || (isRegistering && displayName.isEmpty)
-                            || isLoading,
-                        action: { submit() }
-                    )
-
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isRegistering.toggle()
-                            errorMessage = ""
+                    if passkeySuccess {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Passkey created!")
+                                .foregroundStyle(.white.opacity(0.9))
+                                .font(.subheadline)
                         }
-                    } label: {
-                        Text(
-                            isRegistering
-                                ? "Already have an account? Sign In"
-                                : "Don't have an account? Create one"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.5))
+                        .padding(10)
+                        .background(Color.green.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.bottom, 12)
                     }
-                    .buttonStyle(.plain)
+
+                    if !errorMessage.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red.opacity(0.9))
+                                .font(.caption)
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.9))
+                                .lineLimit(2)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.15))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.bottom, 12)
+                    }
+
+                    Spacer()
+
+                    VStack(spacing: 10) {
+                        PrimaryButton(
+                            title: passkeySuccess ? "Continue" : "Create Passkey",
+                            isDisabled: isRegisteringPasskey,
+                            action: {
+                                if passkeySuccess {
+                                    onAuthenticated(auth.token, auth.refreshToken, auth.userId, auth.email)
+                                } else {
+                                    registerPasskeyForAgent(auth: auth)
+                                }
+                            }
+                        )
+
+                        if !passkeySuccess {
+                            Button {
+                                onAuthenticated(auth.token, auth.refreshToken, auth.userId, auth.email)
+                            } label: {
+                                Text("Skip")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.5))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isRegisteringPasskey)
+                        }
+                    }
+                    .padding(.bottom, 32)
                 }
                 .padding(.horizontal, 32)
-                .padding(.top, 20)
-                .padding(.bottom, 32)
+                .frame(width: 380)
+            } else {
+                VStack(spacing: 0) {
+                    // MARK: Hero
+                    VStack(spacing: 12) {
+                        Image(nsImage: NSApp.applicationIconImage)
+                            .resizable()
+                            .frame(width: 88, height: 88)
+                            .shadow(color: .black.opacity(0.3), radius: 12, y: 6)
+                            .modifier(BobAnimation())
+
+                        Text("AFK Agent")
+                            .font(.title.weight(.bold))
+                            .foregroundStyle(.white)
+
+                        Text("Connect this Mac to your AFK server")
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                    .padding(.top, 32)
+                    .padding(.bottom, 24)
+
+                    // MARK: Passkey
+                    if !isRegistering {
+                        Button {
+                            loginWithPasskey()
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.badge.key.fill")
+                                    .font(.body)
+                                Text("Sign in with Passkey")
+                                    .fontWeight(.medium)
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 32)
+                        .padding(.bottom, 8)
+                    }
+
+                    // MARK: Text fields
+                    VStack(spacing: 12) {
+                        if isRegistering {
+                            DarkTextField(
+                                icon: "person.fill",
+                                placeholder: "Display Name",
+                                text: $displayName
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+
+                        DarkTextField(
+                            icon: "envelope",
+                            placeholder: "Email",
+                            text: $email,
+                            contentType: .emailAddress
+                        )
+
+                        DarkTextField(
+                            icon: "lock",
+                            placeholder: "Password",
+                            text: $password,
+                            isSecure: true,
+                            contentType: isRegistering ? .newPassword : .password,
+                            onSubmit: { submit() }
+                        )
+
+                        if isRegistering {
+                            DarkTextField(
+                                icon: "lock.fill",
+                                placeholder: "Confirm Password",
+                                text: $confirmPassword,
+                                isSecure: true,
+                                contentType: .newPassword,
+                                onSubmit: { submit() }
+                            )
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                    .padding(.horizontal, 32)
+
+                    // MARK: Validation hints (register mode)
+                    if isRegistering && !password.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            hintRow(met: passwordLongEnough, text: "At least 8 characters")
+                            hintRow(met: hasUppercase, text: "One uppercase letter")
+                            hintRow(met: hasLowercase, text: "One lowercase letter")
+                            hintRow(met: hasDigit, text: "One digit")
+                            hintRow(met: hasSpecialChar, text: "One special character")
+                            if !confirmPassword.isEmpty && !passwordsMatch {
+                                hintRow(met: false, text: "Passwords match")
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 36)
+                        .padding(.top, 4)
+                    }
+
+                    // MARK: Error banner
+                    if !errorMessage.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.red.opacity(0.9))
+                                .font(.caption)
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.9))
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.15))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(Color.red.opacity(0.3), lineWidth: 1)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 32)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    // MARK: Action buttons
+                    VStack(spacing: 12) {
+                        PrimaryButton(
+                            title: isRegistering ? "Create Account" : "Sign In",
+                            isDisabled: email.isEmpty || password.isEmpty
+                                || (isRegistering && (displayName.isEmpty || !passwordMeetsComplexity || !passwordsMatch))
+                                || isLoading,
+                            action: { submit() }
+                        )
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                isRegistering.toggle()
+                                errorMessage = ""
+                                confirmPassword = ""
+                            }
+                        } label: {
+                            Text(
+                                isRegistering
+                                    ? "Already have an account? Sign In"
+                                    : "Don't have an account? Create one"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 32)
+                    .padding(.top, 20)
+                    .padding(.bottom, 32)
+                }
+                .frame(width: 380)
             }
-            .frame(width: 380)
 
             // MARK: Loading overlay
             if isLoading {
@@ -376,13 +540,92 @@ struct AgentSignInView: View {
         }
     }
 
+    // MARK: - Hint Row
+
+    @ViewBuilder
+    private func hintRow(met: Bool, text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: met ? "checkmark.circle.fill" : "xmark.circle")
+                .foregroundStyle(met ? .green.opacity(0.8) : .white.opacity(0.35))
+                .font(.caption2)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(met ? .white.opacity(0.7) : .white.opacity(0.4))
+        }
+    }
+
     // MARK: - Apple Sign-In
+
+    // MARK: - Passkey Sign-In
+
+    private func loginWithPasskey() {
+        guard #available(macOS 13.0, *) else { return }
+        isLoading = true
+        Task {
+            do {
+                let resp = try await APIClient.passkeyLoginBegin(baseURL: httpBaseURL)
+                guard let sessionKey = resp["sessionKey"] as? String,
+                      let publicKeyDict = resp["publicKey"] as? [String: Any],
+                      let challengeB64 = publicKeyDict["challenge"] as? String,
+                      let challengeData = Data(base64URLEncoded: challengeB64),
+                      let rpId = publicKeyDict["rpId"] as? String else {
+                    throw NSError(domain: "Passkey", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])
+                }
+
+                let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpId)
+                let assertionRequest = provider.createCredentialAssertionRequest(challenge: challengeData)
+
+                let credential = try await performAuthorizationRequest(assertionRequest)
+                guard let assertion = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
+                    throw NSError(domain: "Passkey", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unexpected credential type"])
+                }
+
+                let authResp = try await APIClient.passkeyLoginFinish(
+                    baseURL: httpBaseURL,
+                    sessionKey: sessionKey,
+                    credentialID: assertion.credentialID,
+                    authenticatorData: assertion.rawAuthenticatorData,
+                    clientDataJSON: assertion.rawClientDataJSON,
+                    signature: assertion.signature,
+                    userHandle: assertion.userID
+                )
+
+                await MainActor.run {
+                    onAuthenticated(authResp.accessToken, authResp.refreshToken, authResp.user.id, authResp.user.email ?? "")
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = error.localizedDescription
+                    }
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func performAuthorizationRequest(_ request: ASAuthorizationRequest, preferImmediatelyAvailable: Bool = false) async throws -> ASAuthorizationCredential {
+        try await withCheckedThrowingContinuation { continuation in
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            let delegate = PasskeyDelegate(continuation: continuation)
+            controller.delegate = delegate
+            controller.presentationContextProvider = delegate
+            objc_setAssociatedObject(controller, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            if #available(macOS 14.0, *), preferImmediatelyAvailable {
+                controller.performRequests(options: .preferImmediatelyAvailableCredentials)
+            } else {
+                controller.performRequests()
+            }
+        }
+    }
 
     // MARK: - Email/Password Submit
 
     private func submit() {
         guard !email.isEmpty, !password.isEmpty else { return }
         if isRegistering && displayName.isEmpty { return }
+        if isRegistering && (!passwordMeetsComplexity || !passwordsMatch) { return }
 
         withAnimation(.easeInOut(duration: 0.25)) { errorMessage = "" }
         isLoading = true
@@ -405,7 +648,11 @@ struct AgentSignInView: View {
                     )
                 }
                 await MainActor.run {
-                    onAuthenticated(resp.accessToken, resp.refreshToken, resp.user.id, email)
+                    isLoading = false
+                    errorMessage = ""
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        pendingAuth = (resp.accessToken, resp.refreshToken, resp.user.id, email)
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -416,5 +663,113 @@ struct AgentSignInView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Passkey Registration
+
+    private func registerPasskeyForAgent(auth: (token: String, refreshToken: String, userId: String, email: String)) {
+        guard #available(macOS 13.0, *) else {
+            onAuthenticated(auth.token, auth.refreshToken, auth.userId, auth.email)
+            return
+        }
+        isRegisteringPasskey = true
+        errorMessage = ""
+
+        Task {
+            do {
+                let beginResp = try await APIClient.passkeyRegisterBegin(baseURL: httpBaseURL, token: auth.token)
+                guard let sessionKey = beginResp["sessionKey"] as? String,
+                      let publicKeyDict = beginResp["publicKey"] as? [String: Any],
+                      let challengeB64 = publicKeyDict["challenge"] as? String,
+                      let challengeData = Data(base64URLEncoded: challengeB64),
+                      let rpDict = publicKeyDict["rp"] as? [String: Any],
+                      let rpId = rpDict["id"] as? String,
+                      let userDict = publicKeyDict["user"] as? [String: Any],
+                      let userIdB64 = userDict["id"] as? String,
+                      let userId = Data(base64URLEncoded: userIdB64),
+                      let userName = userDict["name"] as? String else {
+                    throw NSError(domain: "Passkey", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid server response"])
+                }
+
+                let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpId)
+                let registrationRequest = provider.createCredentialRegistrationRequest(
+                    challenge: challengeData,
+                    name: userName,
+                    userID: userId
+                )
+
+                let result = try await performAuthorizationRequest(registrationRequest)
+                guard let credential = result as? ASAuthorizationPlatformPublicKeyCredentialRegistration,
+                      let attestationObject = credential.rawAttestationObject else {
+                    throw NSError(domain: "Passkey", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unexpected credential type"])
+                }
+
+                try await APIClient.passkeyRegisterFinish(
+                    baseURL: httpBaseURL,
+                    token: auth.token,
+                    sessionKey: sessionKey,
+                    credentialID: credential.credentialID,
+                    attestationObject: attestationObject,
+                    clientDataJSON: credential.rawClientDataJSON
+                )
+
+                await MainActor.run {
+                    isRegisteringPasskey = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        passkeySuccess = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = error.localizedDescription
+                    }
+                    isRegisteringPasskey = false
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Passkey Delegate
+
+private class PasskeyDelegate: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    let continuation: CheckedContinuation<ASAuthorizationCredential, any Error>
+
+    init(continuation: CheckedContinuation<ASAuthorizationCredential, any Error>) {
+        self.continuation = continuation
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        continuation.resume(returning: authorization.credential)
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: any Error) {
+        continuation.resume(throwing: error)
+    }
+}
+
+// MARK: - Base64URL Data Extension
+
+private extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    init?(base64URLEncoded string: String) {
+        var base64 = string
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 {
+            base64.append("=")
+        }
+        self.init(base64Encoded: base64)
     }
 }

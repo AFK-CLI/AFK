@@ -299,6 +299,32 @@ func (h *Hub) HasActiveIOSConns(userID string) bool {
 	return len(h.ios[userID]) > 0
 }
 
+// SendToUserAgents sends a message to all agent connections for a user.
+func (h *Hub) SendToUserAgents(userID string, msg *model.WSMessage) {
+	h.mu.RLock()
+	var userAgents []*AgentConn
+	for _, ac := range h.agents {
+		if ac.UserID == userID {
+			userAgents = append(userAgents, ac)
+		}
+	}
+	h.mu.RUnlock()
+
+	data, err := marshalMsg(msg)
+	if err != nil {
+		return
+	}
+	for _, ac := range userAgents {
+		select {
+		case ac.Send <- data:
+			ac.droppedConsec.Store(0)
+		default:
+			ac.droppedTotal.Add(1)
+			ac.droppedConsec.Add(1)
+		}
+	}
+}
+
 // CacheControlState stores the last agent.control_state message for a device.
 func (h *Hub) CacheControlState(deviceID string, msg *model.WSMessage) {
 	h.mu.Lock()

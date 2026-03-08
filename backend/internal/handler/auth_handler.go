@@ -28,10 +28,14 @@ func sanitizeText(s string) string {
 // maxAuthBodySize limits the request body for auth endpoints (1 MB).
 const maxAuthBodySize = 1 << 20
 
-// TODO: Password complexity rules — require at least one uppercase, lowercase, digit, or special char
+// Rate limiting constants for login attempts.
+const (
+	maxFailedPerIPEmail = 5
+	maxFailedPerIP      = 20
+	rateLimitWindow     = 15 * time.Minute
+)
+
 // TODO: Email verification — send confirmation link before account is fully active
-// TODO: Per-IP rate limiting — current rate limit is per-email only; add IP-based throttle for credential stuffing
-// TODO: Passkey/WebAuthn support — ASAuthorizationPlatformPublicKeyCredentialProvider on iOS + WebAuthn endpoints
 
 type AuthHandler struct {
 	DB              *sql.DB
@@ -209,6 +213,11 @@ func (h *AuthHandler) HandleEmailRegister(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	if ok, msg := validatePasswordComplexity(req.Password); !ok {
+		writeError(w, msg, http.StatusBadRequest)
+		return
+	}
+
 	// Check if email already registered. Return a generic error message
 	// to prevent email enumeration (attacker cannot distinguish registered
 	// vs unregistered emails from the response).
@@ -273,11 +282,18 @@ func (h *AuthHandler) HandleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	ip := truncateIP(r.RemoteAddr)
 
-	// Rate limiting: max 5 failed attempts per IP+email composite key per 15 minutes.
-	// Using IP+email prevents a remote attacker from locking out all IPs for an account.
+	// Per-IP rate limiting: block IPs with excessive failed attempts across all accounts.
+	ipKey := "ip:" + ip
+	ipFailCount, _ := db.CountRecentFailedAttempts(h.DB, ipKey, rateLimitWindow)
+	if ipFailCount >= maxFailedPerIP {
+		writeError(w, "too many login attempts, try again later", http.StatusTooManyRequests)
+		return
+	}
+
+	// Per-IP+email rate limiting: prevents brute-forcing a single account.
 	lockoutKey := ip + ":" + email
-	failCount, _ := db.CountRecentFailedAttempts(h.DB, lockoutKey, 15*time.Minute)
-	if failCount >= 5 {
+	failCount, _ := db.CountRecentFailedAttempts(h.DB, lockoutKey, rateLimitWindow)
+	if failCount >= maxFailedPerIPEmail {
 		writeError(w, "too many login attempts, try again later", http.StatusTooManyRequests)
 		return
 	}
@@ -285,6 +301,7 @@ func (h *AuthHandler) HandleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	user, err := db.GetUserByEmail(h.DB, email)
 	if err != nil {
 		db.RecordLoginAttempt(h.DB, lockoutKey, false, ip)
+		db.RecordLoginAttempt(h.DB, ipKey, false, ip)
 		writeError(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
@@ -292,17 +309,20 @@ func (h *AuthHandler) HandleEmailLogin(w http.ResponseWriter, r *http.Request) {
 	storedHash, err := db.GetPasswordHash(h.DB, user.ID)
 	if err != nil {
 		db.RecordLoginAttempt(h.DB, lockoutKey, false, ip)
+		db.RecordLoginAttempt(h.DB, ipKey, false, ip)
 		writeError(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
 		db.RecordLoginAttempt(h.DB, lockoutKey, false, ip)
+		db.RecordLoginAttempt(h.DB, ipKey, false, ip)
 		writeError(w, "invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
 	db.RecordLoginAttempt(h.DB, lockoutKey, true, ip)
+	db.RecordLoginAttempt(h.DB, ipKey, true, ip)
 
 	tokenPair, err := auth.IssueTokenPair(user.ID, h.JWTSecret)
 	if err != nil {
@@ -358,6 +378,37 @@ func isValidEmail(email string) bool {
 		return false
 	}
 	return strings.Contains(parts[1], ".")
+}
+
+// validatePasswordComplexity checks that the password contains at least one
+// uppercase letter, one lowercase letter, one digit, and one special character.
+func validatePasswordComplexity(password string) (bool, string) {
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, r := range password {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= 'a' && r <= 'z':
+			hasLower = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+	if !hasUpper {
+		return false, "password must contain at least one uppercase letter"
+	}
+	if !hasLower {
+		return false, "password must contain at least one lowercase letter"
+	}
+	if !hasDigit {
+		return false, "password must contain at least one digit"
+	}
+	if !hasSpecial {
+		return false, "password must contain at least one special character"
+	}
+	return true, ""
 }
 
 // truncateIP masks an IP address for privacy: IPv4 to /24, IPv6 to /48.

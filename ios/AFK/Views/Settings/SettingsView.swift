@@ -14,6 +14,9 @@ struct SettingsView: View {
     @State private var isSharingLogs = false
     @State private var showShareLogsResult = false
     @State private var shareLogsCount = 0
+    @State private var isRegisteringPasskey = false
+    @State private var passkeyResultMessage = ""
+    @State private var showPasskeyResult = false
 
     var body: some View {
         NavigationStack {
@@ -45,6 +48,29 @@ struct SettingsView: View {
                 }
 
                 Section("Security") {
+                    Button {
+                        Task {
+                            isRegisteringPasskey = true
+                            do {
+                                try await authService.registerPasskey()
+                                passkeyResultMessage = "Passkey registered successfully."
+                            } catch {
+                                passkeyResultMessage = error.localizedDescription
+                            }
+                            isRegisteringPasskey = false
+                            showPasskeyResult = true
+                        }
+                    } label: {
+                        HStack {
+                            Label("Register a Passkey", systemImage: "person.badge.key.fill")
+                            Spacer()
+                            if isRegisteringPasskey {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isRegisteringPasskey)
+
                     if BiometricService.isAvailable {
                         Toggle(
                             "\(BiometricService.biometricType) for Commands",
@@ -112,6 +138,11 @@ struct SettingsView: View {
                 } else {
                     Text("No logs to share.")
                 }
+            }
+            .alert("Passkey", isPresented: $showPasskeyResult) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(passkeyResultMessage)
             }
         }
     }

@@ -377,6 +377,30 @@ CREATE TABLE IF NOT EXISTS beta_requests (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_beta_requests_email ON beta_requests(email);
 `
 
+const m15PasskeyCredentialsSQL = `
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    credential_id BLOB UNIQUE NOT NULL,
+    public_key BLOB NOT NULL,
+    attestation_type TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL DEFAULT '[]',
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    aaguid BLOB,
+    clone_warning INTEGER NOT NULL DEFAULT 0,
+    friendly_name TEXT NOT NULL DEFAULT 'Passkey',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_passkey_credentials_user ON passkey_credentials(user_id);
+CREATE INDEX idx_passkey_credentials_cred_id ON passkey_credentials(credential_id);
+`
+
+const m16PasskeyBackupFlagsSQL = `
+ALTER TABLE passkey_credentials ADD COLUMN backup_eligible INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE passkey_credentials ADD COLUMN backup_state INTEGER NOT NULL DEFAULT 1;
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -406,6 +430,8 @@ var migrations = []struct {
 	{Name: "023_feedback.up.sql", SQL: m12FeedbackSQL},
 	{Name: "024_session_cost.up.sql", SQL: m13SessionCostSQL},
 	{Name: "025_beta_requests.up.sql", SQL: m14BetaRequestsSQL},
+	{Name: "026_passkey_credentials.up.sql", SQL: m15PasskeyCredentialsSQL},
+	{Name: "027_passkey_backup_flags.up.sql", SQL: m16PasskeyBackupFlagsSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

@@ -1,5 +1,6 @@
 import Foundation
 import OSLog
+import AuthenticationServices
 
 @Observable
 final class AuthService: @unchecked Sendable {
@@ -118,6 +119,155 @@ final class AuthService: @unchecked Sendable {
         }
     }
 
+    @MainActor
+    func loginWithPasskey() async throws {
+        let beginURL = URL(string: "\(baseURL)/v1/auth/passkey/login/begin")!
+        var beginReq = URLRequest(url: beginURL)
+        beginReq.httpMethod = "POST"
+        beginReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        beginReq.httpBody = try JSONEncoder().encode([String: String]())
+
+        let (beginData, beginResp) = try await URLSession.shared.data(for: beginReq)
+        guard let beginHTTP = beginResp as? HTTPURLResponse, beginHTTP.statusCode == 200 else {
+            throw AuthError.serverError((beginResp as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        let beginJSON = try JSONSerialization.jsonObject(with: beginData) as? [String: Any] ?? [:]
+        guard let sessionKey = beginJSON["sessionKey"] as? String,
+              let publicKeyDict = beginJSON["publicKey"] as? [String: Any],
+              let challengeB64 = publicKeyDict["challenge"] as? String,
+              let challengeData = Data(base64URLEncoded: challengeB64),
+              let rpId = publicKeyDict["rpId"] as? String else {
+            throw AuthError.serverError(0)
+        }
+
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpId)
+        let assertionRequest = provider.createCredentialAssertionRequest(challenge: challengeData)
+
+        let result: ASAuthorizationCredential
+        do {
+            result = try await performAuthorizationRequest(assertionRequest, preferImmediatelyAvailable: true)
+        } catch let error as ASAuthorizationError where error.code == .canceled || error.code == .failed {
+            throw AuthError.noPasskeysFound
+        }
+        guard let credential = result as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
+            throw AuthError.serverError(0)
+        }
+
+        let finishBody: [String: Any] = [
+            "sessionKey": sessionKey,
+            "id": credential.credentialID.base64URLEncodedString(),
+            "rawId": credential.credentialID.base64URLEncodedString(),
+            "type": "public-key",
+            "response": [
+                "authenticatorData": credential.rawAuthenticatorData.base64URLEncodedString(),
+                "clientDataJSON": credential.rawClientDataJSON.base64URLEncodedString(),
+                "signature": credential.signature.base64URLEncodedString(),
+                "userHandle": credential.userID.base64URLEncodedString()
+            ]
+        ]
+
+        let finishURL = URL(string: "\(baseURL)/v1/auth/passkey/login/finish")!
+        var finishReq = URLRequest(url: finishURL)
+        finishReq.httpMethod = "POST"
+        finishReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        finishReq.httpBody = try JSONSerialization.data(withJSONObject: finishBody)
+
+        let (finishData, finishResp) = try await URLSession.shared.data(for: finishReq)
+        guard let finishHTTP = finishResp as? HTTPURLResponse, finishHTTP.statusCode == 200 else {
+            throw AuthError.serverError((finishResp as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        let authResponse = try JSONDecoder().decode(AuthResponse.self, from: finishData)
+        storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
+        accessToken = authResponse.accessToken
+        refreshToken = authResponse.refreshToken
+        currentUser = authResponse.user
+        isAuthenticated = true
+    }
+
+    @MainActor
+    func registerPasskey() async throws {
+        guard let accessToken else { throw URLError(.userAuthenticationRequired) }
+
+        let beginURL = URL(string: "\(baseURL)/v1/auth/passkey/register/begin")!
+        var beginReq = URLRequest(url: beginURL)
+        beginReq.httpMethod = "POST"
+        beginReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        beginReq.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        beginReq.httpBody = try JSONEncoder().encode([String: String]())
+
+        let (beginData, beginResp) = try await URLSession.shared.data(for: beginReq)
+        guard let beginHTTP = beginResp as? HTTPURLResponse, beginHTTP.statusCode == 200 else {
+            throw AuthError.serverError((beginResp as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+
+        let beginJSON = try JSONSerialization.jsonObject(with: beginData) as? [String: Any] ?? [:]
+        guard let sessionKey = beginJSON["sessionKey"] as? String,
+              let publicKeyDict = beginJSON["publicKey"] as? [String: Any],
+              let challengeB64 = publicKeyDict["challenge"] as? String,
+              let challengeData = Data(base64URLEncoded: challengeB64),
+              let rpDict = publicKeyDict["rp"] as? [String: Any],
+              let rpId = rpDict["id"] as? String,
+              let userDict = publicKeyDict["user"] as? [String: Any],
+              let userIdB64 = userDict["id"] as? String,
+              let userId = Data(base64URLEncoded: userIdB64),
+              let userName = userDict["name"] as? String else {
+            throw AuthError.serverError(0)
+        }
+
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: rpId)
+        let registrationRequest = provider.createCredentialRegistrationRequest(
+            challenge: challengeData,
+            name: userName,
+            userID: userId
+        )
+
+        let result = try await performAuthorizationRequest(registrationRequest)
+        guard let credential = result as? ASAuthorizationPlatformPublicKeyCredentialRegistration else {
+            throw AuthError.serverError(0)
+        }
+
+        let finishBody: [String: Any] = [
+            "sessionKey": sessionKey,
+            "id": credential.credentialID.base64URLEncodedString(),
+            "rawId": credential.credentialID.base64URLEncodedString(),
+            "type": "public-key",
+            "response": [
+                "attestationObject": credential.rawAttestationObject!.base64URLEncodedString(),
+                "clientDataJSON": credential.rawClientDataJSON.base64URLEncodedString()
+            ]
+        ]
+
+        let finishURL = URL(string: "\(baseURL)/v1/auth/passkey/register/finish")!
+        var finishReq = URLRequest(url: finishURL)
+        finishReq.httpMethod = "POST"
+        finishReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        finishReq.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        finishReq.httpBody = try JSONSerialization.data(withJSONObject: finishBody)
+
+        let (_, finishResp) = try await URLSession.shared.data(for: finishReq)
+        guard let finishHTTP = finishResp as? HTTPURLResponse, finishHTTP.statusCode == 200 else {
+            throw AuthError.serverError((finishResp as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+    }
+
+    @MainActor
+    private func performAuthorizationRequest(_ request: ASAuthorizationRequest, preferImmediatelyAvailable: Bool = false) async throws -> ASAuthorizationCredential {
+        try await withCheckedThrowingContinuation { continuation in
+            let controller = ASAuthorizationController(authorizationRequests: [request])
+            let delegate = PasskeyDelegate(continuation: continuation)
+            controller.delegate = delegate
+            controller.presentationContextProvider = delegate
+            objc_setAssociatedObject(controller, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN)
+            if preferImmediatelyAvailable {
+                controller.performRequests(options: .preferImmediatelyAvailableCredentials)
+            } else {
+                controller.performRequests()
+            }
+        }
+    }
+
     func signOut() {
         // Fire-and-forget logout to revoke refresh token on server
         if let refreshToken {
@@ -195,6 +345,7 @@ enum AuthError: LocalizedError {
     case invalidCredentials
     case emailAlreadyRegistered
     case tooManyAttempts
+    case noPasskeysFound
     case serverError(Int)
 
     var errorDescription: String? {
@@ -202,6 +353,7 @@ enum AuthError: LocalizedError {
         case .invalidCredentials: return "Invalid email or password"
         case .emailAlreadyRegistered: return "An account with this email already exists"
         case .tooManyAttempts: return "Too many login attempts. Please try again later."
+        case .noPasskeysFound: return "No passkeys found. Sign in with email first, then create a passkey from Settings."
         case .serverError(let code): return "Server error (\(code))"
         }
     }
@@ -229,5 +381,47 @@ private actor TokenRefreshCoordinator {
 
         defer { activeTask = nil }
         try await task.value
+    }
+}
+
+private class PasskeyDelegate: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+    let continuation: CheckedContinuation<ASAuthorizationCredential, any Error>
+
+    init(continuation: CheckedContinuation<ASAuthorizationCredential, any Error>) {
+        self.continuation = continuation
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
+        continuation.resume(returning: authorization.credential)
+    }
+
+    func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: any Error) {
+        continuation.resume(throwing: error)
+    }
+}
+
+extension Data {
+    func base64URLEncodedString() -> String {
+        base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    init?(base64URLEncoded string: String) {
+        var base64 = string
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 {
+            base64.append("=")
+        }
+        self.init(base64Encoded: base64)
     }
 }
