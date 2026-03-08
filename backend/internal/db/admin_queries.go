@@ -55,14 +55,15 @@ type TokenTimeseriesPoint struct {
 }
 
 type AdminUser struct {
-	ID               string  `json:"id"`
-	Email            string  `json:"email"`
-	DisplayName      string  `json:"displayName"`
-	SubscriptionTier string  `json:"subscriptionTier"`
-	AuthMethod       string  `json:"authMethod"`
-	DeviceCount      int     `json:"deviceCount"`
-	SessionCount     int     `json:"sessionCount"`
-	CreatedAt        string  `json:"createdAt"`
+	ID               string `json:"id"`
+	Email            string `json:"email"`
+	DisplayName      string `json:"displayName"`
+	SubscriptionTier string `json:"subscriptionTier"`
+	AuthMethod       string `json:"authMethod"`
+	EmailVerified    bool   `json:"emailVerified"`
+	DeviceCount      int    `json:"deviceCount"`
+	SessionCount     int    `json:"sessionCount"`
+	CreatedAt        string `json:"createdAt"`
 }
 
 type AdminLoginAttempt struct {
@@ -352,6 +353,7 @@ func AdminListUsers(d *sql.DB, search string, limit, offset int) ([]AdminUser, i
 				WHEN u.password_hash IS NOT NULL AND u.password_hash != '' THEN 'email'
 				ELSE 'unknown'
 			END as auth_method,
+			COALESCE(u.email_verified, 1) as email_verified,
 			(SELECT COUNT(*) FROM devices WHERE user_id = u.id AND is_revoked = 0) as device_count,
 			(SELECT COUNT(*) FROM sessions WHERE user_id = u.id) as session_count,
 			u.created_at
@@ -376,10 +378,12 @@ func AdminListUsers(d *sql.DB, search string, limit, offset int) ([]AdminUser, i
 	for rows.Next() {
 		var u AdminUser
 		var createdAt time.Time
+		var verified int
 		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.SubscriptionTier,
-			&u.AuthMethod, &u.DeviceCount, &u.SessionCount, &createdAt); err != nil {
+			&u.AuthMethod, &verified, &u.DeviceCount, &u.SessionCount, &createdAt); err != nil {
 			return nil, 0, fmt.Errorf("scan user: %w", err)
 		}
+		u.EmailVerified = verified != 0
 		u.CreatedAt = createdAt.Format(time.RFC3339)
 		users = append(users, u)
 	}
@@ -646,6 +650,7 @@ func AdminGetUserDetail(d *sql.DB, userID string) (*AdminUser, []AdminDeviceDeta
 	// Get user info.
 	var user AdminUser
 	var createdAt time.Time
+	var verified int
 	err := d.QueryRow(`
 		SELECT u.id, u.email, u.display_name, u.subscription_tier,
 			CASE
@@ -653,12 +658,14 @@ func AdminGetUserDetail(d *sql.DB, userID string) (*AdminUser, []AdminDeviceDeta
 				WHEN u.password_hash IS NOT NULL AND u.password_hash != '' THEN 'email'
 				ELSE 'unknown'
 			END as auth_method,
+			COALESCE(u.email_verified, 1) as email_verified,
 			(SELECT COUNT(*) FROM devices WHERE user_id = u.id AND is_revoked = 0) as device_count,
 			(SELECT COUNT(*) FROM sessions WHERE user_id = u.id) as session_count,
 			u.created_at
 		FROM users u WHERE u.id = ?
 	`, userID).Scan(&user.ID, &user.Email, &user.DisplayName, &user.SubscriptionTier,
-		&user.AuthMethod, &user.DeviceCount, &user.SessionCount, &createdAt)
+		&user.AuthMethod, &verified, &user.DeviceCount, &user.SessionCount, &createdAt)
+	user.EmailVerified = verified != 0
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("get user detail: %w", err)
 	}

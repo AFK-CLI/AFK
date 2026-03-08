@@ -20,6 +20,7 @@ const navItems = [
   { to: '/feedback', label: 'Feedback' },
   { to: '/beta', label: 'Beta Requests' },
   { to: '/server', label: 'Server' },
+  { to: '/profile', label: 'Profile' },
 ]
 
 const futureItems: { to: string; label: string; soon?: boolean }[] = []

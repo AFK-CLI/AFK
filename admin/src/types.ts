@@ -64,6 +64,7 @@ export interface AdminUser {
   displayName: string
   subscriptionTier: string
   authMethod: string
+  emailVerified: boolean
   deviceCount: number
   sessionCount: number
   createdAt: string

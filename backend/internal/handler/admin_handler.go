@@ -1,9 +1,11 @@
 package handler
 
 import (
-	"crypto/subtle"
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -11,10 +13,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
+
+	"github.com/AFK/afk-cloud/internal/auth"
 	"github.com/AFK/afk-cloud/internal/db"
 	"github.com/AFK/afk-cloud/internal/metrics"
+	"github.com/AFK/afk-cloud/internal/middleware"
 	"github.com/AFK/afk-cloud/internal/model"
 	"github.com/AFK/afk-cloud/internal/ws"
+	"github.com/pquerna/otp/totp"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const adminCookieName = "afk_admin_session"
@@ -85,28 +94,18 @@ func validatePathParam(w http.ResponseWriter, value, name string) bool {
 }
 
 type AdminHandler struct {
-	DB           *sql.DB
-	AdminSecret  string
-	Hub          *ws.Hub
-	Collector    *metrics.Collector
-	Version      string
-	SessionStore *AdminSessionStore
+	DB                    *sql.DB
+	Hub                   *ws.Hub
+	Collector             *metrics.Collector
+	Version               string
+	SessionStore          *AdminSessionStore
+	WebAuthn              *webauthn.WebAuthn
+	WebAuthnSessionStore  *auth.WebAuthnSessionStore
 }
 
-// adminAuth checks admin authentication via X-Admin-Secret header or server-side session cookie.
+// adminAuth checks admin authentication via server-side session cookie.
 // Returns true if authenticated.
 func (h *AdminHandler) adminAuth(r *http.Request) bool {
-	if h.AdminSecret == "" {
-		return false
-	}
-
-	// Method 1: X-Admin-Secret header (for curl/API).
-	secret := r.Header.Get("X-Admin-Secret")
-	if secret != "" && subtle.ConstantTimeCompare([]byte(secret), []byte(h.AdminSecret)) == 1 {
-		return true
-	}
-
-	// Method 2: server-side session cookie (for browser).
 	if h.SessionStore == nil {
 		return false
 	}
@@ -115,38 +114,95 @@ func (h *AdminHandler) adminAuth(r *http.Request) bool {
 		return false
 	}
 
-	return h.SessionStore.Validate(cookie.Value, adminClientIP(r))
+	_, ok := h.SessionStore.ValidateAndGetAdminID(cookie.Value, adminClientIP(r))
+	return ok
 }
 
 // isSecureRequest returns true if the request arrived over TLS or via HTTPS proxy.
+// Only trusts X-Forwarded-Proto from configured trusted proxies.
 func isSecureRequest(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	if r.TLS != nil {
+		return true
+	}
+	if r.Header.Get("X-Forwarded-Proto") == "https" {
+		return isTrustedProxy(r)
+	}
+	return false
 }
 
-// HandleAdminLogin validates the admin secret and creates a server-side session.
+// isTrustedProxy checks if the direct connection IP is in the trusted proxy set.
+func isTrustedProxy(r *http.Request) bool {
+	directIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		directIP = r.RemoteAddr
+	}
+	return middleware.IsTrustedProxy(directIP)
+}
+
+// adminDummyHash is a pre-computed bcrypt hash for timing-safe comparison
+// when an admin login targets a non-existent user.
+var adminDummyHash []byte
+
+func init() {
+	adminDummyHash, _ = bcrypt.GenerateFromPassword([]byte("admin-dummy-timing"), 12)
+}
+
+// HandleAdminLogin authenticates an admin user with email/password and optional TOTP.
 // POST /v1/admin/login
 func (h *AdminHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Request) {
-	if h.AdminSecret == "" {
+	if h.SessionStore == nil {
 		writeError(w, "admin API not configured", http.StatusServiceUnavailable)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 	var req struct {
-		Secret string `json:"secret"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		TOTPCode string `json:"totpCode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if subtle.ConstantTimeCompare([]byte(req.Secret), []byte(h.AdminSecret)) != 1 {
-		slog.Warn("admin login failed", "ip", truncatedAdminIP(r))
-		writeError(w, "invalid secret", http.StatusUnauthorized)
+	if req.Email == "" || req.Password == "" {
+		writeError(w, "email and password are required", http.StatusBadRequest)
 		return
 	}
 
-	sessionID, err := h.SessionStore.Create(adminClientIP(r))
+	adminUser, err := db.GetAdminUserByEmail(h.DB, req.Email)
+	if err != nil {
+		// Timing-safe: run dummy bcrypt comparison for non-existent users.
+		bcrypt.CompareHashAndPassword(adminDummyHash, []byte(req.Password))
+		slog.Warn("admin login failed: user not found", "ip", truncatedAdminIP(r))
+		writeError(w, "invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(adminUser.PasswordHash), []byte(req.Password)); err != nil {
+		slog.Warn("admin login failed: wrong password", "ip", truncatedAdminIP(r))
+		writeError(w, "invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Check TOTP if enabled.
+	if adminUser.TOTPEnabled {
+		if req.TOTPCode == "" {
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"status":       "totp_required",
+				"totpRequired": true,
+			})
+			return
+		}
+		if !totp.Validate(req.TOTPCode, adminUser.TOTPSecret) {
+			slog.Warn("admin login failed: invalid TOTP", "ip", truncatedAdminIP(r))
+			writeError(w, "invalid TOTP code", http.StatusUnauthorized)
+			return
+		}
+	}
+
+	sessionID, err := h.SessionStore.Create(adminUser.ID, adminClientIP(r))
 	if err != nil {
 		slog.Error("failed to create admin session", "error", err)
 		writeError(w, "internal error", http.StatusInternalServerError)
@@ -163,7 +219,7 @@ func (h *AdminHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Request) 
 		Secure:   isSecureRequest(r),
 	})
 
-	slog.Info("admin login successful", "ip", truncatedAdminIP(r))
+	slog.Info("admin login successful", "admin_id", adminUser.ID, "ip", truncatedAdminIP(r))
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -376,9 +432,8 @@ func (h *AdminHandler) HandleAdminLoginAttempts(w http.ResponseWriter, r *http.R
 		attempts = []db.AdminLoginAttempt{}
 	}
 
-	// Redact email and IP in the response for privacy (SA-032).
+	// Truncate IPs for privacy but keep emails visible for admin.
 	for i := range attempts {
-		attempts[i].Email = redactEmail(attempts[i].Email)
 		attempts[i].IPAddress = truncateIPString(attempts[i].IPAddress)
 	}
 
@@ -963,11 +1018,6 @@ func (h *AdminHandler) HandleAdminLogs(w http.ResponseWriter, r *http.Request) {
 		logs = []db.AdminAppLog{}
 	}
 
-	// Redact emails for privacy.
-	for i := range logs {
-		logs[i].UserEmail = redactEmail(logs[i].UserEmail)
-	}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"logs":  logs,
 		"total": total,
@@ -1037,11 +1087,6 @@ func (h *AdminHandler) HandleAdminFeedback(w http.ResponseWriter, r *http.Reques
 		feedback = []db.AdminFeedbackEntry{}
 	}
 
-	// Redact emails for privacy.
-	for i := range feedback {
-		feedback[i].UserEmail = redactEmail(feedback[i].UserEmail)
-	}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"feedback": feedback,
 		"total":    total,
@@ -1077,6 +1122,8 @@ func (h *AdminHandler) HandleAdminBetaRequests(w http.ResponseWriter, r *http.Re
 	if requests == nil {
 		requests = []model.BetaRequest{}
 	}
+
+	// Beta emails intentionally NOT redacted: admin needs raw emails to send invites.
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"requests": requests,
@@ -1128,6 +1175,460 @@ func (h *AdminHandler) HandleAdminUpdateBetaRequest(w http.ResponseWriter, r *ht
 		return
 	}
 
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// adminAuthGetID checks admin authentication and returns the admin user ID.
+func (h *AdminHandler) adminAuthGetID(r *http.Request) (string, bool) {
+	if h.SessionStore == nil {
+		return "", false
+	}
+	cookie, err := r.Cookie(adminCookieName)
+	if err != nil || cookie.Value == "" {
+		return "", false
+	}
+	return h.SessionStore.ValidateAndGetAdminID(cookie.Value, adminClientIP(r))
+}
+
+// HandleAdminPasskeyRegisterBegin starts passkey registration for an authenticated admin.
+// POST /v1/admin/passkey/register/begin
+func (h *AdminHandler) HandleAdminPasskeyRegisterBegin(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.adminAuthGetID(r)
+	if !ok {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if h.WebAuthn == nil || h.WebAuthnSessionStore == nil {
+		writeError(w, "passkey not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	adminUser, err := db.GetAdminUserByID(h.DB, adminID)
+	if err != nil {
+		writeError(w, "admin user not found", http.StatusNotFound)
+		return
+	}
+
+	existingCreds, err := h.buildAdminWebAuthnCredentials(adminID)
+	if err != nil {
+		slog.Error("failed to load admin passkey credentials", "error", err)
+		writeError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	waUser := &auth.WebAuthnUser{
+		ID:          adminUser.ID,
+		Name:        adminUser.Email,
+		DisplayName: adminUser.Email,
+		Credentials: existingCreds,
+	}
+
+	options, session, err := h.WebAuthn.BeginRegistration(waUser,
+		webauthn.WithResidentKeyRequirement(protocol.ResidentKeyRequirementRequired),
+		webauthn.WithExclusions(webauthn.Credentials(existingCreds).CredentialDescriptors()),
+	)
+	if err != nil {
+		slog.Error("failed to begin admin passkey registration", "error", err)
+		writeError(w, "failed to begin registration", http.StatusInternalServerError)
+		return
+	}
+
+	sessionKey := h.WebAuthnSessionStore.Save(session)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"publicKey":  options.Response,
+		"sessionKey": sessionKey,
+	})
+}
+
+// HandleAdminPasskeyRegisterFinish completes passkey registration for an admin.
+// POST /v1/admin/passkey/register/finish
+func (h *AdminHandler) HandleAdminPasskeyRegisterFinish(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.adminAuthGetID(r)
+	if !ok {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if h.WebAuthn == nil || h.WebAuthnSessionStore == nil {
+		writeError(w, "passkey not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var envelope struct {
+		SessionKey string `json:"sessionKey"`
+	}
+	_ = json.Unmarshal(bodyBytes, &envelope)
+	if envelope.SessionKey == "" {
+		writeError(w, "missing sessionKey", http.StatusBadRequest)
+		return
+	}
+
+	sessionData, ok := h.WebAuthnSessionStore.Get(envelope.SessionKey)
+	if !ok {
+		writeError(w, "session expired or invalid", http.StatusBadRequest)
+		return
+	}
+
+	adminUser, err := db.GetAdminUserByID(h.DB, adminID)
+	if err != nil {
+		writeError(w, "admin user not found", http.StatusNotFound)
+		return
+	}
+
+	existingCreds, err := h.buildAdminWebAuthnCredentials(adminID)
+	if err != nil {
+		writeError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	waUser := &auth.WebAuthnUser{
+		ID:          adminUser.ID,
+		Name:        adminUser.Email,
+		DisplayName: adminUser.Email,
+		Credentials: existingCreds,
+	}
+
+	credential, err := h.WebAuthn.FinishRegistration(waUser, *sessionData, r)
+	if err != nil {
+		slog.Warn("admin passkey registration failed", "error", err, "admin_id", adminID)
+		writeError(w, "registration verification failed", http.StatusBadRequest)
+		return
+	}
+
+	transportJSON, _ := json.Marshal(credential.Transport)
+	credID := auth.GenerateID()
+	if err := db.CreateAdminPasskeyCredential(
+		h.DB,
+		credID,
+		adminID,
+		credential.ID,
+		credential.PublicKey,
+		credential.AttestationType,
+		string(transportJSON),
+		credential.Authenticator.AAGUID,
+		"Admin Passkey",
+		credential.Flags.BackupEligible,
+		credential.Flags.BackupState,
+	); err != nil {
+		slog.Error("failed to store admin passkey credential", "error", err)
+		writeError(w, "failed to store credential", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("admin passkey registered", "admin_id", adminID)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminPasskeyLoginBegin starts passkey authentication for admin login.
+// POST /v1/admin/passkey/login/begin
+func (h *AdminHandler) HandleAdminPasskeyLoginBegin(w http.ResponseWriter, r *http.Request) {
+	if h.WebAuthn == nil || h.WebAuthnSessionStore == nil {
+		writeError(w, "passkey not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	options, session, err := h.WebAuthn.BeginDiscoverableLogin()
+	if err != nil {
+		slog.Error("failed to begin admin passkey login", "error", err)
+		writeError(w, "failed to begin login", http.StatusInternalServerError)
+		return
+	}
+
+	sessionKey := h.WebAuthnSessionStore.Save(session)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"publicKey":  options.Response,
+		"sessionKey": sessionKey,
+	})
+}
+
+// HandleAdminPasskeyLoginFinish completes passkey authentication and creates an admin session.
+// POST /v1/admin/passkey/login/finish
+func (h *AdminHandler) HandleAdminPasskeyLoginFinish(w http.ResponseWriter, r *http.Request) {
+	if h.WebAuthn == nil || h.WebAuthnSessionStore == nil {
+		writeError(w, "passkey not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if h.SessionStore == nil {
+		writeError(w, "admin API not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	var envelope struct {
+		SessionKey string `json:"sessionKey"`
+	}
+	_ = json.Unmarshal(bodyBytes, &envelope)
+	if envelope.SessionKey == "" {
+		writeError(w, "missing sessionKey", http.StatusBadRequest)
+		return
+	}
+
+	sessionData, ok := h.WebAuthnSessionStore.Get(envelope.SessionKey)
+	if !ok {
+		writeError(w, "session expired or invalid", http.StatusBadRequest)
+		return
+	}
+
+	userHandler := func(rawID, userHandle []byte) (webauthn.User, error) {
+		if len(userHandle) > 0 {
+			adminUser, err := db.GetAdminUserByID(h.DB, string(userHandle))
+			if err != nil {
+				return nil, fmt.Errorf("admin user not found for handle: %w", err)
+			}
+			creds, err := h.buildAdminWebAuthnCredentials(adminUser.ID)
+			if err != nil {
+				return nil, err
+			}
+			return &auth.WebAuthnUser{
+				ID:          adminUser.ID,
+				Name:        adminUser.Email,
+				DisplayName: adminUser.Email,
+				Credentials: creds,
+			}, nil
+		}
+
+		adminUser, _, err := db.GetAdminUserByPasskeyCredentialID(h.DB, rawID)
+		if err != nil {
+			return nil, fmt.Errorf("admin credential not found: %w", err)
+		}
+		creds, err := h.buildAdminWebAuthnCredentials(adminUser.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &auth.WebAuthnUser{
+			ID:          adminUser.ID,
+			Name:        adminUser.Email,
+			DisplayName: adminUser.Email,
+			Credentials: creds,
+		}, nil
+	}
+
+	credential, err := h.WebAuthn.FinishDiscoverableLogin(userHandler, *sessionData, r)
+	if err != nil {
+		slog.Warn("admin passkey login failed", "error", err)
+		writeError(w, "authentication failed", http.StatusUnauthorized)
+		return
+	}
+
+	adminUser, passkeyID, err := db.GetAdminUserByPasskeyCredentialID(h.DB, credential.ID)
+	if err != nil {
+		writeError(w, "credential not found", http.StatusUnauthorized)
+		return
+	}
+
+	_ = db.UpdateAdminPasskeySignCount(h.DB, passkeyID, int(credential.Authenticator.SignCount))
+
+	sessionID, err := h.SessionStore.Create(adminUser.ID, adminClientIP(r))
+	if err != nil {
+		slog.Error("failed to create admin session", "error", err)
+		writeError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   int(adminSessionMaxLifetime.Seconds()),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   isSecureRequest(r),
+	})
+
+	slog.Info("admin passkey login successful", "admin_id", adminUser.ID, "ip", truncatedAdminIP(r))
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// buildAdminWebAuthnCredentials loads admin passkey credentials from DB and converts them.
+func (h *AdminHandler) buildAdminWebAuthnCredentials(adminUserID string) ([]webauthn.Credential, error) {
+	dbCreds, err := db.GetAdminPasskeyCredentials(h.DB, adminUserID)
+	if err != nil {
+		return nil, fmt.Errorf("load admin passkey credentials: %w", err)
+	}
+
+	creds := make([]webauthn.Credential, 0, len(dbCreds))
+	for _, dc := range dbCreds {
+		var transports []protocol.AuthenticatorTransport
+		_ = json.Unmarshal([]byte(dc.Transport), &transports)
+
+		creds = append(creds, webauthn.Credential{
+			ID:              dc.CredentialID,
+			PublicKey:       dc.PublicKey,
+			AttestationType: dc.AttestationType,
+			Transport:       transports,
+			Flags: webauthn.CredentialFlags{
+				UserPresent:    true,
+				UserVerified:   true,
+				BackupEligible: dc.BackupEligible,
+				BackupState:    dc.BackupState,
+			},
+			Authenticator: webauthn.Authenticator{
+				AAGUID:       dc.AAGUID,
+				SignCount:    uint32(dc.SignCount),
+				CloneWarning: dc.CloneWarning != 0,
+			},
+		})
+	}
+	return creds, nil
+}
+
+// HandleAdminMe returns the current admin user's profile info.
+// GET /v1/admin/me
+func (h *AdminHandler) HandleAdminMe(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.adminAuthGetID(r)
+	if !ok {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	adminUser, err := db.GetAdminUserByID(h.DB, adminID)
+	if err != nil {
+		writeError(w, "admin user not found", http.StatusNotFound)
+		return
+	}
+
+	passkeys, err := db.GetAdminPasskeyCredentials(h.DB, adminID)
+	if err != nil {
+		slog.Error("failed to load admin passkey credentials", "error", err)
+		passkeys = nil
+	}
+
+	type passkeyInfo struct {
+		ID           string `json:"id"`
+		FriendlyName string `json:"friendlyName"`
+		CreatedAt    string `json:"createdAt"`
+		LastUsedAt   string `json:"lastUsedAt"`
+	}
+	passkeyList := make([]passkeyInfo, 0, len(passkeys))
+	for _, p := range passkeys {
+		passkeyList = append(passkeyList, passkeyInfo{
+			ID:           p.ID,
+			FriendlyName: p.FriendlyName,
+			CreatedAt:    p.CreatedAt.Format(time.RFC3339),
+			LastUsedAt:   p.LastUsedAt.Format(time.RFC3339),
+		})
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"id":           adminUser.ID,
+		"email":        adminUser.Email,
+		"totpEnabled":  adminUser.TOTPEnabled,
+		"passkeyCount": len(passkeys),
+		"passkeys":     passkeyList,
+		"createdAt":    adminUser.CreatedAt,
+	})
+}
+
+// HandleAdminTOTPSetup generates a TOTP secret and returns the otpauth URI.
+// POST /v1/admin/totp/setup
+func (h *AdminHandler) HandleAdminTOTPSetup(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.adminAuthGetID(r)
+	if !ok {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	adminUser, err := db.GetAdminUserByID(h.DB, adminID)
+	if err != nil {
+		writeError(w, "admin user not found", http.StatusNotFound)
+		return
+	}
+
+	if adminUser.TOTPEnabled {
+		writeError(w, "TOTP is already enabled", http.StatusConflict)
+		return
+	}
+
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      "AFK Admin",
+		AccountName: adminUser.Email,
+	})
+	if err != nil {
+		slog.Error("failed to generate TOTP key", "error", err)
+		writeError(w, "failed to generate TOTP secret", http.StatusInternalServerError)
+		return
+	}
+
+	// Store the secret (not yet enabled until verified).
+	if err := db.SetAdminTOTPSecret(h.DB, adminID, key.Secret()); err != nil {
+		slog.Error("failed to store TOTP secret", "error", err)
+		writeError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"otpauthURI": key.URL(),
+		"secret":     key.Secret(),
+	})
+}
+
+// HandleAdminTOTPVerify verifies a TOTP code and enables TOTP for the admin user.
+// POST /v1/admin/totp/verify
+func (h *AdminHandler) HandleAdminTOTPVerify(w http.ResponseWriter, r *http.Request) {
+	adminID, ok := h.adminAuthGetID(r)
+	if !ok {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 4*1024)
+	var req struct {
+		Code string `json:"code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Code) != 6 {
+		writeError(w, "code must be 6 digits", http.StatusBadRequest)
+		return
+	}
+
+	adminUser, err := db.GetAdminUserByID(h.DB, adminID)
+	if err != nil {
+		writeError(w, "admin user not found", http.StatusNotFound)
+		return
+	}
+
+	if adminUser.TOTPEnabled {
+		writeError(w, "TOTP is already enabled", http.StatusConflict)
+		return
+	}
+
+	if adminUser.TOTPSecret == "" {
+		writeError(w, "call /v1/admin/totp/setup first", http.StatusBadRequest)
+		return
+	}
+
+	if !totp.Validate(req.Code, adminUser.TOTPSecret) {
+		writeError(w, "invalid TOTP code", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.EnableAdminTOTP(h.DB, adminID); err != nil {
+		slog.Error("failed to enable admin TOTP", "error", err)
+		writeError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("admin TOTP enabled", "admin_id", adminID)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

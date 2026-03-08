@@ -180,6 +180,32 @@ a { color: var(--accent); text-decoration: none; }
 }
 .login-box button:hover { opacity: 0.9; }
 .login-error { color: var(--red); font-size: 13px; margin-bottom: 12px; }
+.login-divider {
+  display: flex;
+  align-items: center;
+  margin: 16px 0;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.login-divider::before, .login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.login-divider span { padding: 0 12px; }
+.passkey-btn {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.passkey-btn:hover { border-color: var(--accent); background: rgba(74, 158, 255, 0.05); }
 
 /* Page Header */
 .page-header {
@@ -581,4 +607,131 @@ tr.clickable-row:hover td { background: rgba(74, 158, 255, 0.06); }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .chart-row { grid-template-columns: 1fr; }
   .page-header { flex-direction: column; gap: 8px; align-items: flex-start; }
+}
+
+/* Profile Page */
+.profile-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.profile-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.profile-row:last-child { border-bottom: none; }
+.profile-label {
+  font-size: 13px;
+  color: var(--text-dim);
+  min-width: 100px;
+}
+.profile-value {
+  font-size: 14px;
+  color: var(--text);
+}
+.profile-mono {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.profile-empty {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.profile-action-btn {
+  margin-top: 8px;
+}
+.profile-passkey-list {
+  margin-bottom: 12px;
+}
+.profile-passkey-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.profile-passkey-item:last-child { border-bottom: none; }
+.profile-passkey-name {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.profile-passkey-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.profile-mfa-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.profile-mfa-text {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.profile-totp-setup {
+  text-align: center;
+}
+.profile-totp-instruction {
+  color: var(--text-dim);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.profile-qr-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.profile-qr-img {
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+}
+.profile-totp-secret {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.profile-secret-code {
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: monospace;
+  color: var(--accent);
+  letter-spacing: 1px;
+  user-select: all;
+}
+.profile-totp-verify {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.profile-totp-input {
+  padding: 8px 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  width: 120px;
+  text-align: center;
+  outline: none;
+}
+.profile-totp-input:focus { border-color: var(--accent); }
+.page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--text-dim);
+  font-size: 14px;
 }

@@ -107,6 +107,7 @@ export function UserDetailPage() {
       <CardGrid>
         <StatCard label="Tier" value={u.subscriptionTier} />
         <StatCard label="Auth" value={u.authMethod} />
+        <StatCard label="Email" value={u.emailVerified ? 'Verified' : 'Unverified'} />
         <StatCard label="Devices" value={String(u.deviceCount)} />
         <StatCard label="Sessions" value={String(u.sessionCount)} />
         <StatCard label="Registered" value={fmtDate(u.createdAt)} />

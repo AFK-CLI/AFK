@@ -102,6 +102,15 @@ export function UsersPage() {
               render: (u: AdminUser) => <Badge text={u.subscriptionTier} variant="blue" />,
             },
             { header: 'Auth', render: (u: AdminUser) => u.authMethod },
+            {
+              header: 'Verified',
+              render: (u: AdminUser) =>
+                u.emailVerified ? (
+                  <Badge text="Yes" variant="green" />
+                ) : (
+                  <Badge text="No" variant="red" />
+                ),
+            },
             { header: 'Devices', render: (u: AdminUser) => u.deviceCount },
             { header: 'Sessions', render: (u: AdminUser) => u.sessionCount },
             { header: 'Registered', render: (u: AdminUser) => fmtDate(u.createdAt) },
