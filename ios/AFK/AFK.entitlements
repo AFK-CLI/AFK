@@ -8,6 +8,8 @@
 	<array>
 		<string>webcredentials:afk.ahmetbirinci.dev</string>
 		<string>webcredentials:afk-dev.ahmetbirinci.dev?mode=developer</string>
+		<string>applinks:afk.ahmetbirinci.dev</string>
+		<string>applinks:afk-dev.ahmetbirinci.dev?mode=developer</string>
 	</array>
 </dict>
 </plist>

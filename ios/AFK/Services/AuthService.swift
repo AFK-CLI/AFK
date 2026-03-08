@@ -89,6 +89,36 @@ final class AuthService: @unchecked Sendable {
         }
     }
 
+    /// Verify email via token from Universal Link. On success, stores tokens and signs in.
+    func verifyEmail(token: String) async throws {
+        let body = ["token": token]
+        let bodyData = try JSONEncoder().encode(body)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/v1/auth/verify-email")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = bodyData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw AuthError.serverError(0)
+        }
+
+        switch http.statusCode {
+        case 200:
+            let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
+            storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
+            accessToken = authResponse.accessToken
+            refreshToken = authResponse.refreshToken
+            currentUser = authResponse.user
+            isAuthenticated = true
+        case 400:
+            throw AuthError.invalidCredentials
+        default:
+            throw AuthError.serverError(http.statusCode)
+        }
+    }
+
     func register(email: String, password: String, displayName: String) async throws {
         var bodyDict: [String: String] = ["email": email, "password": password]
         if !displayName.isEmpty {

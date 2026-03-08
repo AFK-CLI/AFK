@@ -327,6 +327,32 @@ struct AFKApp: App {
                     sessionStore.sessions = sessions
                 }
             }
+            .onOpenURL { url in
+                handleUniversalLink(url)
+            }
+        }
+    }
+
+    private func handleUniversalLink(_ url: URL) {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return }
+
+        // Handle afk:// scheme deep links (e.g. afk://session/123)
+        if url.scheme == "afk", url.host == "session", let sessionId = url.pathComponents.last, !sessionId.isEmpty {
+            deepLinkSessionId = sessionId
+            return
+        }
+
+        // Handle /verify?token= Universal Links
+        if components.path == "/verify",
+           let token = components.queryItems?.first(where: { $0.name == "token" })?.value {
+            Task {
+                do {
+                    try await authService.verifyEmail(token: token)
+                } catch {
+                    AppLogger.auth.error("Email verification via deep link failed: \(error, privacy: .public)")
+                }
+            }
+            return
         }
     }
 

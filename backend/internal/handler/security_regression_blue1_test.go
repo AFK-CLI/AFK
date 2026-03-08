@@ -600,11 +600,13 @@ func TestCSVExport_CWE212_EmailsRedacted(t *testing.T) {
 // RED-016 (CWE-212): Beta-requests email redaction
 // =============================================================================
 
-func TestBetaRequests_CWE212_EmailsRedacted(t *testing.T) {
+func TestBetaRequests_CWE212_EmailsVisibleForAdmin(t *testing.T) {
+	// Admin panel intentionally shows full emails so admins can manage
+	// users and send TestFlight invites. Verify emails are returned
+	// unredacted for authenticated admin sessions.
 	database := testDB(t)
 
-	// Create a beta request with a known email.
-	betaReq := &model.BetaRequest{Email: "betaredact@example.com", Name: "Test"}
+	betaReq := &model.BetaRequest{Email: "betavisible@example.com", Name: "Test"}
 	if err := db.CreateBetaRequest(database, betaReq); err != nil {
 		t.Fatalf("create beta request: %v", err)
 	}
@@ -630,12 +632,8 @@ func TestBetaRequests_CWE212_EmailsRedacted(t *testing.T) {
 		t.Fatalf("expected 200, got %d (body: %s)", rr.Code, rr.Body.String())
 	}
 
-	body := rr.Body.String()
-	if strings.Contains(body, "betaredact@example.com") {
-		t.Error("beta-requests response should redact emails, found raw email in response")
-	}
-	if !strings.Contains(body, "b***@example.com") {
-		t.Errorf("expected redacted email b***@example.com in response, got: %s", body)
+	if !strings.Contains(rr.Body.String(), "betavisible@example.com") {
+		t.Error("admin beta-requests should contain full email for TestFlight management")
 	}
 }
 
