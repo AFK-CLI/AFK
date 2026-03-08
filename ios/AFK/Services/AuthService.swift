@@ -80,6 +80,8 @@ final class AuthService: @unchecked Sendable {
             isAuthenticated = true
         case 401:
             throw AuthError.invalidCredentials
+        case 403:
+            throw AuthError.emailNotVerified
         case 429:
             throw AuthError.tooManyAttempts
         default:
@@ -106,6 +108,11 @@ final class AuthService: @unchecked Sendable {
 
         switch http.statusCode {
         case 201:
+            // Check if this is a verification_required response (no tokens).
+            if let status = try? JSONDecoder().decode(StatusResponse.self, from: data),
+               status.status == "verification_required" {
+                throw AuthError.emailVerificationRequired
+            }
             let authResponse = try JSONDecoder().decode(AuthResponse.self, from: data)
             storeTokens(access: authResponse.accessToken, refresh: authResponse.refreshToken)
             accessToken = authResponse.accessToken
@@ -344,6 +351,8 @@ final class AuthService: @unchecked Sendable {
 enum AuthError: LocalizedError {
     case invalidCredentials
     case emailAlreadyRegistered
+    case emailVerificationRequired
+    case emailNotVerified
     case tooManyAttempts
     case noPasskeysFound
     case serverError(Int)
@@ -352,11 +361,18 @@ enum AuthError: LocalizedError {
         switch self {
         case .invalidCredentials: return "Invalid email or password"
         case .emailAlreadyRegistered: return "An account with this email already exists"
+        case .emailVerificationRequired: return "Please check your email to verify your account"
+        case .emailNotVerified: return "Please verify your email before signing in"
         case .tooManyAttempts: return "Too many login attempts. Please try again later."
         case .noPasskeysFound: return "No passkeys found. Sign in with email first, then create a passkey from Settings."
         case .serverError(let code): return "Server error (\(code))"
         }
     }
+}
+
+private struct StatusResponse: Codable {
+    let status: String
+    let message: String?
 }
 
 private struct AuthResponse: Codable {

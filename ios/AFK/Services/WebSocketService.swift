@@ -91,6 +91,7 @@ final class WebSocketService {
     }
 
     func disconnect() {
+        token = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
@@ -99,8 +100,10 @@ final class WebSocketService {
 
     /// Force disconnect and reconnect using the cached token.
     func reconnect() {
+        let savedToken = token
         disconnect()
-        guard token != nil else { return }
+        guard let savedToken else { return }
+        token = savedToken
         reconnectCount += 1
         Task { await connectWithTicket() }
     }

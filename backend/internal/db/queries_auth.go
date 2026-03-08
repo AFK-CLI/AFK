@@ -77,8 +77,8 @@ func CreateEmailUser(db *sql.DB, email, displayName, passwordHash string) (*mode
 	id := auth.GenerateID()
 
 	_, err := db.Exec(`
-		INSERT INTO users (id, apple_user_id, email, display_name, password_hash, created_at, updated_at)
-		VALUES (?, NULL, ?, ?, ?, ?, ?)
+		INSERT INTO users (id, apple_user_id, email, display_name, password_hash, email_verified, created_at, updated_at)
+		VALUES (?, NULL, ?, ?, ?, 0, ?, ?)
 	`, id, email, displayName, passwordHash, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create email user: %w", err)
@@ -353,6 +353,53 @@ func UpdatePasskeySignCount(db *sql.DB, credentialIDBase64 string, signCount int
 		return fmt.Errorf("update passkey sign count: %w", err)
 	}
 	return nil
+}
+
+// Email Verification
+
+func CreateEmailVerification(db *sql.DB, userID, token string, expiresAt time.Time) error {
+	_, err := db.Exec(`
+		INSERT INTO email_verifications (token, user_id, expires_at)
+		VALUES (?, ?, ?)
+	`, token, userID, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create email verification: %w", err)
+	}
+	return nil
+}
+
+func VerifyEmailToken(db *sql.DB, token string) (string, error) {
+	var userID string
+	var expiresAt time.Time
+	err := db.QueryRow(`
+		SELECT user_id, expires_at FROM email_verifications WHERE token = ?
+	`, token).Scan(&userID, &expiresAt)
+	if err != nil {
+		return "", fmt.Errorf("verify email token: %w", err)
+	}
+	if time.Now().After(expiresAt) {
+		return "", fmt.Errorf("verification token expired")
+	}
+	return userID, nil
+}
+
+func SetEmailVerified(db *sql.DB, userID string) error {
+	_, err := db.Exec(`UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("set email verified: %w", err)
+	}
+	// Clean up used tokens for this user.
+	db.Exec(`DELETE FROM email_verifications WHERE user_id = ?`, userID)
+	return nil
+}
+
+func IsEmailVerified(db *sql.DB, userID string) (bool, error) {
+	var verified int
+	err := db.QueryRow(`SELECT email_verified FROM users WHERE id = ?`, userID).Scan(&verified)
+	if err != nil {
+		return false, fmt.Errorf("check email verified: %w", err)
+	}
+	return verified != 0, nil
 }
 
 func GetUserByPasskeyCredentialID(db *sql.DB, credentialID []byte) (*model.User, string, error) {

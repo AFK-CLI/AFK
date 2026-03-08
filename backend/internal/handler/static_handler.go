@@ -13,6 +13,12 @@ var privacyHTML []byte
 //go:embed static/terms.html
 var termsHTML []byte
 
+//go:embed static/verify-success.html
+var verifySuccessHTML []byte
+
+//go:embed static/verify-fail.html
+var verifyFailHTML []byte
+
 //go:embed static/admin
 var adminFS embed.FS
 

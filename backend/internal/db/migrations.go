@@ -401,6 +401,49 @@ ALTER TABLE passkey_credentials ADD COLUMN backup_eligible INTEGER NOT NULL DEFA
 ALTER TABLE passkey_credentials ADD COLUMN backup_state INTEGER NOT NULL DEFAULT 1;
 `
 
+const m17EmailVerificationSQL = `
+ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 1;
+CREATE TABLE IF NOT EXISTS email_verifications (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`
+
+const m18AdminUsersSQL = `
+CREATE TABLE IF NOT EXISTS admin_users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    totp_secret TEXT NOT NULL DEFAULT '',
+    totp_enabled INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`
+
+const m19AdminPasskeyCredentialsSQL = `
+CREATE TABLE IF NOT EXISTS admin_passkey_credentials (
+    id TEXT PRIMARY KEY,
+    admin_user_id TEXT NOT NULL REFERENCES admin_users(id),
+    credential_id BLOB UNIQUE NOT NULL,
+    public_key BLOB NOT NULL,
+    attestation_type TEXT NOT NULL DEFAULT '',
+    transport TEXT NOT NULL DEFAULT '[]',
+    aaguid BLOB,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    clone_warning INTEGER NOT NULL DEFAULT 0,
+    backup_eligible INTEGER NOT NULL DEFAULT 1,
+    backup_state INTEGER NOT NULL DEFAULT 1,
+    friendly_name TEXT NOT NULL DEFAULT 'Passkey',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_admin_passkey_credentials_admin ON admin_passkey_credentials(admin_user_id);
+CREATE INDEX idx_admin_passkey_credentials_cred_id ON admin_passkey_credentials(credential_id);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -432,6 +475,9 @@ var migrations = []struct {
 	{Name: "025_beta_requests.up.sql", SQL: m14BetaRequestsSQL},
 	{Name: "026_passkey_credentials.up.sql", SQL: m15PasskeyCredentialsSQL},
 	{Name: "027_passkey_backup_flags.up.sql", SQL: m16PasskeyBackupFlagsSQL},
+	{Name: "028_email_verification.up.sql", SQL: m17EmailVerificationSQL},
+	{Name: "029_admin_users.up.sql", SQL: m18AdminUsersSQL},
+	{Name: "030_admin_passkey_credentials.up.sql", SQL: m19AdminPasskeyCredentialsSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

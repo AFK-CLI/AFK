@@ -23,6 +23,7 @@ import (
 	"github.com/AFK/afk-cloud/internal/monitor"
 	"github.com/AFK/afk-cloud/internal/push"
 	"github.com/AFK/afk-cloud/internal/ws"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Version is set at build time via ldflags.
@@ -159,31 +160,34 @@ func main() {
 	// Admin read limiter (20 tokens, 2/sec) — prevents scraping.
 	adminReadLimiter := middleware.NewRateLimiter(20, 2, collector)
 
-	authMiddleware := auth.AuthMiddleware(cfg.JWTSecret)
+	authMiddleware := auth.AuthMiddlewareWithVerification(cfg.JWTSecret, auth.NewEmailVerifiedChecker(database))
 
 	authHandler := &handler.AuthHandler{
-		DB:            database,
-		JWTSecret:     cfg.JWTSecret,
+		DB:             database,
+		JWTSecret:      cfg.JWTSecret,
 		AppleBundleIDs: cfg.AppleBundleIDs,
-		RequireTLS:    true,
+		RequireTLS:     true,
+		ResendAPIKey:   os.Getenv("AFK_RESEND_API_KEY"),
+		BaseURL:        cfg.BaseURL,
 	}
 	deviceHandler := &handler.DeviceHandler{DB: database, Hub: hub}
 	sessionHandler := &handler.SessionHandler{DB: database}
 	healthHandler := &handler.HealthHandler{Hub: hub, DB: database, Collector: collector, Version: Version}
-	metricsHandler := &handler.MetricsHandler{Collector: collector, AdminSecret: cfg.AdminSecret}
+	// MetricsHandler is created after adminSessionStore below.
 
 	mux := http.NewServeMux()
 
 	// Health (public liveness) and detailed health (authed).
 	mux.HandleFunc("GET /healthz", healthHandler.HandleLiveness)
 	mux.Handle("GET /healthz/detail", authMiddleware(http.HandlerFunc(healthHandler.Handle)))
-	mux.Handle("GET /metrics", authIPLimiter.IPMiddleware(http.HandlerFunc(metricsHandler.Handle)))
 
 	// Auth (IP rate limiting on all auth endpoints).
 	mux.Handle("POST /v1/auth/apple", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleAppleAuth)))
 	mux.Handle("POST /v1/auth/refresh", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleRefresh)))
 	mux.Handle("POST /v1/auth/register", registerIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailRegister)))
 	mux.Handle("POST /v1/auth/login", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleEmailLogin)))
+	mux.Handle("POST /v1/auth/verify-email", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleVerifyEmail)))
+	mux.Handle("GET /verify", authIPLimiter.IPMiddleware(http.HandlerFunc(authHandler.HandleVerifyEmail)))
 	mux.Handle("DELETE /v1/auth/logout", authMiddleware(http.HandlerFunc(authHandler.HandleLogout)))
 
 	// Passkey/WebAuthn auth.
@@ -204,10 +208,10 @@ func main() {
 	// WS ticket (with auth).
 	mux.Handle("POST /v1/auth/ws-ticket", authMiddleware(http.HandlerFunc(handler.HandleCreateTicket(ticketStore))))
 
-	// Devices (with auth).
-	mux.Handle("POST /v1/devices", authMiddleware(http.HandlerFunc(deviceHandler.HandleCreate)))
-	mux.Handle("GET /v1/devices", authMiddleware(http.HandlerFunc(deviceHandler.HandleList)))
-	mux.Handle("DELETE /v1/devices/{id}", authMiddleware(http.HandlerFunc(deviceHandler.HandleDelete)))
+	// Devices (with auth + rate limiting).
+	mux.Handle("POST /v1/devices", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleCreate))))
+	mux.Handle("GET /v1/devices", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleList))))
+	mux.Handle("DELETE /v1/devices/{id}", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleDelete))))
 
 	// Privacy mode (with auth).
 	mux.Handle("PUT /v1/devices/{id}/privacy", authMiddleware(http.HandlerFunc(deviceHandler.HandleSetPrivacyMode)))
@@ -265,9 +269,9 @@ func main() {
 	mux.Handle("GET /v1/notification-preferences", authMiddleware(http.HandlerFunc(notifPrefsHandler.HandleGet)))
 	mux.Handle("PUT /v1/notification-preferences", authMiddleware(http.HandlerFunc(notifPrefsHandler.HandleUpdate)))
 
-	// Sessions (with auth).
-	mux.Handle("GET /v1/sessions", authMiddleware(http.HandlerFunc(sessionHandler.HandleList)))
-	mux.Handle("GET /v1/sessions/{id}", authMiddleware(http.HandlerFunc(sessionHandler.HandleDetail)))
+	// Sessions (with auth + rate limiting).
+	mux.Handle("GET /v1/sessions", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(sessionHandler.HandleList))))
+	mux.Handle("GET /v1/sessions/{id}", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(sessionHandler.HandleDetail))))
 
 	// Command continue, cancel, and new chat (with auth + rate limiting).
 	mux.Handle("POST /v2/sessions/{id}/continue", authMiddleware(continueRateLimiter.Middleware(http.HandlerFunc(handler.HandleContinue(hub, database, nonceStore, serverPrivateKey)))))
@@ -279,10 +283,17 @@ func main() {
 
 	// Subscriptions.
 	subscriptionHandler := &handler.SubscriptionHandler{
-		DB:             database,
-		StoreKitKeySet: os.Getenv("AFK_STOREKIT_SERVER_KEY") != "",
+		DB:                  database,
+		StoreKitKeySet:      os.Getenv("AFK_STOREKIT_SERVER_KEY") != "",
+		StoreKitServerKey:   os.Getenv("AFK_STOREKIT_SERVER_KEY"),
+		StoreKitKeyID:       os.Getenv("AFK_STOREKIT_KEY_ID"),
+		StoreKitIssuerID:    os.Getenv("AFK_STOREKIT_ISSUER_ID"),
+		StoreKitBundleID:    os.Getenv("AFK_STOREKIT_BUNDLE_ID"),
+		StoreKitEnvironment: os.Getenv("AFK_STOREKIT_ENVIRONMENT"),
 	}
-	mux.HandleFunc("POST /v1/webhooks/appstore", subscriptionHandler.HandleWebhook)
+	// Webhook rate limited by IP (10 requests/min).
+	webhookIPLimiter := middleware.NewRateLimiter(10, 1.0/6.0, collector)
+	mux.Handle("POST /v1/webhooks/appstore", webhookIPLimiter.IPMiddleware(http.HandlerFunc(subscriptionHandler.HandleWebhook)))
 	mux.Handle("GET /v1/subscription/status", authMiddleware(http.HandlerFunc(subscriptionHandler.HandleGetStatus)))
 	mux.Handle("POST /v1/subscription/sync", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(subscriptionHandler.HandleSync))))
 
@@ -291,18 +302,39 @@ func main() {
 	betaHandler := &handler.BetaHandler{DB: database}
 	mux.Handle("POST /v1/beta/request", betaIPLimiter.IPMiddleware(http.HandlerFunc(betaHandler.HandleBetaRequest)))
 
-	// Admin (secret-based auth with rate limiting, not JWT).
-	var adminSessionStore *handler.AdminSessionStore
-	if cfg.AdminSecret != "" {
-		adminSessionStore = handler.NewAdminSessionStore(cfg.AdminSecret)
+	// Admin (per-user auth with rate limiting).
+	adminSessionStore := handler.NewAdminSessionStore()
+
+	// Seed first admin user from env vars if no admin users exist.
+	if adminEmail := os.Getenv("AFK_ADMIN_EMAIL"); adminEmail != "" {
+		if adminPassword := os.Getenv("AFK_ADMIN_PASSWORD"); adminPassword != "" {
+			count, _ := db.CountAdminUsers(database)
+			if count == 0 {
+				hash, err := bcrypt.GenerateFromPassword([]byte(adminPassword), 12)
+				if err != nil {
+					slog.Error("failed to hash admin password", "error", err)
+				} else {
+					if _, err := db.CreateAdminUser(database, adminEmail, string(hash)); err != nil {
+						slog.Error("failed to seed admin user", "error", err)
+					} else {
+						slog.Info("seeded initial admin user", "email", adminEmail)
+					}
+				}
+			}
+		}
 	}
+
+	metricsHandler := &handler.MetricsHandler{Collector: collector, SessionStore: adminSessionStore}
+	mux.Handle("GET /metrics", authIPLimiter.IPMiddleware(http.HandlerFunc(metricsHandler.Handle)))
+
 	adminHandler := &handler.AdminHandler{
-		DB:           database,
-		AdminSecret:  cfg.AdminSecret,
-		Hub:          hub,
-		Collector:    collector,
-		Version:      Version,
-		SessionStore: adminSessionStore,
+		DB:                   database,
+		Hub:                  hub,
+		Collector:            collector,
+		Version:              Version,
+		SessionStore:         adminSessionStore,
+		WebAuthn:             webAuthn,
+		WebAuthnSessionStore: webauthnSessionStore,
 	}
 	mux.Handle("POST /v1/admin/grant-contributor", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleGrantContributor)))
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +343,15 @@ func main() {
 	mux.Handle("/admin/", handler.AdminFileServer())
 	mux.Handle("POST /v1/admin/login", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogin)))
 	mux.Handle("POST /v1/admin/logout", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogout)))
+	// Admin passkey auth.
+	mux.Handle("POST /v1/admin/passkey/register/begin", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminPasskeyRegisterBegin)))
+	mux.Handle("POST /v1/admin/passkey/register/finish", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminPasskeyRegisterFinish)))
+	mux.Handle("POST /v1/admin/passkey/login/begin", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminPasskeyLoginBegin)))
+	mux.Handle("POST /v1/admin/passkey/login/finish", adminLoginLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminPasskeyLoginFinish)))
+	// Admin profile + TOTP endpoints.
+	mux.Handle("GET /v1/admin/me", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminMe)))
+	mux.Handle("POST /v1/admin/totp/setup", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTOTPSetup)))
+	mux.Handle("POST /v1/admin/totp/verify", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminTOTPVerify)))
 	// Admin read endpoints — rate limited to prevent scraping.
 	mux.Handle("GET /v1/admin/dashboard", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminDashboard)))
 	mux.Handle("GET /v1/admin/users", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUsers)))
@@ -431,9 +472,8 @@ func main() {
 	adminLoginLimiter.Stop()
 	adminReadLimiter.Stop()
 	betaIPLimiter.Stop()
-	if adminSessionStore != nil {
-		adminSessionStore.Stop()
-	}
+	webhookIPLimiter.Stop()
+	adminSessionStore.Stop()
 	stuckDetector.Stop()
 	eventPurger.Stop()
 	hub.Shutdown()

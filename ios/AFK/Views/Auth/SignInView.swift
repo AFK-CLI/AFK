@@ -226,6 +226,7 @@ struct SignInView: View {
     @State private var displayName = ""
     @State private var isRegistering = false
     @State private var errorMessage = ""
+    @State private var successMessage = ""
     @State private var isLoading = false
     @State private var showPasskeySetup = false
     @AppStorage("hasOfferedPasskeySetup", store: BuildEnvironment.userDefaults) private var hasOfferedPasskeySetup = false
@@ -374,6 +375,31 @@ struct SignInView: View {
                             .padding(.top, 4)
                         }
 
+                        // MARK: Success Banner
+                        if !successMessage.isEmpty {
+                            HStack(spacing: 8) {
+                                Image(systemName: "envelope.circle.fill")
+                                    .foregroundStyle(.green.opacity(0.9))
+                                    .font(.caption)
+                                Text(successMessage)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .lineLimit(3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.green.opacity(0.15))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(Color.green.opacity(0.3), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .padding(.horizontal, 32)
+                            .padding(.top, 12)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
                         // MARK: Error Banner
                         if !errorMessage.isEmpty {
                             HStack(spacing: 8) {
@@ -414,6 +440,7 @@ struct SignInView: View {
                                 withAnimation(.easeInOut(duration: 0.25)) {
                                     isRegistering.toggle()
                                     errorMessage = ""
+                                    successMessage = ""
                                     confirmPassword = ""
                                 }
                             } label: {
@@ -497,7 +524,10 @@ struct SignInView: View {
     private func submit() {
         guard canSubmit else { return }
 
-        withAnimation(.easeInOut(duration: 0.25)) { errorMessage = "" }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            errorMessage = ""
+            successMessage = ""
+        }
         isLoading = true
 
         Task {
@@ -520,6 +550,21 @@ struct SignInView: View {
                             showPasskeySetup = true
                         }
                     }
+                }
+            } catch AuthError.emailVerificationRequired {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        successMessage = "Account created! Check your email to verify, then sign in."
+                        isRegistering = false
+                    }
+                    isLoading = false
+                }
+            } catch AuthError.emailNotVerified {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        errorMessage = "Please verify your email before signing in. Check your inbox."
+                    }
+                    isLoading = false
                 }
             } catch {
                 await MainActor.run {
