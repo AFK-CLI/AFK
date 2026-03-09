@@ -118,8 +118,8 @@ func (n *Notifier) NotifyPermissionRequest(userID string, req model.PermissionRe
 
 	for _, token := range tokens {
 		if err := n.apns.SendNotification(token.DeviceToken, title, body, category, threadID, data); err != nil {
-			if apnsErr, ok := err.(*APNsError); ok && apnsErr.StatusCode == 410 {
-				slog.Warn("removing stale push token", "device_token", token.DeviceToken[:8])
+			if apnsErr, ok := err.(*APNsError); ok && (apnsErr.StatusCode == 410 || apnsErr.StatusCode == 400) {
+				slog.Warn("removing invalid push token", "device_token", token.DeviceToken[:8], "status", apnsErr.StatusCode)
 				_ = db.DeletePushTokenByToken(n.database, token.DeviceToken)
 			} else {
 				slog.Error("failed to send push notification", "device_token", token.DeviceToken[:8], "error", err)
@@ -302,8 +302,8 @@ func (n *Notifier) sendToAll(tokens []model.PushToken, title, body, category str
 func (n *Notifier) sendToAllThreaded(tokens []model.PushToken, title, body, category string, data map[string]string, threadID string) {
 	for _, token := range tokens {
 		if err := n.apns.SendNotification(token.DeviceToken, title, body, category, threadID, data); err != nil {
-			if apnsErr, ok := err.(*APNsError); ok && apnsErr.StatusCode == 410 {
-				slog.Warn("removing stale push token", "device_token", token.DeviceToken[:8])
+			if apnsErr, ok := err.(*APNsError); ok && (apnsErr.StatusCode == 410 || apnsErr.StatusCode == 400) {
+				slog.Warn("removing invalid push token", "device_token", token.DeviceToken[:8], "status", apnsErr.StatusCode)
 				_ = db.DeletePushTokenByToken(n.database, token.DeviceToken)
 			} else {
 				slog.Error("failed to send push notification", "device_token", token.DeviceToken[:8], "error", err)

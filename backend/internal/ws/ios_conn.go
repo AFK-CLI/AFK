@@ -65,6 +65,16 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 			hub.BroadcastToUser(userID, statusMsg)
 		}
 
+		// Re-enable remote approval on all agents now that iOS is back.
+		ra := true
+		enableMsg, err := NewWSMessage("agent_control", struct {
+			RemoteApproval *bool `json:"remoteApproval"`
+		}{&ra})
+		if err == nil {
+			hub.SendToUserAgents(userID, enableMsg)
+			slog.Info("iOS client connected, re-enabled remote approval for all agents", "user_id", userID)
+		}
+
 		// Replay cached agent control states so iOS immediately knows each agent's state.
 		hub.SendCachedControlStates(userID, ic)
 
@@ -117,6 +127,10 @@ func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID, deviceID strin
 	ic.Conn.SetPongHandler(func(string) error {
 		ic.Conn.SetReadDeadline(time.Now().Add(iosPongWait))
 		return nil
+	})
+	ic.Conn.SetPingHandler(func(appData string) error {
+		ic.Conn.SetReadDeadline(time.Now().Add(iosPongWait))
+		return ic.Conn.WriteControl(websocket.PongMessage, []byte(appData), time.Now().Add(iosWriteWait))
 	})
 
 	for {

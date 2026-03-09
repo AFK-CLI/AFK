@@ -496,11 +496,12 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 		hub.BroadcastToUser(userID, notification)
 		slog.Info("agent notification forwarded", "type", notif.NotificationType, "session_id", notif.SessionID)
 
-		if hub.Decision != nil {
+		// Idle/permission prompts must bypass DecisionEngine (which suppresses unknown event types).
+		if hub.Notifier != nil && (notif.NotificationType == "idle_prompt" || notif.NotificationType == "permission_prompt") {
+			go hub.Notifier.NotifyIdlePrompt(userID, notif.SessionID, notif.Message)
+		} else if hub.Decision != nil {
 			data, _ := json.Marshal(map[string]string{"notificationType": notif.NotificationType, "message": notif.Message})
 			go hub.Decision.HandleSessionEvent(userID, notif.SessionID, "notification", deviceName, data)
-		} else if hub.Notifier != nil && (notif.NotificationType == "idle_prompt" || notif.NotificationType == "permission_prompt") {
-			go hub.Notifier.NotifyIdlePrompt(userID, notif.SessionID, notif.Message)
 		}
 
 	case "agent.session.stopped":

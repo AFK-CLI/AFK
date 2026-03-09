@@ -22,6 +22,10 @@ final class WebSocketService {
     private static let baseDelay: Double = 1.0
     private static let maxDelay: Double = 60.0
 
+    // Keepalive ping
+    private var pingTask: Task<Void, Never>?
+    private static let pingInterval: TimeInterval = 30
+
     /// E2EE session key cache: sessionId -> SymmetricKey
     /// Set by SessionStore when peer key is available and privacy mode is "encrypted".
     var e2eeSessionKeys: [String: Any] = [:]  // Actually [String: SymmetricKey], using Any to avoid CryptoKit import here
@@ -60,6 +64,11 @@ final class WebSocketService {
     }
 
     private func connectWithTicket() async {
+        // Prevent double-connect if already connected or connecting.
+        guard !isConnected else {
+            AppLogger.ws.info("Already connected, skipping connectWithTicket")
+            return
+        }
         var components = URLComponents(string: "\(baseURL)/v1/ws/app")!
 
         // Try to fetch a WS ticket; fall back to raw token if ticket fetch fails
@@ -88,14 +97,36 @@ final class WebSocketService {
 
         Task { await subscribe() }
         Task { await receiveLoop() }
+        startPingLoop()
     }
 
-    func disconnect() {
-        token = nil
+    func disconnect(clearCredentials: Bool = true) {
+        if clearCredentials {
+            token = nil
+            apiClient = nil
+            deviceId = nil
+        }
+        pingTask?.cancel()
+        pingTask = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         isConnected = false
         lastDisconnectedAt = Date()
+    }
+
+    private func startPingLoop() {
+        pingTask?.cancel()
+        pingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.pingInterval))
+                guard !Task.isCancelled, let task = self?.webSocketTask else { return }
+                task.sendPing { error in
+                    if let error {
+                        AppLogger.ws.warning("Ping failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                }
+            }
+        }
     }
 
     /// Force disconnect and reconnect using the cached token.

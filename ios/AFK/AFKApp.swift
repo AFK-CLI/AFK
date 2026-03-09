@@ -259,6 +259,9 @@ struct AFKApp: App {
                         }
 
                         wsService.connect(token: token, apiClient: apiClient, deviceId: sessionStore.myDeviceId)
+
+                        // Re-register push token under the current user after (re-)authentication.
+                        UIApplication.shared.registerForRemoteNotifications()
                     }
                 } else {
                     wsService.disconnect()
@@ -466,11 +469,13 @@ struct AFKApp: App {
             AppLogger.app.info("Entering background")
             BiometricService.resetSession()
             backgroundTaskManager.scheduleRefresh()
-            wsService.disconnect()
+            // Don't disconnect WS — let iOS manage the connection lifecycle.
+            // The server will detect disconnection via pong timeout if the app is suspended.
         case .active:
-            if oldPhase == .background {
+            if oldPhase != .active, authService.isAuthenticated {
                 AppLogger.app.info("Returning to foreground")
-                if let token = authService.accessToken {
+                // Reconnect WS if not connected (covers background resume AND app relaunch).
+                if !wsService.isConnected, let token = authService.accessToken {
                     wsService.connect(token: token, apiClient: apiClient, deviceId: sessionStore.myDeviceId)
                 }
                 Task { await sessionStore.loadSessions() }
