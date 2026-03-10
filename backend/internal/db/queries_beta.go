@@ -2,13 +2,17 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/AFK/afk-cloud/internal/auth"
 	"github.com/AFK/afk-cloud/internal/model"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// ErrDuplicateEmail is returned when a beta request with the same email already exists.
+var ErrDuplicateEmail = fmt.Errorf("already registered")
 
 // CreateBetaRequest inserts a new beta request. Returns an error if the email already exists.
 func CreateBetaRequest(d *sql.DB, req *model.BetaRequest) error {
@@ -23,11 +27,12 @@ func CreateBetaRequest(d *sql.DB, req *model.BetaRequest) error {
 	}
 	_, err := d.Exec(`
 		INSERT INTO beta_requests (id, email, name, status, notes, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6)
 	`, req.ID, req.Email, req.Name, req.Status, req.Notes, req.CreatedAt)
 	if err != nil {
-		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
-			return fmt.Errorf("already registered")
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrDuplicateEmail
 		}
 		return fmt.Errorf("insert beta request: %w", err)
 	}
@@ -38,13 +43,15 @@ func CreateBetaRequest(d *sql.DB, req *model.BetaRequest) error {
 func ListBetaRequests(d *sql.DB, status string, limit, offset int) ([]model.BetaRequest, error) {
 	query := `SELECT id, email, name, status, notes, created_at, COALESCE(invited_at, '') FROM beta_requests`
 	var args []interface{}
+	argPos := 1
 
 	if status != "" {
-		query += ` WHERE status = ?`
+		query += fmt.Sprintf(` WHERE status = $%d`, argPos)
 		args = append(args, status)
+		argPos++
 	}
 
-	query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	query += fmt.Sprintf(` ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, argPos, argPos+1)
 	args = append(args, limit, offset)
 
 	rows, err := d.Query(query, args...)
@@ -69,7 +76,7 @@ func CountBetaRequests(d *sql.DB, status string) (int, error) {
 	query := `SELECT COUNT(*) FROM beta_requests`
 	var args []interface{}
 	if status != "" {
-		query += ` WHERE status = ?`
+		query += ` WHERE status = $1`
 		args = append(args, status)
 	}
 
@@ -88,8 +95,8 @@ func UpdateBetaRequestStatus(d *sql.DB, id, status, notes string) error {
 	}
 
 	result, err := d.Exec(`
-		UPDATE beta_requests SET status = ?, notes = ?, invited_at = COALESCE(?, invited_at)
-		WHERE id = ?
+		UPDATE beta_requests SET status = $1, notes = $2, invited_at = COALESCE($3, invited_at)
+		WHERE id = $4
 	`, status, notes, invitedAt, id)
 	if err != nil {
 		return fmt.Errorf("update beta request: %w", err)

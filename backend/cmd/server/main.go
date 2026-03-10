@@ -39,9 +39,9 @@ func main() {
 	}
 
 	slog.Info("AFK Cloud starting", "port", cfg.Port, "log_level", cfg.LogLevel, "version", Version)
-	slog.Info("database configured", "path", cfg.DatabasePath)
+	slog.Info("database configured", "engine", "postgresql")
 
-	database, err := db.Open(cfg.DatabasePath)
+	database, err := db.Open(cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to open database", "error", err)
 		os.Exit(1)

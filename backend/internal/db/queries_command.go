@@ -13,7 +13,7 @@ import (
 func CreateCommand(database *sql.DB, cmd *model.Command) error {
 	_, err := database.Exec(`
 		INSERT INTO commands (id, session_id, user_id, device_id, prompt_hash, prompt_encrypted, nonce, status, created_at, updated_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`, cmd.ID, cmd.SessionID, cmd.UserID, cmd.DeviceID, cmd.PromptHash,
 		cmd.PromptEncrypted, cmd.Nonce, cmd.Status, cmd.CreatedAt, cmd.UpdatedAt, cmd.ExpiresAt)
 	if err != nil {
@@ -24,7 +24,7 @@ func CreateCommand(database *sql.DB, cmd *model.Command) error {
 
 func UpdateCommandStatus(database *sql.DB, commandID, status string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := database.Exec(`UPDATE commands SET status = ?, updated_at = ? WHERE id = ?`,
+	_, err := database.Exec(`UPDATE commands SET status = $1, updated_at = $2 WHERE id = $3`,
 		status, now, commandID)
 	if err != nil {
 		return fmt.Errorf("update command status: %w", err)
@@ -37,7 +37,7 @@ func GetCommand(database *sql.DB, commandID string) (*model.Command, error) {
 	var promptEncrypted sql.NullString
 	err := database.QueryRow(`
 		SELECT id, session_id, user_id, device_id, prompt_hash, prompt_encrypted, nonce, status, created_at, updated_at, expires_at
-		FROM commands WHERE id = ?
+		FROM commands WHERE id = $1
 	`, commandID).Scan(&cmd.ID, &cmd.SessionID, &cmd.UserID, &cmd.DeviceID,
 		&cmd.PromptHash, &promptEncrypted, &cmd.Nonce, &cmd.Status,
 		&cmd.CreatedAt, &cmd.UpdatedAt, &cmd.ExpiresAt)
@@ -55,7 +55,7 @@ func GetCommand(database *sql.DB, commandID string) (*model.Command, error) {
 func PurgeExpiredCommands(db *sql.DB, cutoff time.Time) (int64, error) {
 	result, err := db.Exec(`
 		DELETE FROM commands
-		WHERE expires_at < ?
+		WHERE expires_at < $1
 		  AND status IN ('pending', 'completed', 'failed', 'cancelled')
 	`, cutoff)
 	if err != nil {

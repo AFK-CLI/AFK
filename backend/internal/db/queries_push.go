@@ -16,7 +16,7 @@ func UpsertPushToken(database *sql.DB, userID, deviceToken, platform, bundleID s
 	id := auth.GenerateID()
 	_, err := database.Exec(`
 		INSERT INTO push_tokens (id, user_id, device_token, platform, bundle_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT(device_token) DO UPDATE SET
 			user_id = excluded.user_id,
 			platform = excluded.platform,
@@ -30,7 +30,7 @@ func UpsertPushToken(database *sql.DB, userID, deviceToken, platform, bundleID s
 }
 
 func DeletePushToken(database *sql.DB, deviceToken string) error {
-	_, err := database.Exec(`DELETE FROM push_tokens WHERE device_token = ?`, deviceToken)
+	_, err := database.Exec(`DELETE FROM push_tokens WHERE device_token = $1`, deviceToken)
 	if err != nil {
 		return fmt.Errorf("delete push token: %w", err)
 	}
@@ -38,7 +38,7 @@ func DeletePushToken(database *sql.DB, deviceToken string) error {
 }
 
 func DeletePushTokenForUser(database *sql.DB, deviceToken, userID string) error {
-	_, err := database.Exec(`DELETE FROM push_tokens WHERE device_token = ? AND user_id = ?`, deviceToken, userID)
+	_, err := database.Exec(`DELETE FROM push_tokens WHERE device_token = $1 AND user_id = $2`, deviceToken, userID)
 	if err != nil {
 		return fmt.Errorf("delete push token for user: %w", err)
 	}
@@ -52,7 +52,7 @@ func DeletePushTokenByToken(database *sql.DB, deviceToken string) error {
 func ListPushTokensByUser(database *sql.DB, userID string) ([]model.PushToken, error) {
 	rows, err := database.Query(`
 		SELECT id, user_id, device_token, platform, bundle_id, created_at, updated_at
-		FROM push_tokens WHERE user_id = ?
+		FROM push_tokens WHERE user_id = $1
 		ORDER BY created_at DESC
 	`, userID)
 	if err != nil {
@@ -77,7 +77,7 @@ func UpsertPushToStartToken(db *sql.DB, userID, token string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`
 		INSERT INTO push_to_start_tokens (user_id, token, created_at, updated_at)
-		VALUES (?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT(user_id) DO UPDATE SET
 			token = excluded.token,
 			updated_at = excluded.updated_at
@@ -90,7 +90,7 @@ func UpsertPushToStartToken(db *sql.DB, userID, token string) error {
 
 func GetPushToStartToken(db *sql.DB, userID string) (string, error) {
 	var token string
-	err := db.QueryRow(`SELECT token FROM push_to_start_tokens WHERE user_id = ?`, userID).Scan(&token)
+	err := db.QueryRow(`SELECT token FROM push_to_start_tokens WHERE user_id = $1`, userID).Scan(&token)
 	if err != nil {
 		return "", fmt.Errorf("get push-to-start token: %w", err)
 	}
@@ -98,7 +98,7 @@ func GetPushToStartToken(db *sql.DB, userID string) (string, error) {
 }
 
 func DeletePushToStartToken(db *sql.DB, userID string) error {
-	_, err := db.Exec(`DELETE FROM push_to_start_tokens WHERE user_id = ?`, userID)
+	_, err := db.Exec(`DELETE FROM push_to_start_tokens WHERE user_id = $1`, userID)
 	if err != nil {
 		return fmt.Errorf("delete push-to-start token: %w", err)
 	}

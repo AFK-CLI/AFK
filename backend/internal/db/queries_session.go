@@ -15,7 +15,7 @@ import (
 func UpsertSession(db *sql.DB, s *model.Session) error {
 	_, err := db.Exec(`
 		INSERT INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 		ON CONFLICT(id) DO UPDATE SET
 			project_path = excluded.project_path,
 			git_branch = excluded.git_branch,
@@ -42,8 +42,9 @@ func UpsertSession(db *sql.DB, s *model.Session) error {
 // Unlike UpsertSession, it never overwrites existing metadata.
 func EnsureSession(db *sql.DB, s *model.Session) error {
 	_, err := db.Exec(`
-		INSERT OR IGNORE INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO sessions (id, device_id, user_id, project_path, git_branch, cwd, status, started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		ON CONFLICT DO NOTHING
 	`, s.ID, s.DeviceID, s.UserID, s.ProjectPath, s.GitBranch, s.CWD,
 		string(s.Status), s.StartedAt, s.UpdatedAt, s.TokensIn, s.TokensOut, s.TurnCount,
 		nullableString(s.ProjectID), s.Description, nullableString(s.EphemeralPublicKey), 0.0)
@@ -57,7 +58,7 @@ func AccumulateSessionCost(db *sql.DB, sessionID string, costUsd float64) error 
 	if costUsd <= 0 || costUsd > 1000 {
 		return nil // ignore non-positive or unreasonably large costs
 	}
-	_, err := db.Exec(`UPDATE sessions SET cost_usd = cost_usd + ?, updated_at = ? WHERE id = ?`,
+	_, err := db.Exec(`UPDATE sessions SET cost_usd = cost_usd + $1, updated_at = $2 WHERE id = $3`,
 		costUsd, time.Now(), sessionID)
 	if err != nil {
 		return fmt.Errorf("accumulate session cost: %w", err)
@@ -74,7 +75,7 @@ func nullableString(s string) *string {
 
 func UpdateSessionStatus(db *sql.DB, sessionID string, status model.SessionStatus) error {
 	now := time.Now()
-	result, err := db.Exec(`UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?`,
+	result, err := db.Exec(`UPDATE sessions SET status = $1, updated_at = $2 WHERE id = $3`,
 		string(status), now, sessionID)
 	if err != nil {
 		return fmt.Errorf("update session status: %w", err)
@@ -89,16 +90,19 @@ func UpdateSessionStatus(db *sql.DB, sessionID string, status model.SessionStatu
 func ListSessions(db *sql.DB, userID, deviceID, status string) ([]*model.Session, error) {
 	query := `SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
 		started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
-		FROM sessions WHERE user_id = ?`
+		FROM sessions WHERE user_id = $1`
 	args := []interface{}{userID}
+	argIdx := 2
 
 	if deviceID != "" {
-		query += " AND device_id = ?"
+		query += fmt.Sprintf(" AND device_id = $%d", argIdx)
 		args = append(args, deviceID)
+		argIdx++
 	}
 	if status != "" {
-		query += " AND status = ?"
+		query += fmt.Sprintf(" AND status = $%d", argIdx)
 		args = append(args, status)
+		argIdx++
 	}
 	query += " ORDER BY updated_at DESC"
 
@@ -134,7 +138,7 @@ func ListSessionsByProject(db *sql.DB, userID, projectID string) ([]*model.Sessi
 	rows, err := db.Query(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
 			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
-		FROM sessions WHERE user_id = ? AND project_id = ?
+		FROM sessions WHERE user_id = $1 AND project_id = $2
 		ORDER BY updated_at DESC
 	`, userID, projectID)
 	if err != nil {
@@ -171,7 +175,7 @@ func GetSession(db *sql.DB, sessionID string) (*model.Session, error) {
 	err := db.QueryRow(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
 			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
-		FROM sessions WHERE id = ?
+		FROM sessions WHERE id = $1
 	`, sessionID).Scan(&s.ID, &s.DeviceID, &s.UserID, &s.ProjectPath, &s.GitBranch,
 		&s.CWD, &s.Status, &s.StartedAt, &s.UpdatedAt, &s.TokensIn, &s.TokensOut, &s.TurnCount,
 		&projectID, &s.Description, &ephPubKey, &s.CostUsd)
@@ -189,7 +193,7 @@ func GetSession(db *sql.DB, sessionID string) (*model.Session, error) {
 
 // ListRunningSessionsByDevice returns all sessions with status "running" for a given device.
 func ListRunningSessionsByDevice(db *sql.DB, deviceID string) ([]string, error) {
-	rows, err := db.Query(`SELECT id FROM sessions WHERE device_id = ? AND status = 'running'`, deviceID)
+	rows, err := db.Query(`SELECT id FROM sessions WHERE device_id = $1 AND status = 'running'`, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list running sessions by device: %w", err)
 	}
@@ -212,7 +216,7 @@ func ListStuckSessions(db *sql.DB, stuckThreshold time.Duration) ([]*model.Sessi
 	rows, err := db.Query(`
 		SELECT id, device_id, user_id, project_path, git_branch, cwd, status,
 			started_at, updated_at, tokens_in, tokens_out, turn_count, project_id, description, ephemeral_public_key, cost_usd
-		FROM sessions WHERE status = 'running' AND updated_at < ?
+		FROM sessions WHERE status = 'running' AND updated_at < $1
 		ORDER BY updated_at ASC
 	`, cutoff)
 	if err != nil {
@@ -243,7 +247,7 @@ func ListStuckSessions(db *sql.DB, stuckThreshold time.Duration) ([]*model.Sessi
 }
 
 func UpdateSessionProjectID(db *sql.DB, sessionID, projectID string) error {
-	_, err := db.Exec(`UPDATE sessions SET project_id = ? WHERE id = ?`, projectID, sessionID)
+	_, err := db.Exec(`UPDATE sessions SET project_id = $1 WHERE id = $2`, projectID, sessionID)
 	if err != nil {
 		return fmt.Errorf("update session project_id: %w", err)
 	}
@@ -256,7 +260,7 @@ func InsertEvent(db *sql.DB, event *model.SessionEvent) error {
 	// Use agent-assigned seq if provided (> 0), otherwise auto-assign
 	if event.Seq <= 0 {
 		var maxSeq int
-		_ = db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = ?`, event.SessionID).Scan(&maxSeq)
+		_ = db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = $1`, event.SessionID).Scan(&maxSeq)
 		event.Seq = maxSeq + 1
 	}
 
@@ -270,7 +274,7 @@ func InsertEvent(db *sql.DB, event *model.SessionEvent) error {
 	// The unique partial index idx_session_events_dedup covers (session_id, seq) WHERE seq > 0.
 	result, err := db.Exec(`
 		INSERT INTO session_events (id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (session_id, seq) WHERE seq > 0 DO NOTHING
 	`, event.ID, event.SessionID, event.DeviceID, event.EventType,
 		event.Timestamp, string(event.Payload), contentStr, event.Seq, event.CreatedAt)
@@ -285,12 +289,12 @@ func InsertEvent(db *sql.DB, event *model.SessionEvent) error {
 		// agent restarts seq numbering from 1, colliding with events from
 		// the original run. Auto-assign next available seq and re-insert.
 		var maxSeq int
-		_ = db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = ?`,
+		_ = db.QueryRow(`SELECT COALESCE(MAX(seq), 0) FROM session_events WHERE session_id = $1`,
 			event.SessionID).Scan(&maxSeq)
 		event.Seq = maxSeq + 1
 		_, err = db.Exec(`
 			INSERT INTO session_events (id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		`, event.ID, event.SessionID, event.DeviceID, event.EventType,
 			event.Timestamp, string(event.Payload), contentStr, event.Seq, event.CreatedAt)
 		if err != nil {
@@ -305,8 +309,8 @@ func InsertEvent(db *sql.DB, event *model.SessionEvent) error {
 func ListEvents(db *sql.DB, sessionID string, limit int, afterSeq int) ([]*model.SessionEvent, bool, error) {
 	rows, err := db.Query(`
 		SELECT id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at
-		FROM session_events WHERE session_id = ? AND seq > ?
-		ORDER BY seq ASC LIMIT ?
+		FROM session_events WHERE session_id = $1 AND seq > $2
+		ORDER BY seq ASC LIMIT $3
 	`, sessionID, afterSeq, limit+1)
 	if err != nil {
 		return nil, false, fmt.Errorf("list events: %w", err)
@@ -332,8 +336,8 @@ func ListEventsLatest(db *sql.DB, sessionID string, limit int) ([]*model.Session
 		SELECT id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at
 		FROM (
 			SELECT id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at
-			FROM session_events WHERE session_id = ?
-			ORDER BY seq DESC LIMIT ?
+			FROM session_events WHERE session_id = $1
+			ORDER BY seq DESC LIMIT $2
 		) sub ORDER BY seq ASC
 	`, sessionID, limit+1)
 	if err != nil {
@@ -362,8 +366,8 @@ func ListEventsBefore(db *sql.DB, sessionID string, limit int, beforeSeq int) ([
 		SELECT id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at
 		FROM (
 			SELECT id, session_id, device_id, event_type, timestamp, payload, content, seq, created_at
-			FROM session_events WHERE session_id = ? AND seq < ?
-			ORDER BY seq DESC LIMIT ?
+			FROM session_events WHERE session_id = $1 AND seq < $2
+			ORDER BY seq DESC LIMIT $3
 		) sub ORDER BY seq ASC
 	`, sessionID, beforeSeq, limit+1)
 	if err != nil {
@@ -412,8 +416,8 @@ func PurgeExpiredEvents(db *sql.DB, freeCutoff, proCutoff time.Time) (int64, err
 			SELECT se.id FROM session_events se
 			JOIN sessions s ON se.session_id = s.id
 			JOIN users u ON s.user_id = u.id
-			WHERE (u.subscription_tier = 'free' AND se.created_at < ?)
-			   OR (u.subscription_tier != 'free' AND se.created_at < ?)
+			WHERE (u.subscription_tier = 'free' AND se.created_at < $1)
+			   OR (u.subscription_tier != 'free' AND se.created_at < $2)
 		)
 	`, freeCutoff, proCutoff)
 	if err != nil {

@@ -31,7 +31,7 @@ func UpsertClaudeTask(database *sql.DB, t *model.Task) error {
 
 	_, err := database.Exec(`
 		INSERT INTO tasks (id, user_id, session_id, project_id, source, session_local_id, subject, description, status, active_form, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT(session_id, session_local_id) WHERE source = 'claude_code' DO UPDATE SET
 			subject = CASE WHEN excluded.subject != '' THEN excluded.subject ELSE tasks.subject END,
 			description = CASE WHEN excluded.description != '' THEN excluded.description ELSE tasks.description END,
@@ -57,7 +57,7 @@ func CreateUserTask(database *sql.DB, t *model.Task) error {
 
 	_, err := database.Exec(`
 		INSERT INTO tasks (id, user_id, session_id, project_id, source, subject, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`, t.ID, t.UserID, nullStr(t.SessionID), nullStr(t.ProjectID), t.Source, t.Subject, t.Description, t.Status, t.CreatedAt, t.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create user task: %w", err)
@@ -73,7 +73,7 @@ func GetTask(database *sql.DB, taskID string) (*model.Task, error) {
 			t.subject, t.description, t.status, t.active_form, t.created_at, t.updated_at,
 			p.name
 		FROM tasks t LEFT JOIN projects p ON t.project_id = p.id
-		WHERE t.id = ?
+		WHERE t.id = $1
 	`, taskID).Scan(&t.ID, &t.UserID, &sessionID, &projectID, &t.Source, &sessionLocalID,
 		&t.Subject, &t.Description, &t.Status, &activeForm, &t.CreatedAt, &t.UpdatedAt,
 		&projectName)
@@ -106,7 +106,7 @@ func GetTaskBySessionLocalID(database *sql.DB, sessionID, localID string) (*mode
 			t.subject, t.description, t.status, t.active_form, t.created_at, t.updated_at,
 			p.name
 		FROM tasks t LEFT JOIN projects p ON t.project_id = p.id
-		WHERE t.session_id = ? AND t.session_local_id = ? AND t.source = 'claude_code'
+		WHERE t.session_id = $1 AND t.session_local_id = $2 AND t.source = 'claude_code'
 	`, sessionID, localID).Scan(&t.ID, &t.UserID, &sessID, &projectID, &t.Source, &sessionLocalID,
 		&t.Subject, &t.Description, &t.Status, &activeForm, &t.CreatedAt, &t.UpdatedAt,
 		&projectName)
@@ -137,23 +137,27 @@ func ListTasks(database *sql.DB, userID string, source, projectID, status string
 			t.subject, t.description, t.status, t.active_form, t.created_at, t.updated_at,
 			p.name
 		FROM tasks t LEFT JOIN projects p ON t.project_id = p.id
-		WHERE t.user_id = ?`
+		WHERE t.user_id = $1`
 	args := []any{userID}
+	argPos := 2
 
 	if source != "" {
-		query += " AND t.source = ?"
+		query += fmt.Sprintf(" AND t.source = $%d", argPos)
 		args = append(args, source)
+		argPos++
 	}
 	if projectID != "" {
-		query += " AND t.project_id = ?"
+		query += fmt.Sprintf(" AND t.project_id = $%d", argPos)
 		args = append(args, projectID)
+		argPos++
 	}
 	if status != "" {
-		query += " AND t.status = ?"
+		query += fmt.Sprintf(" AND t.status = $%d", argPos)
 		args = append(args, status)
+		argPos++
 	}
 
-	query += " ORDER BY t.updated_at DESC LIMIT ? OFFSET ?"
+	query += fmt.Sprintf(" ORDER BY t.updated_at DESC LIMIT $%d OFFSET $%d", argPos, argPos+1)
 	args = append(args, limit, offset)
 
 	rows, err := database.Query(query, args...)
@@ -193,25 +197,29 @@ func ListTasks(database *sql.DB, userID string, source, projectID, status string
 
 func UpdateTask(database *sql.DB, taskID string, subject, description, status *string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	sets := []string{"updated_at = ?"}
+	sets := []string{"updated_at = $1"}
 	args := []any{now}
+	argPos := 2
 
 	if subject != nil {
-		sets = append(sets, "subject = ?")
+		sets = append(sets, fmt.Sprintf("subject = $%d", argPos))
 		args = append(args, *subject)
+		argPos++
 	}
 	if description != nil {
-		sets = append(sets, "description = ?")
+		sets = append(sets, fmt.Sprintf("description = $%d", argPos))
 		args = append(args, *description)
+		argPos++
 	}
 	if status != nil {
-		sets = append(sets, "status = ?")
+		sets = append(sets, fmt.Sprintf("status = $%d", argPos))
 		args = append(args, *status)
+		argPos++
 	}
 
 	args = append(args, taskID)
 	_, err := database.Exec(
-		fmt.Sprintf("UPDATE tasks SET %s WHERE id = ?", strings.Join(sets, ", ")),
+		fmt.Sprintf("UPDATE tasks SET %s WHERE id = $%d", strings.Join(sets, ", "), argPos),
 		args...,
 	)
 	if err != nil {
@@ -221,7 +229,7 @@ func UpdateTask(database *sql.DB, taskID string, subject, description, status *s
 }
 
 func DeleteTask(database *sql.DB, taskID string) error {
-	_, err := database.Exec("DELETE FROM tasks WHERE id = ?", taskID)
+	_, err := database.Exec("DELETE FROM tasks WHERE id = $1", taskID)
 	if err != nil {
 		return fmt.Errorf("delete task: %w", err)
 	}
@@ -231,7 +239,7 @@ func DeleteTask(database *sql.DB, taskID string) error {
 func CountClaudeTasksBySession(database *sql.DB, sessionID string) (int, error) {
 	var count int
 	err := database.QueryRow(
-		"SELECT COUNT(*) FROM tasks WHERE session_id = ? AND source = 'claude_code'",
+		"SELECT COUNT(*) FROM tasks WHERE session_id = $1 AND source = 'claude_code'",
 		sessionID,
 	).Scan(&count)
 	if err != nil {
@@ -247,7 +255,7 @@ func UpsertTodo(database *sql.DB, userID, projectPath, projectID, contentHash, r
 	id := auth.GenerateID()
 	_, err := database.Exec(`
 		INSERT INTO todos (id, user_id, project_path, project_id, content_hash, raw_content, items_json, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT(user_id, project_path) DO UPDATE SET
 			project_id = excluded.project_id,
 			content_hash = excluded.content_hash,
@@ -266,7 +274,7 @@ func ListTodos(database *sql.DB, userID string) ([]*model.TodoState, error) {
 		SELECT t.project_id, t.project_path, COALESCE(p.name, ''), t.raw_content, t.items_json, t.updated_at
 		FROM todos t
 		LEFT JOIN projects p ON t.project_id = p.id
-		WHERE t.user_id = ?
+		WHERE t.user_id = $1
 		ORDER BY t.updated_at DESC
 	`, userID)
 	if err != nil {
@@ -296,7 +304,7 @@ func GetTodoByProject(database *sql.DB, userID, projectID string) (*model.TodoSt
 		SELECT t.project_id, t.project_path, COALESCE(p.name, ''), t.raw_content, t.items_json, t.updated_at
 		FROM todos t
 		LEFT JOIN projects p ON t.project_id = p.id
-		WHERE t.user_id = ? AND t.project_id = ?
+		WHERE t.user_id = $1 AND t.project_id = $2
 	`, userID, projectID).Scan(&td.ProjectID, &td.ProjectPath, &td.ProjectName, &td.RawContent, &itemsJSON, &td.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get todo by project: %w", err)

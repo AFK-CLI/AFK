@@ -22,7 +22,7 @@ func CreateDevice(db *sql.DB, userID, name, publicKey, systemInfo, capabilities 
 
 	_, err := db.Exec(`
 		INSERT INTO devices (id, user_id, name, public_key, system_info, enrolled_at, last_seen_at, is_online, is_revoked, capabilities)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, FALSE, FALSE, $8)
 	`, id, userID, name, publicKey, systemInfo, now, now, capabilities)
 	if err != nil {
 		return nil, fmt.Errorf("create device: %w", err)
@@ -47,7 +47,7 @@ func ListDevices(db *sql.DB, userID string) ([]*model.Device, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, name, public_key, system_info, enrolled_at, last_seen_at, is_online, is_revoked, privacy_mode,
 			key_agreement_public_key, key_version, capabilities
-		FROM devices WHERE user_id = ? AND is_revoked = 0
+		FROM devices WHERE user_id = $1 AND is_revoked = FALSE
 		ORDER BY enrolled_at DESC
 	`, userID)
 	if err != nil {
@@ -58,17 +58,14 @@ func ListDevices(db *sql.DB, userID string) ([]*model.Device, error) {
 	var devices []*model.Device
 	for rows.Next() {
 		d := &model.Device{}
-		var isOnline, isRevoked int
 		var kaPubKey sql.NullString
 		var capStr string
 		err := rows.Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.SystemInfo,
-			&d.EnrolledAt, &d.LastSeenAt, &isOnline, &isRevoked, &d.PrivacyMode,
+			&d.EnrolledAt, &d.LastSeenAt, &d.IsOnline, &d.IsRevoked, &d.PrivacyMode,
 			&kaPubKey, &d.KeyVersion, &capStr)
 		if err != nil {
 			return nil, fmt.Errorf("scan device: %w", err)
 		}
-		d.IsOnline = isOnline != 0
-		d.IsRevoked = isRevoked != 0
 		if kaPubKey.Valid {
 			d.KeyAgreementPublicKey = kaPubKey.String
 		}
@@ -85,8 +82,8 @@ func ReactivateDevice(database *sql.DB, deviceID, name, publicKey, systemInfo, c
 		capabilities = "[]"
 	}
 	_, err := database.Exec(`
-		UPDATE devices SET name = ?, public_key = ?, system_info = ?, is_revoked = 0, last_seen_at = ?, capabilities = ?
-		WHERE id = ?
+		UPDATE devices SET name = $1, public_key = $2, system_info = $3, is_revoked = FALSE, last_seen_at = $4, capabilities = $5
+		WHERE id = $6
 	`, name, publicKey, systemInfo, now, capabilities, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("reactivate device: %w", err)
@@ -97,22 +94,19 @@ func ReactivateDevice(database *sql.DB, deviceID, name, publicKey, systemInfo, c
 // FindDeviceByFingerprint finds an existing non-revoked device by user + name + system_info.
 func FindDeviceByFingerprint(database *sql.DB, userID, name, systemInfo string) (*model.Device, error) {
 	d := &model.Device{}
-	var isOnline, isRevoked int
 	var kaPubKey sql.NullString
 	var capStr string
 	err := database.QueryRow(`
 		SELECT id, user_id, name, public_key, system_info, enrolled_at, last_seen_at, is_online, is_revoked, privacy_mode,
 			key_agreement_public_key, key_version, capabilities
-		FROM devices WHERE user_id = ? AND name = ? AND system_info = ? AND is_revoked = 0
+		FROM devices WHERE user_id = $1 AND name = $2 AND system_info = $3 AND is_revoked = FALSE
 		ORDER BY enrolled_at DESC LIMIT 1
 	`, userID, name, systemInfo).Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.SystemInfo,
-		&d.EnrolledAt, &d.LastSeenAt, &isOnline, &isRevoked, &d.PrivacyMode,
+		&d.EnrolledAt, &d.LastSeenAt, &d.IsOnline, &d.IsRevoked, &d.PrivacyMode,
 		&kaPubKey, &d.KeyVersion, &capStr)
 	if err != nil {
 		return nil, fmt.Errorf("find device by fingerprint: %w", err)
 	}
-	d.IsOnline = isOnline != 0
-	d.IsRevoked = isRevoked != 0
 	if kaPubKey.Valid {
 		d.KeyAgreementPublicKey = kaPubKey.String
 	}
@@ -121,7 +115,7 @@ func FindDeviceByFingerprint(database *sql.DB, userID, name, systemInfo string) 
 }
 
 func DeleteDevice(db *sql.DB, deviceID, userID string) error {
-	res, err := db.Exec(`UPDATE devices SET is_revoked = 1 WHERE id = ? AND user_id = ?`, deviceID, userID)
+	res, err := db.Exec(`UPDATE devices SET is_revoked = TRUE WHERE id = $1 AND user_id = $2`, deviceID, userID)
 	if err != nil {
 		return fmt.Errorf("delete device: %w", err)
 	}
@@ -135,17 +129,13 @@ func DeleteDevice(db *sql.DB, deviceID, userID string) error {
 // ResetAllDevicesOffline marks all devices as offline. Call on server startup
 // since no WS connections survive a restart.
 func ResetAllDevicesOffline(db *sql.DB) error {
-	_, err := db.Exec(`UPDATE devices SET is_online = 0`)
+	_, err := db.Exec(`UPDATE devices SET is_online = FALSE`)
 	return err
 }
 
 func UpdateDeviceStatus(db *sql.DB, deviceID string, isOnline bool, lastSeenAt time.Time) error {
-	online := 0
-	if isOnline {
-		online = 1
-	}
-	_, err := db.Exec(`UPDATE devices SET is_online = ?, last_seen_at = ? WHERE id = ?`,
-		online, lastSeenAt, deviceID)
+	_, err := db.Exec(`UPDATE devices SET is_online = $1, last_seen_at = $2 WHERE id = $3`,
+		isOnline, lastSeenAt, deviceID)
 	if err != nil {
 		return fmt.Errorf("update device status: %w", err)
 	}
@@ -154,21 +144,18 @@ func UpdateDeviceStatus(db *sql.DB, deviceID string, isOnline bool, lastSeenAt t
 
 func GetDevice(db *sql.DB, deviceID string) (*model.Device, error) {
 	d := &model.Device{}
-	var isOnline, isRevoked int
 	var kaPubKey sql.NullString
 	var capStr string
 	err := db.QueryRow(`
 		SELECT id, user_id, name, public_key, system_info, enrolled_at, last_seen_at, is_online, is_revoked, privacy_mode,
 			key_agreement_public_key, key_version, capabilities
-		FROM devices WHERE id = ?
+		FROM devices WHERE id = $1
 	`, deviceID).Scan(&d.ID, &d.UserID, &d.Name, &d.PublicKey, &d.SystemInfo,
-		&d.EnrolledAt, &d.LastSeenAt, &isOnline, &isRevoked, &d.PrivacyMode,
+		&d.EnrolledAt, &d.LastSeenAt, &d.IsOnline, &d.IsRevoked, &d.PrivacyMode,
 		&kaPubKey, &d.KeyVersion, &capStr)
 	if err != nil {
 		return nil, fmt.Errorf("get device: %w", err)
 	}
-	d.IsOnline = isOnline != 0
-	d.IsRevoked = isRevoked != 0
 	if kaPubKey.Valid {
 		d.KeyAgreementPublicKey = kaPubKey.String
 	}
@@ -181,7 +168,7 @@ func CountActiveDevicesByType(db *sql.DB, userID string) (agentCount, iosCount i
 		SELECT
 			COUNT(CASE WHEN system_info NOT LIKE 'iOS%' THEN 1 END),
 			COUNT(CASE WHEN system_info LIKE 'iOS%' THEN 1 END)
-		FROM devices WHERE user_id = ? AND is_revoked = 0
+		FROM devices WHERE user_id = $1 AND is_revoked = FALSE
 	`, userID).Scan(&agentCount, &iosCount)
 	if err != nil {
 		return 0, 0, fmt.Errorf("count active devices by type: %w", err)
@@ -192,7 +179,7 @@ func CountActiveDevicesByType(db *sql.DB, userID string) (agentCount, iosCount i
 // Device Key Agreement
 
 func UpdateDeviceKeyAgreement(db *sql.DB, deviceID, publicKey string, version int) error {
-	_, err := db.Exec(`UPDATE devices SET key_agreement_public_key = ?, key_version = ? WHERE id = ?`,
+	_, err := db.Exec(`UPDATE devices SET key_agreement_public_key = $1, key_version = $2 WHERE id = $3`,
 		publicKey, version, deviceID)
 	if err != nil {
 		return fmt.Errorf("update device key agreement: %w", err)
@@ -205,14 +192,10 @@ func InsertDeviceKey(db *sql.DB, key *model.DeviceKey) error {
 		key.ID = auth.GenerateID()
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	active := 0
-	if key.Active {
-		active = 1
-	}
 	_, err := db.Exec(`
 		INSERT INTO device_keys (id, device_id, key_type, public_key, version, active, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, key.ID, key.DeviceID, key.KeyType, key.PublicKey, key.Version, active, now)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, key.ID, key.DeviceID, key.KeyType, key.PublicKey, key.Version, key.Active, now)
 	if err != nil {
 		return fmt.Errorf("insert device key: %w", err)
 	}
@@ -221,7 +204,7 @@ func InsertDeviceKey(db *sql.DB, key *model.DeviceKey) error {
 
 func RevokeDeviceKeys(db *sql.DB, deviceID string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := db.Exec(`UPDATE device_keys SET active = 0, revoked_at = ? WHERE device_id = ? AND active = 1`,
+	_, err := db.Exec(`UPDATE device_keys SET active = FALSE, revoked_at = $1 WHERE device_id = $2 AND active = TRUE`,
 		now, deviceID)
 	if err != nil {
 		return fmt.Errorf("revoke device keys: %w", err)
@@ -231,17 +214,15 @@ func RevokeDeviceKeys(db *sql.DB, deviceID string) error {
 
 func GetActiveDeviceKey(db *sql.DB, deviceID, keyType string) (*model.DeviceKey, error) {
 	k := &model.DeviceKey{}
-	var active int
 	var revokedAt sql.NullString
 	err := db.QueryRow(`
 		SELECT id, device_id, key_type, public_key, version, active, created_at, revoked_at
-		FROM device_keys WHERE device_id = ? AND key_type = ? AND active = 1
+		FROM device_keys WHERE device_id = $1 AND key_type = $2 AND active = TRUE
 		ORDER BY version DESC LIMIT 1
-	`, deviceID, keyType).Scan(&k.ID, &k.DeviceID, &k.KeyType, &k.PublicKey, &k.Version, &active, &k.CreatedAt, &revokedAt)
+	`, deviceID, keyType).Scan(&k.ID, &k.DeviceID, &k.KeyType, &k.PublicKey, &k.Version, &k.Active, &k.CreatedAt, &revokedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get active device key: %w", err)
 	}
-	k.Active = active != 0
 	if revokedAt.Valid {
 		k.RevokedAt = &revokedAt.String
 	}
@@ -251,17 +232,15 @@ func GetActiveDeviceKey(db *sql.DB, deviceID, keyType string) (*model.DeviceKey,
 // GetDeviceKeyByVersion returns a historical device key by version.
 func GetDeviceKeyByVersion(db *sql.DB, deviceID string, version int) (*model.DeviceKey, error) {
 	k := &model.DeviceKey{}
-	var active int
 	var revokedAt sql.NullString
 	err := db.QueryRow(`
 		SELECT id, device_id, key_type, public_key, version, active, created_at, revoked_at
-		FROM device_keys WHERE device_id = ? AND version = ?
+		FROM device_keys WHERE device_id = $1 AND version = $2
 		ORDER BY created_at DESC LIMIT 1
-	`, deviceID, version).Scan(&k.ID, &k.DeviceID, &k.KeyType, &k.PublicKey, &k.Version, &active, &k.CreatedAt, &revokedAt)
+	`, deviceID, version).Scan(&k.ID, &k.DeviceID, &k.KeyType, &k.PublicKey, &k.Version, &k.Active, &k.CreatedAt, &revokedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get device key by version: %w", err)
 	}
-	k.Active = active != 0
 	if revokedAt.Valid {
 		k.RevokedAt = &revokedAt.String
 	}
@@ -274,7 +253,7 @@ func GetPeerKeyAgreementKey(db *sql.DB, userID, peerDeviceID string) (string, er
 	var pubKey sql.NullString
 	err := db.QueryRow(`
 		SELECT key_agreement_public_key FROM devices
-		WHERE id = ? AND user_id = ? AND is_revoked = 0 AND key_agreement_public_key IS NOT NULL
+		WHERE id = $1 AND user_id = $2 AND is_revoked = FALSE AND key_agreement_public_key IS NOT NULL
 	`, peerDeviceID, userID).Scan(&pubKey)
 	if err != nil {
 		return "", fmt.Errorf("get peer key agreement key: %w", err)
@@ -288,7 +267,7 @@ func GetPeerKeyAgreementKey(db *sql.DB, userID, peerDeviceID string) (string, er
 // Privacy Mode
 
 func UpdateDevicePrivacyMode(db *sql.DB, deviceID, privacyMode string) error {
-	_, err := db.Exec(`UPDATE devices SET privacy_mode = ? WHERE id = ?`, privacyMode, deviceID)
+	_, err := db.Exec(`UPDATE devices SET privacy_mode = $1 WHERE id = $2`, privacyMode, deviceID)
 	if err != nil {
 		return fmt.Errorf("update device privacy mode: %w", err)
 	}
@@ -297,7 +276,7 @@ func UpdateDevicePrivacyMode(db *sql.DB, deviceID, privacyMode string) error {
 
 func GetDevicePrivacyMode(db *sql.DB, deviceID string) (string, error) {
 	var mode string
-	err := db.QueryRow(`SELECT privacy_mode FROM devices WHERE id = ?`, deviceID).Scan(&mode)
+	err := db.QueryRow(`SELECT privacy_mode FROM devices WHERE id = $1`, deviceID).Scan(&mode)
 	if err != nil {
 		return "", fmt.Errorf("get device privacy mode: %w", err)
 	}

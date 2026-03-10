@@ -170,7 +170,7 @@ All environment variables are loaded from `backend/.env` (via godotenv) and can 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `AFK_PORT` | int | `9847` | HTTP listen port. |
-| `AFK_DB_PATH` | string | `afk.db` | SQLite database file path. Set to `/data/afk.db` in Docker. |
+| `AFK_DATABASE_URL` | string | `postgres://afk:afk@localhost:5432/afk?sslmode=disable` | PostgreSQL connection URL. |
 | `AFK_LOG_LEVEL` | string | `info` | Log level: `debug`, `info`, `warn`, `error`. |
 | `AFK_LOG_FORMAT` | string | `json` | Log output format: `json` (default) or `text`. |
 | `AFK_VERSION` | string | `""` | Version string. Injected via `-ldflags` at build time. |

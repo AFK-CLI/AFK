@@ -20,7 +20,7 @@ func InsertAuditLog(db *sql.DB, entry *model.AuditLogEntry) error {
 	}
 	_, err := db.Exec(`
 		INSERT INTO audit_log (id, user_id, device_id, action, details, content_hash, ip_address, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, entry.ID, entry.UserID, entry.DeviceID, entry.Action, entry.Details,
 		entry.ContentHash, entry.IPAddress, entry.CreatedAt)
 	if err != nil {
@@ -32,8 +32,8 @@ func InsertAuditLog(db *sql.DB, entry *model.AuditLogEntry) error {
 func ListAuditLog(db *sql.DB, userID string, limit, offset int) ([]*model.AuditLogEntry, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, device_id, action, details, content_hash, ip_address, created_at
-		FROM audit_log WHERE user_id = ?
-		ORDER BY created_at DESC LIMIT ? OFFSET ?
+		FROM audit_log WHERE user_id = $1
+		ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list audit log: %w", err)
@@ -65,7 +65,7 @@ func ListAuditLog(db *sql.DB, userID string, limit, offset int) ([]*model.AuditL
 
 // PurgeOldAuditLogs deletes audit log entries older than the given cutoff.
 func PurgeOldAuditLogs(db *sql.DB, cutoff time.Time) (int64, error) {
-	result, err := db.Exec(`DELETE FROM audit_log WHERE created_at < ?`, cutoff)
+	result, err := db.Exec(`DELETE FROM audit_log WHERE created_at < $1`, cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("purge old audit logs: %w", err)
 	}

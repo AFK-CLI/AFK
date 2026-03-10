@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	Port             string
-	DatabasePath     string
+	DatabaseURL      string
 	JWTSecret        string
 	AppleBundleIDs   []string
 	ServerPublicKey  string // hex-encoded Ed25519 public key
@@ -38,7 +38,7 @@ func Load() *Config {
 
 	return &Config{
 		Port:             getEnv("AFK_PORT", "9847"),
-		DatabasePath:     getEnv("AFK_DB_PATH", "afk.db"),
+		DatabaseURL:      getEnv("AFK_DATABASE_URL", "postgres://afk:afk@localhost:5432/afk?sslmode=disable"),
 		JWTSecret:        getEnv("AFK_JWT_SECRET", ""),
 		AppleBundleIDs:   splitCSV(getEnv("AFK_APPLE_BUNDLE_ID", "com.afk.app")),
 		ServerPublicKey:  getEnv("AFK_SERVER_PUBLIC_KEY", ""),

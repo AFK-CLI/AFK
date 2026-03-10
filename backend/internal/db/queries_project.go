@@ -19,7 +19,7 @@ func UpsertProject(db *sql.DB, p *model.Project) error {
 	}
 	_, err := db.Exec(`
 		INSERT INTO projects (id, user_id, path, name, settings, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT(user_id, path) DO UPDATE SET
 			name = excluded.name,
 			updated_at = excluded.updated_at
@@ -34,7 +34,7 @@ func GetProjectByID(db *sql.DB, userID, projectID string) (*model.Project, error
 	p := &model.Project{}
 	err := db.QueryRow(`
 		SELECT id, user_id, path, name, settings, created_at, updated_at
-		FROM projects WHERE id = ? AND user_id = ?
+		FROM projects WHERE id = $1 AND user_id = $2
 	`, projectID, userID).Scan(&p.ID, &p.UserID, &p.Path, &p.Name, &p.Settings, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get project by id: %w", err)
@@ -46,7 +46,7 @@ func GetProjectByPath(db *sql.DB, userID, path string) (*model.Project, error) {
 	p := &model.Project{}
 	err := db.QueryRow(`
 		SELECT id, user_id, path, name, settings, created_at, updated_at
-		FROM projects WHERE user_id = ? AND path = ?
+		FROM projects WHERE user_id = $1 AND path = $2
 	`, userID, path).Scan(&p.ID, &p.UserID, &p.Path, &p.Name, &p.Settings, &p.CreatedAt, &p.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get project by path: %w", err)
@@ -57,7 +57,7 @@ func GetProjectByPath(db *sql.DB, userID, path string) (*model.Project, error) {
 func ListProjects(db *sql.DB, userID string) ([]*model.Project, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, path, name, settings, created_at, updated_at
-		FROM projects WHERE user_id = ?
+		FROM projects WHERE user_id = $1
 		ORDER BY updated_at DESC
 	`, userID)
 	if err != nil {
@@ -134,8 +134,11 @@ func EnsureProjectForSession(db *sql.DB, userID, projectPath string) string {
 func UpsertProjectPrivacy(db *sql.DB, id, userID, deviceID, projectPathHash, privacyMode string) error {
 	now := time.Now()
 	_, err := db.Exec(`
-		INSERT OR REPLACE INTO project_privacy (id, user_id, device_id, project_path_hash, privacy_mode, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO project_privacy (id, user_id, device_id, project_path_hash, privacy_mode, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT(device_id, project_path_hash) DO UPDATE SET
+			privacy_mode = excluded.privacy_mode,
+			updated_at = excluded.updated_at
 	`, id, userID, deviceID, projectPathHash, privacyMode, now, now)
 	if err != nil {
 		return fmt.Errorf("upsert project privacy: %w", err)
@@ -146,7 +149,7 @@ func UpsertProjectPrivacy(db *sql.DB, id, userID, deviceID, projectPathHash, pri
 func GetProjectPrivacy(db *sql.DB, deviceID, projectPathHash string) (string, error) {
 	var mode string
 	err := db.QueryRow(`
-		SELECT privacy_mode FROM project_privacy WHERE device_id = ? AND project_path_hash = ?
+		SELECT privacy_mode FROM project_privacy WHERE device_id = $1 AND project_path_hash = $2
 	`, deviceID, projectPathHash).Scan(&mode)
 	if err == sql.ErrNoRows {
 		return "telemetry_only", nil

@@ -1,5 +1,21 @@
 services:
   # ── Production ──
+  postgres:
+    profiles: [prod]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: afk
+      POSTGRES_PASSWORD: ${AFK_DB_PASSWORD}
+      POSTGRES_DB: afk
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   afk-cloud:
     profiles: [prod]
     build:
@@ -12,11 +28,13 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - AFK_DB_PATH=/data/afk.db
+      - AFK_DATABASE_URL=postgres://afk:${AFK_DB_PASSWORD}@postgres:5432/afk?sslmode=disable
       - AFK_APNS_KEY_PATH=/secrets/apns-key.p8
     volumes:
-      - afk-data:/data
       - ./secrets/apns-key.p8:/secrets/apns-key.p8:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9847/healthz"]
       interval: 30s
@@ -47,6 +65,24 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
   # ── Dev ──
+  postgres-dev:
+    profiles: [dev]
+    image: postgres:17-alpine
+    ports:
+      - "127.0.0.1:5434:5432"
+    environment:
+      POSTGRES_USER: afk
+      POSTGRES_PASSWORD: ${AFK_DB_PASSWORD:-devpassword}
+      POSTGRES_DB: afk
+    volumes:
+      - pg-data-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U afk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   afk-cloud-dev:
     profiles: [dev]
     build:
@@ -59,11 +95,13 @@ services:
     env_file:
       - ./backend/.env.dev
     environment:
-      - AFK_DB_PATH=/data/afk-dev.db
+      - AFK_DATABASE_URL=postgres://afk:${AFK_DB_PASSWORD:-devpassword}@postgres-dev:5432/afk?sslmode=disable
       - AFK_APNS_KEY_PATH=/secrets/apns-key.p8
     volumes:
-      - afk-data-dev:/data
       - ./secrets/apns-key.p8:/secrets/apns-key.p8:ro
+    depends_on:
+      postgres-dev:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:9847/healthz"]
       interval: 30s
@@ -85,5 +123,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  afk-data:
-  afk-data-dev:
+  pg-data:
+  pg-data-dev:

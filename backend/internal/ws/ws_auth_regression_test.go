@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"github.com/AFK/afk-cloud/internal/auth"
@@ -87,10 +88,15 @@ func TestAgentWS_CWE598_WSTicketStillWorks(t *testing.T) {
 	}
 }
 
-// wsTestDB creates an in-memory SQLite database for WS tests.
+// wsTestDB creates a PostgreSQL test database for WS tests.
+// Set AFK_TEST_DATABASE_URL to a PostgreSQL connection string (e.g. postgres://afk:afk@localhost:5432/afk_test?sslmode=disable).
 func wsTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	database, err := db.Open(":memory:")
+	dsn := os.Getenv("AFK_TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("AFK_TEST_DATABASE_URL not set, skipping database test")
+	}
+	database, err := db.Open(dsn)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
 	}

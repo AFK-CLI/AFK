@@ -24,7 +24,7 @@ func CreateAdminUser(db *sql.DB, email, passwordHash string) (*AdminAccount, err
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := db.Exec(`
 		INSERT INTO admin_users (id, email, password_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5)
 	`, id, email, passwordHash, now, now)
 	if err != nil {
 		return nil, fmt.Errorf("create admin user: %w", err)
@@ -39,29 +39,25 @@ func CreateAdminUser(db *sql.DB, email, passwordHash string) (*AdminAccount, err
 
 func GetAdminUserByEmail(db *sql.DB, email string) (*AdminAccount, error) {
 	u := &AdminAccount{}
-	var totpEnabled int
 	err := db.QueryRow(`
 		SELECT id, email, password_hash, totp_secret, totp_enabled, created_at, updated_at
-		FROM admin_users WHERE email = ?
-	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &totpEnabled, &u.CreatedAt, &u.UpdatedAt)
+		FROM admin_users WHERE email = $1
+	`, email).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &u.TOTPEnabled, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get admin user by email: %w", err)
 	}
-	u.TOTPEnabled = totpEnabled != 0
 	return u, nil
 }
 
 func GetAdminUserByID(db *sql.DB, id string) (*AdminAccount, error) {
 	u := &AdminAccount{}
-	var totpEnabled int
 	err := db.QueryRow(`
 		SELECT id, email, password_hash, totp_secret, totp_enabled, created_at, updated_at
-		FROM admin_users WHERE id = ?
-	`, id).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &totpEnabled, &u.CreatedAt, &u.UpdatedAt)
+		FROM admin_users WHERE id = $1
+	`, id).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &u.TOTPEnabled, &u.CreatedAt, &u.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get admin user by id: %w", err)
 	}
-	u.TOTPEnabled = totpEnabled != 0
 	return u, nil
 }
 
@@ -76,7 +72,7 @@ func CountAdminUsers(db *sql.DB) (int, error) {
 
 func SetAdminTOTPSecret(db *sql.DB, adminID, secret string) error {
 	_, err := db.Exec(`
-		UPDATE admin_users SET totp_secret = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+		UPDATE admin_users SET totp_secret = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2
 	`, secret, adminID)
 	if err != nil {
 		return fmt.Errorf("set admin totp secret: %w", err)
@@ -86,7 +82,7 @@ func SetAdminTOTPSecret(db *sql.DB, adminID, secret string) error {
 
 func EnableAdminTOTP(db *sql.DB, adminID string) error {
 	_, err := db.Exec(`
-		UPDATE admin_users SET totp_enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?
+		UPDATE admin_users SET totp_enabled = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = $1
 	`, adminID)
 	if err != nil {
 		return fmt.Errorf("enable admin totp: %w", err)
@@ -114,17 +110,10 @@ type AdminPasskeyCredential struct {
 }
 
 func CreateAdminPasskeyCredential(db *sql.DB, id, adminUserID string, credentialID, publicKey []byte, attestationType, transport string, aaguid []byte, friendlyName string, backupEligible, backupState bool) error {
-	be, bs := 0, 0
-	if backupEligible {
-		be = 1
-	}
-	if backupState {
-		bs = 1
-	}
 	_, err := db.Exec(`
 		INSERT INTO admin_passkey_credentials (id, admin_user_id, credential_id, public_key, attestation_type, transport, aaguid, friendly_name, backup_eligible, backup_state)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, adminUserID, credentialID, publicKey, attestationType, transport, aaguid, friendlyName, be, bs)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, id, adminUserID, credentialID, publicKey, attestationType, transport, aaguid, friendlyName, backupEligible, backupState)
 	if err != nil {
 		return fmt.Errorf("create admin passkey credential: %w", err)
 	}
@@ -134,7 +123,7 @@ func CreateAdminPasskeyCredential(db *sql.DB, id, adminUserID string, credential
 func GetAdminPasskeyCredentials(db *sql.DB, adminUserID string) ([]AdminPasskeyCredential, error) {
 	rows, err := db.Query(`
 		SELECT id, admin_user_id, credential_id, public_key, attestation_type, transport, sign_count, aaguid, clone_warning, backup_eligible, backup_state, friendly_name, created_at, last_used_at
-		FROM admin_passkey_credentials WHERE admin_user_id = ?
+		FROM admin_passkey_credentials WHERE admin_user_id = $1
 	`, adminUserID)
 	if err != nil {
 		return nil, fmt.Errorf("get admin passkey credentials: %w", err)
@@ -144,12 +133,9 @@ func GetAdminPasskeyCredentials(db *sql.DB, adminUserID string) ([]AdminPasskeyC
 	var creds []AdminPasskeyCredential
 	for rows.Next() {
 		var c AdminPasskeyCredential
-		var be, bs int
-		if err := rows.Scan(&c.ID, &c.AdminUserID, &c.CredentialID, &c.PublicKey, &c.AttestationType, &c.Transport, &c.SignCount, &c.AAGUID, &c.CloneWarning, &be, &bs, &c.FriendlyName, &c.CreatedAt, &c.LastUsedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.AdminUserID, &c.CredentialID, &c.PublicKey, &c.AttestationType, &c.Transport, &c.SignCount, &c.AAGUID, &c.CloneWarning, &c.BackupEligible, &c.BackupState, &c.FriendlyName, &c.CreatedAt, &c.LastUsedAt); err != nil {
 			return nil, fmt.Errorf("scan admin passkey credential: %w", err)
 		}
-		c.BackupEligible = be != 0
-		c.BackupState = bs != 0
 		creds = append(creds, c)
 	}
 	return creds, nil
@@ -157,7 +143,7 @@ func GetAdminPasskeyCredentials(db *sql.DB, adminUserID string) ([]AdminPasskeyC
 
 func UpdateAdminPasskeySignCount(db *sql.DB, credentialID string, signCount int) error {
 	_, err := db.Exec(`
-		UPDATE admin_passkey_credentials SET sign_count = ?, last_used_at = CURRENT_TIMESTAMP WHERE id = ?
+		UPDATE admin_passkey_credentials SET sign_count = $1, last_used_at = CURRENT_TIMESTAMP WHERE id = $2
 	`, signCount, credentialID)
 	if err != nil {
 		return fmt.Errorf("update admin passkey sign count: %w", err)
@@ -167,17 +153,15 @@ func UpdateAdminPasskeySignCount(db *sql.DB, credentialID string, signCount int)
 
 func GetAdminUserByPasskeyCredentialID(db *sql.DB, credentialID []byte) (*AdminAccount, string, error) {
 	u := &AdminAccount{}
-	var totpEnabled int
 	var passkeyID string
 	err := db.QueryRow(`
 		SELECT a.id, a.email, a.password_hash, a.totp_secret, a.totp_enabled, a.created_at, a.updated_at, apc.id
 		FROM admin_passkey_credentials apc
 		JOIN admin_users a ON a.id = apc.admin_user_id
-		WHERE apc.credential_id = ?
-	`, credentialID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &totpEnabled, &u.CreatedAt, &u.UpdatedAt, &passkeyID)
+		WHERE apc.credential_id = $1
+	`, credentialID).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TOTPSecret, &u.TOTPEnabled, &u.CreatedAt, &u.UpdatedAt, &passkeyID)
 	if err != nil {
 		return nil, "", fmt.Errorf("get admin user by passkey credential: %w", err)
 	}
-	u.TOTPEnabled = totpEnabled != 0
 	return u, passkeyID, nil
 }

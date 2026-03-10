@@ -19,7 +19,7 @@ func CreateFeedback(db *sql.DB, f *model.Feedback) error {
 	}
 	_, err := db.Exec(`
 		INSERT INTO feedback (id, user_id, device_id, category, message, app_version, platform, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 	`, f.ID, f.UserID, f.DeviceID, f.Category, f.Message, f.AppVersion, f.Platform, f.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert feedback: %w", err)
@@ -31,8 +31,8 @@ func CreateFeedback(db *sql.DB, f *model.Feedback) error {
 func ListFeedback(db *sql.DB, userID string, limit, offset int) ([]*model.Feedback, error) {
 	rows, err := db.Query(`
 		SELECT id, user_id, device_id, category, message, app_version, platform, created_at
-		FROM feedback WHERE user_id = ?
-		ORDER BY created_at DESC LIMIT ? OFFSET ?
+		FROM feedback WHERE user_id = $1
+		ORDER BY created_at DESC LIMIT $2 OFFSET $3
 	`, userID, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list feedback: %w", err)

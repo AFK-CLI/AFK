@@ -12,12 +12,11 @@ import (
 
 func GetNotificationPrefs(database *sql.DB, userID string) (*model.NotificationPrefs, error) {
 	var prefs model.NotificationPrefs
-	var permReq, sessErr, sessComp, askUser, sessActivity int
 	var quietStart, quietEnd sql.NullString
 	err := database.QueryRow(`
 		SELECT user_id, permission_requests, session_errors, session_completions, ask_user, session_activity, quiet_hours_start, quiet_hours_end
-		FROM notification_preferences WHERE user_id = ?
-	`, userID).Scan(&prefs.UserID, &permReq, &sessErr, &sessComp, &askUser, &sessActivity, &quietStart, &quietEnd)
+		FROM notification_preferences WHERE user_id = $1
+	`, userID).Scan(&prefs.UserID, &prefs.PermissionRequests, &prefs.SessionErrors, &prefs.SessionCompletions, &prefs.AskUser, &prefs.SessionActivity, &quietStart, &quietEnd)
 	if err == sql.ErrNoRows {
 		// Return defaults: all enabled except session activity (off by default).
 		return &model.NotificationPrefs{
@@ -32,11 +31,6 @@ func GetNotificationPrefs(database *sql.DB, userID string) (*model.NotificationP
 	if err != nil {
 		return nil, fmt.Errorf("get notification prefs: %w", err)
 	}
-	prefs.PermissionRequests = permReq != 0
-	prefs.SessionErrors = sessErr != 0
-	prefs.SessionCompletions = sessComp != 0
-	prefs.AskUser = askUser != 0
-	prefs.SessionActivity = sessActivity != 0
 	if quietStart.Valid {
 		prefs.QuietHoursStart = quietStart.String
 	}
@@ -48,12 +42,6 @@ func GetNotificationPrefs(database *sql.DB, userID string) (*model.NotificationP
 
 func UpsertNotificationPrefs(database *sql.DB, userID string, prefs *model.NotificationPrefs) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	boolToInt := func(b bool) int {
-		if b {
-			return 1
-		}
-		return 0
-	}
 	var quietStart, quietEnd *string
 	if prefs.QuietHoursStart != "" {
 		quietStart = &prefs.QuietHoursStart
@@ -63,7 +51,7 @@ func UpsertNotificationPrefs(database *sql.DB, userID string, prefs *model.Notif
 	}
 	_, err := database.Exec(`
 		INSERT INTO notification_preferences (user_id, permission_requests, session_errors, session_completions, ask_user, session_activity, quiet_hours_start, quiet_hours_end, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT(user_id) DO UPDATE SET
 			permission_requests = excluded.permission_requests,
 			session_errors = excluded.session_errors,
@@ -74,11 +62,11 @@ func UpsertNotificationPrefs(database *sql.DB, userID string, prefs *model.Notif
 			quiet_hours_end = excluded.quiet_hours_end,
 			updated_at = excluded.updated_at
 	`, userID,
-		boolToInt(prefs.PermissionRequests),
-		boolToInt(prefs.SessionErrors),
-		boolToInt(prefs.SessionCompletions),
-		boolToInt(prefs.AskUser),
-		boolToInt(prefs.SessionActivity),
+		prefs.PermissionRequests,
+		prefs.SessionErrors,
+		prefs.SessionCompletions,
+		prefs.AskUser,
+		prefs.SessionActivity,
 		quietStart, quietEnd, now, now)
 	if err != nil {
 		return fmt.Errorf("upsert notification prefs: %w", err)

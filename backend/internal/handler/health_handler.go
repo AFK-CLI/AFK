@@ -52,10 +52,9 @@ func (h *HealthHandler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	// DB size
 	if h.DB != nil {
-		var pageCount, pageSize int64
-		h.DB.QueryRow("PRAGMA page_count").Scan(&pageCount)
-		h.DB.QueryRow("PRAGMA page_size").Scan(&pageSize)
-		response["db_size_bytes"] = pageCount * pageSize
+		var dbSize int64
+		h.DB.QueryRow("SELECT pg_database_size(current_database())").Scan(&dbSize)
+		response["db_size_bytes"] = dbSize
 	}
 
 	writeJSON(w, http.StatusOK, response)

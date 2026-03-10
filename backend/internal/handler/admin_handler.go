@@ -279,10 +279,9 @@ func (h *AdminHandler) HandleAdminDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	// DB size.
-	var pageCount, pageSize int64
-	h.DB.QueryRow("PRAGMA page_count").Scan(&pageCount)
-	h.DB.QueryRow("PRAGMA page_size").Scan(&pageSize)
-	response["dbSizeBytes"] = pageCount * pageSize
+	var dbSize int64
+	h.DB.QueryRow("SELECT pg_database_size(current_database())").Scan(&dbSize)
+	response["dbSizeBytes"] = dbSize
 
 	writeJSON(w, http.StatusOK, response)
 }
