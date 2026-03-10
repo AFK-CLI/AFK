@@ -290,7 +290,7 @@ type PasskeyCredential struct {
 	Transport       string
 	SignCount       int
 	AAGUID          []byte
-	CloneWarning    int
+	CloneWarning    bool
 	BackupEligible  bool
 	BackupState     bool
 	FriendlyName    string

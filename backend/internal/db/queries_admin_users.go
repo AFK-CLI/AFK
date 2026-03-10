@@ -101,7 +101,7 @@ type AdminPasskeyCredential struct {
 	Transport       string
 	AAGUID          []byte
 	SignCount       int
-	CloneWarning    int
+	CloneWarning    bool
 	BackupEligible  bool
 	BackupState     bool
 	FriendlyName    string

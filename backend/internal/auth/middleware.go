@@ -66,13 +66,13 @@ func AuthMiddlewareWithVerification(secret string, verifyFn EmailVerifiedChecker
 // NewEmailVerifiedChecker creates an EmailVerifiedChecker backed by a database.
 func NewEmailVerifiedChecker(database *sql.DB) EmailVerifiedChecker {
 	return func(userID string) (bool, error) {
-		var verified int
-		err := database.QueryRow(`SELECT email_verified FROM users WHERE id = ?`, userID).Scan(&verified)
+		var verified bool
+		err := database.QueryRow(`SELECT email_verified FROM users WHERE id = $1`, userID).Scan(&verified)
 		if err != nil {
 			// If we can't check (e.g., column doesn't exist yet), allow through.
 			return true, err
 		}
-		return verified != 0, nil
+		return verified, nil
 	}
 }
 

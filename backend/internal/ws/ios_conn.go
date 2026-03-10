@@ -65,17 +65,9 @@ func ServeIOSWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.Tic
 			hub.BroadcastToUser(userID, statusMsg)
 		}
 
-		// Re-enable remote approval on all agents now that iOS is back.
-		ra := true
-		enableMsg, err := NewWSMessage("agent_control", struct {
-			RemoteApproval *bool `json:"remoteApproval"`
-		}{&ra})
-		if err == nil {
-			hub.SendToUserAgents(userID, enableMsg)
-			slog.Info("iOS client connected, re-enabled remote approval for all agents", "user_id", userID)
-		}
-
 		// Replay cached agent control states so iOS immediately knows each agent's state.
+		// Note: we do NOT force-enable remote approval here. The agent keeps whatever
+		// state the user set locally; iOS can see it via the cached control states below.
 		hub.SendCachedControlStates(userID, ic)
 
 		// Replay cached usage states so iOS shows usage immediately.

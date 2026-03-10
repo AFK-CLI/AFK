@@ -132,6 +132,12 @@ func (h *KeyExchangeHandler) HandleRegisterKey(w http.ResponseWriter, r *http.Re
 
 	slog.Info("registered key agreement key", "device_id", deviceID, "fingerprint", keyFingerprint, "version", newVersion)
 
+	// Auto-upgrade privacy mode to encrypted when E2EE key is registered.
+	if device.PrivacyMode != "encrypted" {
+		_ = db.UpdateDevicePrivacyMode(h.DB, deviceID, "encrypted")
+		slog.Info("auto-upgraded privacy mode to encrypted", "device_id", deviceID)
+	}
+
 	// Broadcast key rotation to ALL peers (iOS + agents) so they invalidate cached keys.
 	if h.Hub != nil {
 		rotatedMsg, err := ws.NewWSMessage("device.key_rotated", model.DeviceKeyRotated{

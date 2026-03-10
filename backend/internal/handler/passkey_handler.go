@@ -327,7 +327,7 @@ func (h *PasskeyHandler) buildWebAuthnCredentials(userID string) ([]webauthn.Cre
 			Authenticator: webauthn.Authenticator{
 				AAGUID:       dc.AAGUID,
 				SignCount:    uint32(dc.SignCount),
-				CloneWarning: dc.CloneWarning != 0,
+				CloneWarning: dc.CloneWarning,
 			},
 		})
 	}
