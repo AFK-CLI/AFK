@@ -41,7 +41,7 @@ func CreateBetaRequest(d *sql.DB, req *model.BetaRequest) error {
 
 // ListBetaRequests returns beta requests with optional status filter, newest first.
 func ListBetaRequests(d *sql.DB, status string, limit, offset int) ([]model.BetaRequest, error) {
-	query := `SELECT id, email, name, status, notes, created_at, COALESCE(invited_at, '') FROM beta_requests`
+	query := `SELECT id, email, name, status, notes, created_at, COALESCE(invited_at::text, '') FROM beta_requests`
 	var args []interface{}
 	argPos := 1
 
