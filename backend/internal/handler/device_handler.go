@@ -135,6 +135,12 @@ func (h *DeviceHandler) HandleCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Store KeyAgreement public key if provided at enrollment.
 	if req.KeyAgreementPublicKey != "" {
+		// Auto-upgrade privacy mode to encrypted when E2EE key is present.
+		if device.PrivacyMode != "encrypted" {
+			_ = db.UpdateDevicePrivacyMode(h.DB, device.ID, "encrypted")
+			slog.Info("auto-upgraded privacy mode to encrypted", "device_id", device.ID)
+		}
+
 		// Idempotent: skip write if the key is already the same.
 		if device.KeyAgreementPublicKey == req.KeyAgreementPublicKey {
 			slog.Info("key agreement key unchanged, skipping update", "device_id", device.ID)
