@@ -114,6 +114,9 @@ func ServeAgentWS(hub *Hub, database *sql.DB, secret string, ticketStore *auth.T
 		})
 		hub.BroadcastToUser(userID, statusMsg)
 
+		// Deliver pending skill installs.
+		go deliverPendingSkills(hub, database, deviceID)
+
 		go agentWritePump(ac)
 		go agentReadPump(hub, ac, database, userID, deviceID, device.Name)
 	}
@@ -684,6 +687,127 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 		}{todoState})
 		hub.BroadcastToUser(userID, notification)
 
+	case "agent.inventory.sync":
+		var inventoryPayload struct {
+			DeviceID           string          `json:"deviceId"`
+			Inventory          json.RawMessage `json:"inventory"`
+			InventoryEncrypted string          `json:"inventoryEncrypted"`
+			ContentHash        string          `json:"contentHash"`
+			Encrypted          bool            `json:"encrypted"`
+		}
+		if err := json.Unmarshal(msg.Payload, &inventoryPayload); err != nil {
+			slog.Error("parse inventory sync failed", "device_id", deviceID, "error", err)
+			return
+		}
+
+		isEncrypted := inventoryPayload.Encrypted && inventoryPayload.InventoryEncrypted != ""
+
+		// Validate payload size (max 256KB).
+		if len(inventoryPayload.Inventory) > 256*1024 {
+			slog.Warn("inventory payload too large, rejecting", "device_id", deviceID, "size", len(inventoryPayload.Inventory))
+			return
+		}
+
+		// Always forward full inventory to iOS via WS so the app sees
+		// unredacted content regardless of privacy mode.
+		notification, _ := NewWSMessage("inventory.updated", map[string]interface{}{
+			"deviceId":  deviceID,
+			"inventory": inventoryPayload.Inventory,
+			"encrypted": isEncrypted,
+		})
+		if isEncrypted {
+			// Include encrypted payload so iOS can decrypt client-side.
+			notification, _ = NewWSMessage("inventory.updated", map[string]interface{}{
+				"deviceId":           deviceID,
+				"inventoryEncrypted": inventoryPayload.InventoryEncrypted,
+				"encrypted":         true,
+			})
+		}
+		hub.BroadcastToUser(userID, notification)
+
+		// Privacy mode enforcement for DB storage.
+		privacyMode, _ := db.GetDevicePrivacyMode(database, deviceID)
+		if privacyMode == "relay_only" {
+			slog.Info("inventory relay_only: forwarded to iOS, skipping DB storage", "device_id", deviceID)
+			return
+		}
+
+		// Determine what to store in DB.
+		var inventoryToStore string
+		if isEncrypted {
+			// Store the encrypted ciphertext wrapped in a JSON envelope so it's valid JSONB.
+			encJSON, _ := json.Marshal(map[string]string{"encrypted": inventoryPayload.InventoryEncrypted})
+			inventoryToStore = string(encJSON)
+		} else if privacyMode == "telemetry_only" {
+			// Redact sensitive fields before DB storage. Keep names/structure,
+			// strip command content, hook commands, and MCP args.
+			inventoryToStore = redactInventoryJSON(inventoryPayload.Inventory)
+		} else {
+			inventoryToStore = string(inventoryPayload.Inventory)
+		}
+
+		if err := db.UpsertDeviceInventory(database, deviceID, userID, inventoryToStore, inventoryPayload.ContentHash); err != nil {
+			slog.Error("upsert device inventory failed", "device_id", deviceID, "error", err)
+			return
+		}
+
+		// Skill Share: only possible when inventory is not encrypted (backend needs to read commands).
+		if !isEncrypted {
+			tier, err := db.GetUserTier(database, userID)
+			if err == nil && (tier == "pro" || tier == "contributor") {
+				allInventory, err := db.ListUserInventory(database, userID)
+				if err == nil {
+					type sharedCommand struct {
+						Name             string `json:"name"`
+						Content          string `json:"content"`
+						SourceDeviceID   string `json:"sourceDeviceId"`
+						SourceDeviceName string `json:"sourceDeviceName"`
+					}
+					var shared []sharedCommand
+
+					for _, inv := range allInventory {
+						if inv.DeviceID == deviceID {
+							continue
+						}
+						// Skip encrypted inventories from other devices.
+						var encCheck struct {
+							Encrypted string `json:"encrypted"`
+						}
+						if json.Unmarshal([]byte(inv.InventoryJSON), &encCheck) == nil && encCheck.Encrypted != "" {
+							continue
+						}
+						// Parse globalCommands from this device's inventory.
+						var parsed struct {
+							GlobalCommands []struct {
+								Name    string `json:"name"`
+								Content string `json:"content"`
+							} `json:"globalCommands"`
+						}
+						if err := json.Unmarshal([]byte(inv.InventoryJSON), &parsed); err != nil {
+							continue
+						}
+						for _, cmd := range parsed.GlobalCommands {
+							shared = append(shared, sharedCommand{
+								Name:             cmd.Name,
+								Content:          cmd.Content,
+								SourceDeviceID:   inv.DeviceID,
+								SourceDeviceName: inv.DeviceName,
+							})
+						}
+					}
+
+					if len(shared) > 0 {
+						skillsSyncMsg, _ := NewWSMessage("server.skills.sync", map[string]interface{}{
+							"sharedCommands": shared,
+						})
+						_ = hub.SendToAgent(deviceID, skillsSyncMsg)
+					}
+				}
+			}
+		}
+
+		slog.Info("inventory synced", "device_id", deviceID, "hash", inventoryPayload.ContentHash, "encrypted", isEncrypted)
+
 	case "agent.session.metrics":
 		var metrics model.AgentSessionMetrics
 		if err := json.Unmarshal(msg.Payload, &metrics); err != nil {
@@ -724,6 +848,126 @@ func reconcileSessionsFromHeartbeat(database *sql.DB, deviceID string, activeSes
 		if !activeSet[sessionID] {
 			slog.Info("reconcile: session not in agent active list, marking idle", "session_id", sessionID, "device_id", deviceID)
 			_ = db.UpdateSessionStatus(database, sessionID, "idle")
+		}
+	}
+}
+
+// redactInventoryJSON strips sensitive fields from inventory JSON for telemetry_only storage.
+// Keeps names and structure, replaces command content and hook commands with "[redacted]",
+// and MCP args with ["***"].
+func redactInventoryJSON(raw json.RawMessage) string {
+	var inv map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &inv); err != nil {
+		return string(raw)
+	}
+
+	// Redact globalCommands
+	if cmdsRaw, ok := inv["globalCommands"]; ok {
+		var cmds []map[string]interface{}
+		if json.Unmarshal(cmdsRaw, &cmds) == nil {
+			for i := range cmds {
+				cmds[i]["content"] = "[redacted]"
+			}
+			inv["globalCommands"], _ = json.Marshal(cmds)
+		}
+	}
+
+	// Redact globalSkills
+	if skillsRaw, ok := inv["globalSkills"]; ok {
+		var skills []map[string]interface{}
+		if json.Unmarshal(skillsRaw, &skills) == nil {
+			for i := range skills {
+				skills[i]["content"] = "[redacted]"
+			}
+			inv["globalSkills"], _ = json.Marshal(skills)
+		}
+	}
+
+	// Redact projectCommands
+	if projsRaw, ok := inv["projectCommands"]; ok {
+		var projs []map[string]json.RawMessage
+		if json.Unmarshal(projsRaw, &projs) == nil {
+			for i := range projs {
+				if pcRaw, ok := projs[i]["commands"]; ok {
+					var pCmds []map[string]interface{}
+					if json.Unmarshal(pcRaw, &pCmds) == nil {
+						for j := range pCmds {
+							pCmds[j]["content"] = "[redacted]"
+						}
+						projs[i]["commands"], _ = json.Marshal(pCmds)
+					}
+				}
+				if psRaw, ok := projs[i]["skills"]; ok {
+					var pSkills []map[string]interface{}
+					if json.Unmarshal(psRaw, &pSkills) == nil {
+						for j := range pSkills {
+							pSkills[j]["content"] = "[redacted]"
+						}
+						projs[i]["skills"], _ = json.Marshal(pSkills)
+					}
+				}
+				if msRaw, ok := projs[i]["mcpServers"]; ok {
+					var servers []map[string]interface{}
+					if json.Unmarshal(msRaw, &servers) == nil {
+						for j := range servers {
+							servers[j]["args"] = []string{"***"}
+						}
+						projs[i]["mcpServers"], _ = json.Marshal(servers)
+					}
+				}
+			}
+			inv["projectCommands"], _ = json.Marshal(projs)
+		}
+	}
+
+	// Redact mcpServers args
+	if msRaw, ok := inv["mcpServers"]; ok {
+		var servers []map[string]interface{}
+		if json.Unmarshal(msRaw, &servers) == nil {
+			for i := range servers {
+				servers[i]["args"] = []string{"***"}
+			}
+			inv["mcpServers"], _ = json.Marshal(servers)
+		}
+	}
+
+	// Redact hooks commands
+	if hooksRaw, ok := inv["hooks"]; ok {
+		var hooks []map[string]interface{}
+		if json.Unmarshal(hooksRaw, &hooks) == nil {
+			for i := range hooks {
+				hooks[i]["command"] = "[redacted]"
+			}
+			inv["hooks"], _ = json.Marshal(hooks)
+		}
+	}
+
+	result, err := json.Marshal(inv)
+	if err != nil {
+		return string(raw)
+	}
+	return string(result)
+}
+
+func deliverPendingSkills(hub *Hub, database *sql.DB, deviceID string) {
+	pending, err := db.ListPendingSkillInstalls(database, deviceID)
+	if err != nil {
+		slog.Error("list pending skill installs failed", "device_id", deviceID, "error", err)
+		return
+	}
+	for _, p := range pending {
+		payload, _ := json.Marshal(map[string]string{
+			"id":               p.ID,
+			"senderDeviceId":   p.SenderDeviceID,
+			"encryptedPayload": p.EncryptedPayload,
+		})
+		wsMsg := &model.WSMessage{
+			Type:    "server.install.skill",
+			Payload: json.RawMessage(payload),
+		}
+		if err := hub.SendToAgent(deviceID, wsMsg); err == nil {
+			_ = db.DeletePendingSkillInstall(database, p.ID)
+			slog.Info("delivered pending skill install", "id", p.ID, "device_id", deviceID)
 		}
 	}
 }

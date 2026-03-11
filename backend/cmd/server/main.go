@@ -214,6 +214,13 @@ func main() {
 	mux.Handle("GET /v1/devices", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleList))))
 	mux.Handle("DELETE /v1/devices/{id}", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleDelete))))
 
+	// Device inventory (with auth + rate limiting).
+	inventoryHandler := &handler.InventoryHandler{DB: database, Hub: hub}
+	mux.Handle("GET /v1/devices/{id}/inventory", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(inventoryHandler.HandleGetDeviceInventory))))
+	mux.Handle("GET /v1/inventory", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(inventoryHandler.HandleGetAllInventory))))
+	mux.Handle("POST /v1/inventory/install-skill", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(inventoryHandler.HandleInstallSkill))))
+	mux.Handle("GET /v1/inventory/shared-skills", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(inventoryHandler.HandleGetSharedSkills))))
+
 	// Privacy mode (with auth).
 	mux.Handle("PUT /v1/devices/{id}/privacy", authMiddleware(http.HandlerFunc(deviceHandler.HandleSetPrivacyMode)))
 	mux.Handle("PUT /v1/devices/{id}/projects/privacy", authMiddleware(http.HandlerFunc(deviceHandler.HandleSetProjectPrivacy)))

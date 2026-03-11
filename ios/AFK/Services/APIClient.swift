@@ -26,6 +26,33 @@ final class APIClient {
         let _: EmptyResponse = try await request("DELETE", "/v1/devices/\(id)")
     }
 
+    // MARK: - Inventory
+
+    func getDeviceInventory(deviceId: String) async throws -> DeviceInventory {
+        try await request("GET", "/v1/devices/\(deviceId)/inventory")
+    }
+
+    func getAllInventory() async throws -> [DeviceInventory] {
+        try await request("GET", "/v1/inventory")
+    }
+
+    func installSkill(targetDeviceId: String, senderDeviceId: String, encryptedPayload: String) async throws -> InstallSkillResponse {
+        struct Body: Encodable {
+            let targetDeviceId: String
+            let senderDeviceId: String
+            let encryptedPayload: String
+        }
+        return try await request("POST", "/v1/inventory/install-skill", body: Body(
+            targetDeviceId: targetDeviceId, senderDeviceId: senderDeviceId, encryptedPayload: encryptedPayload
+        ))
+    }
+
+    func getSharedSkills() async throws -> [SharedSkill] {
+        struct Response: Decodable { let commands: [SharedSkill] }
+        let response: Response = try await request("GET", "/v1/inventory/shared-skills")
+        return response.commands
+    }
+
     // MARK: - Sessions
 
     func listSessions(deviceId: String? = nil, status: String? = nil) async throws -> [Session] {

@@ -1,6 +1,6 @@
 import Foundation
 
-struct Device: Codable, Identifiable, Sendable {
+struct Device: Codable, Identifiable, Hashable, Sendable {
     let id: String
     let userId: String
     let name: String
@@ -14,4 +14,12 @@ struct Device: Codable, Identifiable, Sendable {
     let keyAgreementPublicKey: String?
     let keyVersion: Int?
     let capabilities: [String]?
+
+    static func == (lhs: Device, rhs: Device) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }

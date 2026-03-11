@@ -100,17 +100,11 @@ func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID, deviceID strin
 			hub.BroadcastToUser(userID, statusMsg)
 		}
 
-		// If no iOS connections remain, disable remote approval on all agents
-		// so they don't block waiting for approvals that can never come.
+		// If no iOS connections remain, schedule disabling remote approval
+		// after a grace period. This avoids flapping when the iOS app is
+		// merely backgrounded and will reconnect shortly.
 		if !hub.HasActiveIOSConns(userID) {
-			ra := false
-			disableMsg, err := NewWSMessage("agent_control", struct {
-				RemoteApproval *bool `json:"remoteApproval"`
-			}{&ra})
-			if err == nil {
-				hub.SendToUserAgents(userID, disableMsg)
-				slog.Info("last iOS client disconnected, disabled remote approval for all agents", "user_id", userID)
-			}
+			hub.ScheduleRemoteApprovalDisable(userID)
 		}
 	}()
 

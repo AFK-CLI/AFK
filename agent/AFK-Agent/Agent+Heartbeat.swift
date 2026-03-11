@@ -46,6 +46,9 @@ extension Agent {
             if let msg = try? MessageEncoder.heartbeat(deviceID: deviceId, activeSessions: activeIds) {
                 try? await client.send(msg)
             }
+
+            // Rescan inventory on each heartbeat; hash-based dedup prevents unnecessary sends
+            await performInventoryScan(deviceId: deviceId)
         }
     }
 

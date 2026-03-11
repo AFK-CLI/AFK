@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 struct MessageEncoder {
     static func heartbeat(deviceID: String, activeSessions: [String]) throws -> WSMessage {
@@ -135,6 +136,23 @@ struct MessageEncoder {
             items: wireItems
         )
         return try WSMessage(type: "agent.todo.sync", payload: payload)
+    }
+
+    static func inventorySync(deviceID: String, inventory: InventoryScanner.InventoryReport, encrypted: Bool = false, encryptedPayload: String? = nil) throws -> WSMessage {
+        let data = try JSONEncoder().encode(inventory)
+        let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        if encrypted, let encryptedPayload {
+            // Send encrypted inventory as opaque string; backend stores as-is
+            let payload = AgentInventorySyncEncryptedPayload(
+                deviceId: deviceID,
+                inventoryEncrypted: encryptedPayload,
+                contentHash: hash,
+                encrypted: true
+            )
+            return try WSMessage(type: "agent.inventory.sync", payload: payload)
+        }
+        let payload = AgentInventorySyncPayload(deviceId: deviceID, inventory: inventory, contentHash: hash)
+        return try WSMessage(type: "agent.inventory.sync", payload: payload)
     }
 
     static func sessionMetrics(
@@ -277,4 +295,17 @@ struct AgentUsagePayload: Codable, Sendable {
     let sonnetWeeklyResetTime: String?
     let subscriptionType: String
     let lastUpdated: String
+}
+
+struct AgentInventorySyncPayload: Codable, Sendable {
+    let deviceId: String
+    let inventory: InventoryScanner.InventoryReport
+    let contentHash: String
+}
+
+struct AgentInventorySyncEncryptedPayload: Codable, Sendable {
+    let deviceId: String
+    let inventoryEncrypted: String
+    let contentHash: String
+    let encrypted: Bool
 }

@@ -27,6 +27,8 @@ actor Agent {
     var diskQueue: DiskQueue?
     var todoWatcher: TodoWatcher?
     var usageService: ClaudeUsageService?
+    var inventoryScanner: InventoryScanner?
+    var sharedSkillInstaller: SharedSkillInstaller?
     var signInController: SignInWindowController?
     nonisolated(unsafe) var onAccountChanged: ((String?) -> Void)?
     let statusBarController: StatusBarController?
@@ -123,6 +125,18 @@ actor Agent {
             if let client = wsClient {
                 // Broadcast initial control state to iOS
                 await broadcastControlState()
+
+                // Start inventory scanner and shared skill installer
+                let scanner = InventoryScanner()
+                self.inventoryScanner = scanner
+                let installer = SharedSkillInstaller()
+                self.sharedSkillInstaller = installer
+
+                // Clean up stale shared files on startup
+                await installer.cleanupSharedFiles()
+
+                // Perform initial inventory scan
+                await performInventoryScan(deviceId: deviceId)
 
                 // Start heartbeat loop
                 Task { [weak self] in
@@ -465,6 +479,60 @@ actor Agent {
             return fileURL.path
         }
         return nil
+    }
+
+    // MARK: - Inventory Scan
+
+    func performInventoryScan(deviceId: String, force: Bool = false) async {
+        guard let scanner = inventoryScanner, let client = wsClient else { return }
+
+        // Collect known project paths from session index
+        let projectPaths = await sessionIndex.allProjectPaths()
+
+        guard let report = await scanner.scan(projectPaths: Set(projectPaths), force: force) else {
+            AppLogger.agent.debug("Inventory unchanged, skipping sync")
+            return
+        }
+
+        // Always send the FULL report. The backend decides what to store
+        // based on device privacy mode (redact for telemetry_only, skip DB
+        // for relay_only). iOS always gets the unredacted version via WS.
+        let privacyMode = config.defaultPrivacyMode
+
+        do {
+            let msg: WSMessage
+            if privacyMode == "encrypted", let keyCache = sessionKeyCache {
+                // Encrypt the entire inventory JSON using a device-level E2EE key.
+                // Backend stores opaque blob; iOS decrypts client-side.
+                let inventoryData = try JSONEncoder().encode(report)
+                guard let inventoryStr = String(data: inventoryData, encoding: .utf8) else {
+                    AppLogger.agent.error("Failed to encode inventory to string")
+                    return
+                }
+                let peerKeyMap = keyCache.getOrDeriveKeys(sessionId: deviceId)
+                guard let (_, key) = peerKeyMap.first else {
+                    AppLogger.agent.warning("No E2EE peer keys for inventory encryption")
+                    return
+                }
+                let encrypted = try E2EEncryption.encryptVersioned(
+                    inventoryStr, key: key,
+                    keyVersion: keyCache.myKeyVersion,
+                    senderDeviceId: keyCache.myDeviceId
+                )
+                msg = try MessageEncoder.inventorySync(
+                    deviceID: deviceId, inventory: report,
+                    encrypted: true, encryptedPayload: encrypted
+                )
+                AppLogger.agent.info("Inventory encrypted and synced")
+            } else {
+                // Send full inventory. Backend handles redaction for DB storage.
+                msg = try MessageEncoder.inventorySync(deviceID: deviceId, inventory: report)
+                AppLogger.agent.info("Inventory synced: \(report.globalCommands.count, privacy: .public) commands, \(report.globalSkills.count, privacy: .public) skills, \(report.mcpServers.count, privacy: .public) MCP servers, \(report.hooks.count, privacy: .public) hooks")
+            }
+            try await client.send(msg)
+        } catch {
+            AppLogger.agent.error("Failed to sync inventory: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: - Key Fingerprint

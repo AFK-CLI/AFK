@@ -125,6 +125,61 @@ extension Agent {
         return nil
     }
 
+    private func handleSkillsSync(_ msg: WSMessage) async {
+        struct SkillsSyncPayload: Codable {
+            let sharedCommands: [SharedSkillInstaller.SharedCommand]
+        }
+        let decoder = JSONDecoder()
+        guard let payload = try? decoder.decode(SkillsSyncPayload.self, from: msg.payloadJSON) else {
+            AppLogger.agent.error("Failed to parse skills sync payload")
+            return
+        }
+        guard let installer = sharedSkillInstaller else { return }
+        await installer.installSharedCommands(payload.sharedCommands)
+        AppLogger.agent.info("Installed \(payload.sharedCommands.count, privacy: .public) shared commands from peers")
+    }
+
+    private func handleInstallSkill(_ msg: WSMessage) async {
+        struct EncryptedInstallPayload: Codable {
+            let id: String?
+            let senderDeviceId: String
+            let encryptedPayload: String
+        }
+        struct DecryptedSkill: Codable {
+            let name: String
+            let content: String
+            let sourceDeviceName: String?
+        }
+
+        let decoder = JSONDecoder()
+        guard let envelope = try? decoder.decode(EncryptedInstallPayload.self, from: msg.payloadJSON) else {
+            AppLogger.agent.error("Failed to parse install skill envelope")
+            return
+        }
+        guard let installer = sharedSkillInstaller else { return }
+        guard let deviceId = enrolledDeviceId else { return }
+
+        // Decrypt using E2EE key cache (uses own deviceId as HKDF salt, tries all peer keys)
+        var decryptedJSON: String?
+        if let cache = sessionKeyCache {
+            decryptedJSON = cache.decryptString(envelope.encryptedPayload, sessionId: deviceId)
+        }
+
+        guard let json = decryptedJSON,
+              let data = json.data(using: .utf8),
+              let skill = try? decoder.decode(DecryptedSkill.self, from: data) else {
+            AppLogger.agent.error("Failed to decrypt install skill payload from \(envelope.senderDeviceId, privacy: .public)")
+            return
+        }
+
+        await installer.installSingleCommand(
+            name: skill.name,
+            content: skill.content,
+            sourceDeviceName: skill.sourceDeviceName ?? "Unknown"
+        )
+        AppLogger.agent.info("Installed skill from iOS: /\(skill.name, privacy: .public)")
+    }
+
     func handleWSMessage(_ msg: WSMessage) async {
         switch msg.type {
         case "permission.response":
@@ -170,6 +225,10 @@ extension Agent {
             await handlePlanRestart(msg)
         case "device.key_rotated":
             await handleDeviceKeyRotated(msg)
+        case "server.skills.sync":
+            await handleSkillsSync(msg)
+        case "server.install.skill":
+            await handleInstallSkill(msg)
         case "server.todo.append":
             await handleTodoAppend(msg)
         case "server.todo.toggle":

@@ -16,38 +16,43 @@ struct DeviceListView: View {
                     )
                 } else {
                     ForEach(devices) { device in
-                        HStack(spacing: 12) {
-                            Image(systemName: Self.sfSymbol(for: device))
-                                .font(.title2)
-                                .foregroundStyle(device.isOnline ? .green : .secondary)
-                                .frame(width: 28)
+                        NavigationLink(value: device) {
+                            HStack(spacing: 12) {
+                                Image(systemName: Self.sfSymbol(for: device))
+                                    .font(.title2)
+                                    .foregroundStyle(device.isOnline ? .green : .secondary)
+                                    .frame(width: 28)
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(device.name)
-                                    .font(.body.bold())
-                                if let systemInfo = device.systemInfo, !systemInfo.isEmpty {
-                                    Text(systemInfo)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(device.name)
+                                        .font(.body.bold())
+                                    if let systemInfo = device.systemInfo, !systemInfo.isEmpty {
+                                        Text(systemInfo)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+
+                                Spacer()
+
+                                Text(device.isOnline ? "Online" : "Offline")
+                                    .font(.caption)
+                                    .foregroundStyle(device.isOnline ? .green : .secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        (device.isOnline ? Color.green : Color.secondary).opacity(0.15),
+                                        in: .capsule
+                                    )
                             }
-
-                            Spacer()
-
-                            Text(device.isOnline ? "Online" : "Offline")
-                                .font(.caption)
-                                .foregroundStyle(device.isOnline ? .green : .secondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(
-                                    (device.isOnline ? Color.green : Color.secondary).opacity(0.15),
-                                    in: .capsule
-                                )
                         }
                     }
                 }
             }
             .navigationTitle("Devices")
+            .navigationDestination(for: Device.self) { device in
+                DeviceDetailView(device: device, apiClient: apiClient, e2eeService: E2EEService())
+            }
             .refreshable { await loadDevices() }
             .task { await loadDevices() }
         }
@@ -68,7 +73,7 @@ struct DeviceListView: View {
     }
 
     /// Map device name and system info to the appropriate SF Symbol.
-    private static func sfSymbol(for device: Device) -> String {
+    static func sfSymbol(for device: Device) -> String {
         let name = device.name.lowercased()
         let info = (device.systemInfo ?? "").lowercased()
 

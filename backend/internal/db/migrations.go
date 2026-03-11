@@ -322,11 +322,36 @@ CREATE INDEX IF NOT EXISTS idx_admin_passkey_credentials_admin ON admin_passkey_
 CREATE INDEX IF NOT EXISTS idx_admin_passkey_credentials_cred_id ON admin_passkey_credentials(credential_id);
 `
 
+const pgDeviceInventorySQL = `
+CREATE TABLE IF NOT EXISTS device_inventory (
+    device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    inventory JSONB NOT NULL DEFAULT '{}'::jsonb,
+    content_hash TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_device_inventory_user ON device_inventory(user_id);
+`
+
+const pgPendingSkillInstallsSQL = `
+CREATE TABLE IF NOT EXISTS pending_skill_installs (
+    id TEXT PRIMARY KEY,
+    target_device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    sender_device_id TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    encrypted_payload TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pending_skill_installs_target ON pending_skill_installs(target_device_id);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
 }{
 	{Name: "001_pg_init.up.sql", SQL: pgInitSQL},
+	{Name: "002_device_inventory.up.sql", SQL: pgDeviceInventorySQL},
+	{Name: "003_pending_skill_installs.up.sql", SQL: pgPendingSkillInstallsSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

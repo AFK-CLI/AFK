@@ -59,6 +59,10 @@ extension Agent {
         if let receiver = otlpReceiver {
             await receiver.stop()
         }
+        // Clean up shared skill files on quit
+        if let installer = sharedSkillInstaller {
+            await installer.cleanupSharedFiles()
+        }
         // Close disk queue
         diskQueue?.close()
         // Brief delay to let WS messages flush

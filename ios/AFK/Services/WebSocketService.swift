@@ -48,6 +48,7 @@ final class WebSocketService {
     var onTodoUpdate: ((ProjectTodos) -> Void)?
     var onSessionMetrics: ((SessionMetricsData) -> Void)?
     var onUsageUpdate: ((ClaudeUsage) -> Void)?
+    var onInventoryUpdated: ((String, InventoryReport?) -> Void)?  // (deviceId, fullInventory if included)
 
     /// Content decryptor closure — set by SessionStore to decrypt E2EE content.
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
@@ -348,6 +349,10 @@ final class WebSocketService {
                 )
                 onUsageUpdate?(usage)
             }
+        case "inventory.updated":
+            if let payload = try? decoder.decode(InventoryUpdatedPayload.self, from: payloadData) {
+                onInventoryUpdated?(payload.deviceId, payload.inventory)
+            }
         default:
             break
         }
@@ -446,6 +451,13 @@ struct SessionMetricsData: Codable {
     let cacheReadTokens: Int64
     let cacheCreationTokens: Int64
     let durationMs: Int64
+}
+
+private struct InventoryUpdatedPayload: Codable {
+    let deviceId: String
+    let inventory: InventoryReport?
+    let inventoryEncrypted: String?
+    let encrypted: Bool?
 }
 
 private struct UsageUpdatePayload: Codable {
