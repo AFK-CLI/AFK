@@ -264,6 +264,20 @@ func GetPeerKeyAgreementKey(db *sql.DB, userID, peerDeviceID string) (string, er
 	return pubKey.String, nil
 }
 
+// Device Rename
+
+func UpdateDeviceName(db *sql.DB, deviceID, userID, name string) error {
+	res, err := db.Exec(`UPDATE devices SET name = $1 WHERE id = $2 AND user_id = $3 AND is_revoked = FALSE`, name, deviceID, userID)
+	if err != nil {
+		return fmt.Errorf("update device name: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("device not found")
+	}
+	return nil
+}
+
 // Privacy Mode
 
 func UpdateDevicePrivacyMode(db *sql.DB, deviceID, privacyMode string) error {

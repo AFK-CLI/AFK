@@ -1,5 +1,6 @@
 import SwiftUI
 import CryptoKit
+import os
 
 struct DeviceDetailView: View {
     let device: Device
@@ -11,6 +12,9 @@ struct DeviceDetailView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var tier: String = "free"
+    @State private var displayName: String = ""
+    @State private var showRenameAlert = false
+    @State private var renameText = ""
 
     var body: some View {
         List {
@@ -22,7 +26,7 @@ struct DeviceDetailView: View {
                         .foregroundStyle(device.isOnline ? .green : .secondary)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(device.name)
+                        Text(displayName)
                             .font(.title3.bold())
                         if let systemInfo = device.systemInfo, !systemInfo.isEmpty {
                             Text(systemInfo)
@@ -228,6 +232,20 @@ struct DeviceDetailView: View {
                     }
                 }
 
+                // Teams
+                if let teams = inv.teams, !teams.isEmpty {
+                    Section("Teams") {
+                        ForEach(teams) { team in
+                            HStack {
+                                Image(systemName: "person.2")
+                                    .foregroundStyle(.cyan)
+                                Text(team.name)
+                                    .font(.body)
+                            }
+                        }
+                    }
+                }
+
                 // Shared Skills (Pro feature)
                 Section("Shared Skills") {
                     if tier == "pro" || tier == "contributor" {
@@ -265,7 +283,8 @@ struct DeviceDetailView: View {
                    (inv.globalSkills ?? []).isEmpty &&
                    (inv.projectCommands ?? []).isEmpty &&
                    (inv.mcpServers ?? []).isEmpty &&
-                   (inv.hooks ?? []).isEmpty {
+                   (inv.hooks ?? []).isEmpty &&
+                   (inv.teams ?? []).isEmpty {
                     Section {
                         ContentUnavailableView(
                             "No Inventory",
@@ -276,8 +295,26 @@ struct DeviceDetailView: View {
                 }
             }
         }
-        .navigationTitle(device.name)
+        .navigationTitle(displayName)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    renameText = displayName
+                    showRenameAlert = true
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+            }
+        }
+        .alert("Rename Device", isPresented: $showRenameAlert) {
+            TextField("Device name", text: $renameText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                Task { await renameDevice() }
+            }
+            .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
         .navigationDestination(for: InventoryCommand.self) { cmd in
             CommandDetailView(command: cmd, sourceDevice: device, apiClient: apiClient, e2eeService: e2eeService, tier: tier)
         }
@@ -285,7 +322,10 @@ struct DeviceDetailView: View {
             let cmd = InventoryCommand(name: skill.name, description: skill.description, content: skill.content, scope: skill.scope)
             CommandDetailView(command: cmd, sourceDevice: device, apiClient: apiClient, e2eeService: e2eeService, tier: tier)
         }
-        .task { await loadInventory() }
+        .task {
+            displayName = device.name
+            await loadInventory()
+        }
     }
 
     private func loadInventory() async {
@@ -303,9 +343,8 @@ struct DeviceDetailView: View {
             if inv.isEncrypted, let ciphertext = inv.inventory.encrypted, let e2ee = e2eeService {
                 if let decrypted = decryptInventory(ciphertext: ciphertext, deviceId: device.id, e2ee: e2ee) {
                     inv.inventory = decrypted
-                } else {
-                    errorMessage = "Inventory is encrypted and could not be decrypted"
                 }
+                // errorMessage is set inside decryptInventory if it fails
             }
 
             inventory = inv
@@ -326,27 +365,40 @@ struct DeviceDetailView: View {
     /// Uses the device ID as the key derivation salt (matching agent-side encryption).
     private func decryptInventory(ciphertext: String, deviceId: String, e2ee: E2EEService) -> InventoryReport? {
         guard let peerKey = device.keyAgreementPublicKey, !peerKey.isEmpty else {
+            errorMessage = "Device has no E2EE key"
             return nil
         }
-        do {
-            let key = try e2ee.sessionKey(peerPublicKeyBase64: peerKey, sessionId: deviceId)
 
-            let rawCiphertext: String
-            if ciphertext.hasPrefix("e1:") {
-                let parts = ciphertext.split(separator: ":", maxSplits: 3)
-                rawCiphertext = parts.count == 4 ? String(parts[3]) : ciphertext
-            } else if ciphertext.hasPrefix("e2:") {
-                let parts = ciphertext.split(separator: ":", maxSplits: 4)
-                rawCiphertext = parts.count == 5 ? String(parts[4]) : ciphertext
-            } else {
-                rawCiphertext = ciphertext
+        // Try all available peer keys: current device key, then cached device keys from SessionStore
+        let keysToTry: [(label: String, peerKey: String)] = [
+            ("device.kaKey", peerKey)
+        ]
+
+        for attempt in keysToTry {
+            do {
+                let key = try e2ee.sessionKey(peerPublicKeyBase64: attempt.peerKey, sessionId: deviceId)
+                let plaintext = try E2EEService.decryptValue(ciphertext, key: key)
+                guard let data = plaintext.data(using: .utf8) else { continue }
+                return try JSONDecoder().decode(InventoryReport.self, from: data)
+            } catch {
+                let myFP = E2EEService.fingerprint(of: e2ee.publicKeyBase64)
+                let peerFP = E2EEService.fingerprint(of: attempt.peerKey)
+                AppLogger.e2ee.warning("Inventory decrypt failed (\(attempt.label, privacy: .public)): myKey=\(myFP, privacy: .public) peerKey=\(peerFP, privacy: .public) err=\(error.localizedDescription, privacy: .public)")
             }
+        }
 
-            let plaintext = try E2EEService.decrypt(rawCiphertext, key: key)
-            guard let data = plaintext.data(using: .utf8) else { return nil }
-            return try JSONDecoder().decode(InventoryReport.self, from: data)
+        errorMessage = "Cannot decrypt inventory (key mismatch)"
+        return nil
+    }
+
+    private func renameDevice() async {
+        let newName = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !newName.isEmpty else { return }
+        do {
+            try await apiClient.renameDevice(id: device.id, name: newName)
+            displayName = newName
         } catch {
-            return nil
+            errorMessage = "Failed to rename device"
         }
     }
 

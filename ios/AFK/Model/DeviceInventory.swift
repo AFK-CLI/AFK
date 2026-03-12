@@ -26,6 +26,8 @@ struct InventoryReport: Codable, Sendable {
     let projectCommands: [ProjectInventory]?
     let mcpServers: [InventoryMCPServer]?
     let hooks: [InventoryHook]?
+    let plans: [InventoryPlan]?
+    let teams: [InventoryTeam]?
     /// Present when inventory is encrypted (E2EE mode). Contains the ciphertext.
     let encrypted: String?
 }
@@ -68,6 +70,17 @@ struct InventoryHook: Codable, Identifiable, Sendable {
     let matcher: String
     let command: String
     let isAFK: Bool
+}
+
+struct InventoryPlan: Codable, Identifiable, Sendable {
+    var id: String { filename }
+    let name: String
+    let filename: String
+}
+
+struct InventoryTeam: Codable, Identifiable, Sendable {
+    var id: String { name }
+    let name: String
 }
 
 struct SharedSkill: Codable, Identifiable, Sendable {
