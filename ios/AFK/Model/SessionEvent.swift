@@ -77,6 +77,13 @@ struct SessionEvent: Codable, Identifiable, Sendable {
         return try? JSONDecoder().decode([ToolResultImage].self, from: data)
     }
 
+    /// True when the event has a toolResultImages field but it couldn't be parsed
+    /// (e.g. it's "[encrypted]" because E2EE decryption failed).
+    var hasEncryptedImages: Bool {
+        guard let raw = content?["toolResultImages"] else { return false }
+        return raw == "[encrypted]"
+    }
+
     func withContent(_ newContent: [String: String]?) -> SessionEvent {
         SessionEvent(
             id: id, sessionId: sessionId, deviceId: deviceId,

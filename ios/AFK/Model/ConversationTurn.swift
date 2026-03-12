@@ -55,6 +55,10 @@ struct ConversationTurn: Identifiable, Equatable {
         events.first(where: { $0.eventType == "turn_started" })?.toolResultImages
     }
 
+    var hasEncryptedUserImages: Bool {
+        events.first(where: { $0.eventType == "turn_started" })?.hasEncryptedImages ?? false
+    }
+
     var assistantSnippet: String? {
         // Take the last assistant_responding event with actual content
         // (earlier ones during thinking phase may have empty/nil snippets)
@@ -138,6 +142,7 @@ struct ToolCallPair: Identifiable {
     var toolInputSummary: String? { started.toolInputSummary }
     var toolResultSummary: String? { finished?.toolResultSummary }
     var toolResultImages: [ToolResultImage]? { finished?.toolResultImages }
+    var hasEncryptedImages: Bool { finished?.hasEncryptedImages ?? false }
 
     // Provider-agnostic display properties
     var toolIcon: String? { started.toolIcon }

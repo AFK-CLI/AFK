@@ -21,7 +21,7 @@ const (
 	agentWriteWait  = 10 * time.Second
 	agentPongWait   = 60 * time.Second
 	agentPingPeriod = (agentPongWait * 9) / 10
-	maxMessageSize  = 512 * 1024
+	maxMessageSize  = 2 * 1024 * 1024
 )
 
 // allowedWSOrigins holds configured origins for WebSocket connections.

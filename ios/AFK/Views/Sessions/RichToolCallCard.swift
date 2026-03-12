@@ -92,6 +92,8 @@ struct RichToolCallCard: View {
                                 ToolResultImageView(image: img)
                             }
                         }
+                    } else if pair.hasEncryptedImages {
+                        EncryptedImagePlaceholder()
                     }
 
                     if pair.toolInputFields == nil && pair.toolInputSummary == nil && pair.toolResultSummary == nil && (pair.toolResultImages ?? []).isEmpty {

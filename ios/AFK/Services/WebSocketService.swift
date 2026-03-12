@@ -90,6 +90,7 @@ final class WebSocketService {
         let redactedURL = components.url.map { "\($0.scheme ?? "")://\($0.host ?? "")\($0.port.map { ":\($0)" } ?? "")\($0.path)" } ?? "nil"
         AppLogger.ws.info("Connecting to \(redactedURL, privacy: .public)")
         let task = URLSession.shared.webSocketTask(with: components.url!)
+        task.maximumMessageSize = 2 * 1024 * 1024
         self.webSocketTask = task
         task.resume()
         isConnected = true

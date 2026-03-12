@@ -22,6 +22,10 @@ struct ConversationTurnView: View {
                         .frame(maxWidth: .infinity, alignment: .trailing)
                         .padding(.trailing, 8)
                 }
+            } else if turn.hasEncryptedUserImages {
+                EncryptedImagePlaceholder()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.trailing, 8)
             }
 
             // Teammate/task cards from user messages
