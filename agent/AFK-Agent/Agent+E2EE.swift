@@ -233,6 +233,9 @@ extension Agent {
         // Rebuild E2EE encryptor with fresh peer keys
         await setupE2EEEncryptor(deviceId: deviceId)
 
+        // Re-encrypt and re-upload inventory with the new keys
+        await performInventoryScan(deviceId: deviceId, force: true)
+
         // Refresh permission signing keys so HMAC verification uses the rotated key
         if let socket = permissionSocket {
             await setupPermissionSigningKeys(socket: socket, deviceId: deviceId)

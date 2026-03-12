@@ -16,6 +16,8 @@ actor InventoryScanner {
         let projectCommands: [ProjectInventory]
         let mcpServers: [InventoryMCPServer]
         let hooks: [InventoryHook]
+        let plans: [InventoryPlan]
+        let teams: [InventoryTeam]
     }
 
     struct InventoryCommand: Codable, Sendable {
@@ -51,6 +53,15 @@ actor InventoryScanner {
         let matcher: String
         let command: String
         let isAFK: Bool
+    }
+
+    struct InventoryPlan: Codable, Sendable {
+        let name: String
+        let filename: String
+    }
+
+    struct InventoryTeam: Codable, Sendable {
+        let name: String
     }
 
     // MARK: - State
@@ -90,20 +101,24 @@ actor InventoryScanner {
     private func buildReport(projectPaths: Set<String>) -> InventoryReport {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
+        let claudeDir = "\(home)/.claude"
 
         // 1. Scan global commands: ~/.claude/commands/*.md
-        let globalCommandsDir = "\(home)/.claude/commands"
-        let globalCommands = scanCommands(directory: globalCommandsDir, scope: "global")
+        let globalCommands = scanCommands(directory: "\(claudeDir)/commands", scope: "global")
 
         // 2. Scan global skills: ~/.claude/skills/<name>/SKILL.md
-        let globalSkillsDir = "\(home)/.claude/skills"
-        let globalSkills = scanSkills(directory: globalSkillsDir, scope: "global")
+        let globalSkills = scanSkills(directory: "\(claudeDir)/skills", scope: "global")
 
         // 3. Scan global MCP servers + hooks from ~/.claude/settings.json
-        let globalSettingsPath = "\(home)/.claude/settings.json"
-        let (globalMCPServers, hooks) = scanSettings(path: globalSettingsPath, scope: "global")
+        let (globalMCPServers, hooks) = scanSettings(path: "\(claudeDir)/settings.json", scope: "global")
 
-        // 4. Scan per-project commands, skills, and MCP servers
+        // 4. Scan plans: ~/.claude/plans/*.md
+        let plans = scanPlans(directory: "\(claudeDir)/plans")
+
+        // 5. Scan teams: ~/.claude/teams/*/
+        let teams = scanTeams(directory: "\(claudeDir)/teams")
+
+        // 6. Scan per-project commands, skills, and MCP servers
         var projectInventories: [ProjectInventory] = []
         let allProjectPaths = knownProjectPaths.union(projectPaths)
         for projectPath in allProjectPaths {
@@ -128,13 +143,17 @@ actor InventoryScanner {
         let limitedGlobalSkills = Array(globalSkills.prefix(50))
         let limitedMCPServers = Array(globalMCPServers.prefix(20))
         let limitedHooks = Array(hooks.prefix(50))
+        let limitedPlans = Array(plans.prefix(100))
+        let limitedTeams = Array(teams.prefix(20))
 
         return InventoryReport(
             globalCommands: limitedGlobalCommands,
             globalSkills: limitedGlobalSkills,
             projectCommands: projectInventories,
             mcpServers: limitedMCPServers,
-            hooks: limitedHooks
+            hooks: limitedHooks,
+            plans: limitedPlans,
+            teams: limitedTeams
         )
     }
 
@@ -211,6 +230,35 @@ actor InventoryScanner {
         return skills
     }
 
+    private func scanPlans(directory: String) -> [InventoryPlan] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: directory) else { return [] }
+        guard let files = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+
+        var plans: [InventoryPlan] = []
+        for file in files where file.hasSuffix(".md") {
+            let name = String(file.dropLast(3))
+            plans.append(InventoryPlan(name: name, filename: file))
+        }
+        return plans.sorted { $0.name < $1.name }
+    }
+
+    private func scanTeams(directory: String) -> [InventoryTeam] {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: directory) else { return [] }
+        guard let subdirs = try? fm.contentsOfDirectory(atPath: directory) else { return [] }
+
+        var teams: [InventoryTeam] = []
+        var isDir: ObjCBool = false
+        for subdir in subdirs {
+            let path = "\(directory)/\(subdir)"
+            if fm.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+                teams.append(InventoryTeam(name: subdir))
+            }
+        }
+        return teams.sorted { $0.name < $1.name }
+    }
+
     private func scanSettings(path: String, scope: String) -> ([InventoryMCPServer], [InventoryHook]) {
         let fm = FileManager.default
         guard let data = fm.contents(atPath: path),
@@ -225,7 +273,6 @@ actor InventoryScanner {
                 guard let config = value as? [String: Any] else { continue }
                 let command = config["command"] as? String ?? ""
                 let args = config["args"] as? [String] ?? []
-                // Redact env values to prevent leaking API keys
                 servers.append(InventoryMCPServer(
                     name: name,
                     command: command,
@@ -260,7 +307,6 @@ actor InventoryScanner {
     // MARK: - Privacy Mode Redaction
 
     /// Return a redacted copy of the report suitable for telemetry_only mode.
-    /// Strips command content (keeps only first line as description), redacts hook commands, and redacts MCP args.
     func redacted(_ report: InventoryReport) -> InventoryReport {
         InventoryReport(
             globalCommands: report.globalCommands.map { redactCommand($0) },
@@ -274,44 +320,26 @@ actor InventoryScanner {
                 )
             },
             mcpServers: report.mcpServers.map { redactMCPServer($0) },
-            hooks: report.hooks.map { redactHook($0) }
+            hooks: report.hooks.map { redactHook($0) },
+            plans: report.plans,
+            teams: report.teams
         )
     }
 
     private func redactCommand(_ cmd: InventoryCommand) -> InventoryCommand {
-        InventoryCommand(
-            name: cmd.name,
-            description: cmd.description,
-            content: "[redacted]",
-            scope: cmd.scope
-        )
+        InventoryCommand(name: cmd.name, description: cmd.description, content: "[redacted]", scope: cmd.scope)
     }
 
     private func redactSkill(_ skill: InventorySkill) -> InventorySkill {
-        InventorySkill(
-            name: skill.name,
-            description: skill.description,
-            content: "[redacted]",
-            scope: skill.scope
-        )
+        InventorySkill(name: skill.name, description: skill.description, content: "[redacted]", scope: skill.scope)
     }
 
     private func redactMCPServer(_ srv: InventoryMCPServer) -> InventoryMCPServer {
-        InventoryMCPServer(
-            name: srv.name,
-            command: srv.command,
-            args: srv.args.map { _ in "***" },
-            scope: srv.scope
-        )
+        InventoryMCPServer(name: srv.name, command: srv.command, args: srv.args.map { _ in "***" }, scope: srv.scope)
     }
 
     private func redactHook(_ hook: InventoryHook) -> InventoryHook {
-        InventoryHook(
-            eventType: hook.eventType,
-            matcher: hook.matcher,
-            command: "[redacted]",
-            isAFK: hook.isAFK
-        )
+        InventoryHook(eventType: hook.eventType, matcher: hook.matcher, command: "[redacted]", isAFK: hook.isAFK)
     }
 
     private func computeHash(_ report: InventoryReport) -> String {

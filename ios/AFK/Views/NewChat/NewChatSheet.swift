@@ -1,4 +1,5 @@
 import SwiftUI
+import CryptoKit
 
 struct NewChatSheet: View {
     let apiClient: APIClient
@@ -17,7 +18,9 @@ struct NewChatSheet: View {
     @State private var errorMessage: String?
     @State private var devices: [Device] = []
     @State private var projects: [Project] = []
+    @State private var deviceProjects: [String] = []
     @State private var isLoadingDevices = true
+    @State private var isLoadingProjects = false
 
     private var myDeviceId: String? {
         BuildEnvironment.userDefaults.string(forKey: "afk_ios_device_id")
@@ -69,6 +72,12 @@ struct NewChatSheet: View {
             .task {
                 await loadData()
             }
+            .onChange(of: selectedDeviceId) { _, newDeviceId in
+                selectedProjectPath = ""
+                deviceProjects = []
+                guard let deviceId = newDeviceId else { return }
+                Task { await loadDeviceProjects(deviceId: deviceId) }
+            }
         }
     }
 
@@ -112,28 +121,51 @@ struct NewChatSheet: View {
     @ViewBuilder
     private var projectSection: some View {
         Section {
-            if projects.isEmpty {
+            if selectedDeviceId == nil {
+                Text("Select a device first")
+                    .foregroundStyle(.secondary)
+            } else if isLoadingProjects {
+                HStack {
+                    SymbolSpinner()
+                    Text("Loading projects...")
+                        .foregroundStyle(.secondary)
+                }
+            } else if deviceProjects.isEmpty && projects.isEmpty {
                 TextField("Project path (e.g. /Users/you/project)", text: $selectedProjectPath)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             } else {
+                let availableProjects = mergedProjects
                 Picker("Project", selection: $selectedProjectPath) {
                     Text("Select a project").tag("")
-                    ForEach(projects) { project in
-                        Text(project.name)
-                            .tag(project.path)
+                    ForEach(availableProjects, id: \.path) { proj in
+                        Text(proj.name)
+                            .tag(proj.path)
                     }
-                }
-                .onChange(of: selectedProjectPath) { _, newValue in
-                    // Allow free-text override
-                    if newValue.isEmpty { return }
                 }
             }
         } header: {
             Text("Project")
         } footer: {
-            Text("The project directory on your Mac.")
+            Text("Projects detected on this Mac.")
         }
+    }
+
+    /// Merge inventory project paths with known projects from the DB, preferring inventory.
+    private var mergedProjects: [(path: String, name: String)] {
+        var seen = Set<String>()
+        var result: [(path: String, name: String)] = []
+        for path in deviceProjects {
+            let name = path.components(separatedBy: "/").last ?? path
+            result.append((path: path, name: name))
+            seen.insert(path)
+        }
+        for project in projects {
+            if !seen.contains(project.path) {
+                result.append((path: project.path, name: project.name))
+            }
+        }
+        return result
     }
 
     @ViewBuilder
@@ -196,6 +228,52 @@ struct NewChatSheet: View {
         // Auto-select if only one Mac online
         if onlineMacs.count == 1 {
             selectedDeviceId = onlineMacs.first?.id
+        }
+    }
+
+    private func loadDeviceProjects(deviceId: String) async {
+        isLoadingProjects = true
+        defer { isLoadingProjects = false }
+
+        do {
+            var inv = try await apiClient.getDeviceInventory(deviceId: deviceId)
+
+            // Decrypt E2EE inventory if needed
+            if inv.isEncrypted, let ciphertext = inv.inventory.encrypted {
+                let device = devices.first(where: { $0.id == deviceId })
+                if let peerKey = device?.keyAgreementPublicKey, !peerKey.isEmpty {
+                    let e2ee = E2EEService()
+                    if let decrypted = decryptInventory(ciphertext: ciphertext, deviceId: deviceId, peerKey: peerKey, e2ee: e2ee) {
+                        inv.inventory = decrypted
+                    }
+                }
+            }
+
+            var paths: [String] = []
+            if let projectCommands = inv.inventory.projectCommands {
+                for proj in projectCommands {
+                    paths.append(proj.projectPath)
+                }
+            }
+            deviceProjects = paths
+
+            // Auto-select if only one project
+            if paths.count == 1 {
+                selectedProjectPath = paths[0]
+            }
+        } catch {
+            deviceProjects = []
+        }
+    }
+
+    private func decryptInventory(ciphertext: String, deviceId: String, peerKey: String, e2ee: E2EEService) -> InventoryReport? {
+        do {
+            let key = try e2ee.sessionKey(peerPublicKeyBase64: peerKey, sessionId: deviceId)
+            let plaintext = try E2EEService.decryptValue(ciphertext, key: key)
+            guard let data = plaintext.data(using: .utf8) else { return nil }
+            return try JSONDecoder().decode(InventoryReport.self, from: data)
+        } catch {
+            return nil
         }
     }
 

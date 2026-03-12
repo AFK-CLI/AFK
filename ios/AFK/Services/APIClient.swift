@@ -26,6 +26,11 @@ final class APIClient {
         let _: EmptyResponse = try await request("DELETE", "/v1/devices/\(id)")
     }
 
+    func renameDevice(id: String, name: String) async throws {
+        struct Body: Encodable { let name: String }
+        let _: EmptyResponse = try await request("PATCH", "/v1/devices/\(id)", body: Body(name: name))
+    }
+
     // MARK: - Inventory
 
     func getDeviceInventory(deviceId: String) async throws -> DeviceInventory {

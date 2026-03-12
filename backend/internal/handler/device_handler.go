@@ -243,6 +243,48 @@ func (h *DeviceHandler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+func (h *DeviceHandler) HandleRename(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	if userID == "" {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	deviceID := r.PathValue("id")
+	if deviceID == "" {
+		writeError(w, "device id is required", http.StatusBadRequest)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.Name == "" || len(req.Name) > 100 {
+		writeError(w, "name is required and must be 100 characters or fewer", http.StatusBadRequest)
+		return
+	}
+
+	if err := db.UpdateDeviceName(h.DB, deviceID, userID, req.Name); err != nil {
+		writeError(w, "device not found", http.StatusNotFound)
+		return
+	}
+
+	details := fmt.Sprintf(`{"device_id":%q,"new_name":%q}`, deviceID, req.Name)
+	_ = db.InsertAuditLog(h.DB, &model.AuditLogEntry{
+		UserID:   userID,
+		DeviceID: deviceID,
+		Action:   "device_renamed",
+		Details:  details,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // validPrivacyMode checks whether the given mode is an accepted privacy mode.
 func validPrivacyMode(mode string) bool {
 	switch mode {

@@ -132,8 +132,7 @@ actor Agent {
                 let installer = SharedSkillInstaller()
                 self.sharedSkillInstaller = installer
 
-                // Clean up stale shared files on startup
-                await installer.cleanupSharedFiles()
+                // Shared files persist across restarts — no cleanup on startup
 
                 // Perform initial inventory scan
                 await performInventoryScan(deviceId: deviceId)
@@ -527,7 +526,7 @@ actor Agent {
             } else {
                 // Send full inventory. Backend handles redaction for DB storage.
                 msg = try MessageEncoder.inventorySync(deviceID: deviceId, inventory: report)
-                AppLogger.agent.info("Inventory synced: \(report.globalCommands.count, privacy: .public) commands, \(report.globalSkills.count, privacy: .public) skills, \(report.mcpServers.count, privacy: .public) MCP servers, \(report.hooks.count, privacy: .public) hooks")
+                AppLogger.agent.info("Inventory synced: \(report.globalCommands.count, privacy: .public) commands, \(report.globalSkills.count, privacy: .public) skills, \(report.mcpServers.count, privacy: .public) MCP servers, \(report.hooks.count, privacy: .public) hooks, \(report.plans.count, privacy: .public) plans, \(report.teams.count, privacy: .public) teams")
             }
             try await client.send(msg)
         } catch {

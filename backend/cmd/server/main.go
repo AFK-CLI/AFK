@@ -213,6 +213,7 @@ func main() {
 	mux.Handle("POST /v1/devices", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleCreate))))
 	mux.Handle("GET /v1/devices", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleList))))
 	mux.Handle("DELETE /v1/devices/{id}", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleDelete))))
+	mux.Handle("PATCH /v1/devices/{id}", authMiddleware(rateLimiter.Middleware(http.HandlerFunc(deviceHandler.HandleRename))))
 
 	// Device inventory (with auth + rate limiting).
 	inventoryHandler := &handler.InventoryHandler{DB: database, Hub: hub}
