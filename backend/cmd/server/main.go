@@ -378,6 +378,7 @@ func main() {
 	mux.Handle("GET /v1/admin/logs/export", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminLogsExport)))
 	mux.Handle("GET /v1/admin/feedback", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminFeedback)))
 	mux.Handle("GET /v1/admin/beta-requests", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminBetaRequests)))
+	mux.Handle("GET /v1/admin/settings", adminReadLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminGetSettings)))
 
 	// Admin write endpoints — rate limited to prevent accidental spam.
 	mux.Handle("PUT /v1/admin/users/{id}/tier", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateUserTier)))
@@ -386,6 +387,10 @@ func main() {
 	mux.Handle("POST /v1/admin/devices/{id}/rotate-keys", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminForceKeyRotation)))
 	mux.Handle("PUT /v1/admin/sessions/{id}/status", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateSessionStatus)))
 	mux.Handle("PUT /v1/admin/beta-requests/{id}", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateBetaRequest)))
+	mux.Handle("PUT /v1/admin/settings", authIPLimiter.IPMiddleware(http.HandlerFunc(adminHandler.HandleAdminUpdateSettings)))
+
+	// Public site config (TestFlight URL, etc.).
+	mux.HandleFunc("GET /v1/site/config", handler.HandlePublicSiteConfig(database))
 
 	// Landing page.
 	landingHandler := handler.LandingFileServer()

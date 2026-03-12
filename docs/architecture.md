@@ -10,7 +10,7 @@ Go server. Listens on a single port (default 9847). Handles both HTTP REST and W
 
 - **WebSocket hub** — maintains persistent connections to agents (`/v1/ws/agent`) and iOS clients (`/v1/ws/app`). Broadcasts session events from agents to subscribed iOS connections. Manages per-user connection pools with automatic cleanup on disconnect.
 - **REST API** — device enrollment, session queries with cursor-based pagination, command submission (rate-limited), key exchange endpoints, push token registration, notification preferences, audit log.
-- **SQLite** — single-file database with WAL mode. Stores users, devices, sessions, events, commands, audit log, device keys, push tokens, notification preferences. Migrations are embedded in `internal/db/migrations.go` and run automatically on startup.
+- **PostgreSQL** — stores users, devices, sessions, events, commands, audit log, device keys, push tokens, notification preferences. Migrations run automatically on startup.
 - **APNs client** — HTTP/2 token-based auth with ES256 JWT. Sends visible alerts (priority 10) and silent pushes (priority 5). Handles Live Activity updates and push-to-start (iOS 17.2+). Auto-removes invalid tokens on 410 responses.
 - **Push decision engine** — classifies events by priority, suppresses bursts, aggregates routine events, and skips pushes when the iOS app has an active WebSocket connection.
 - **Prometheus metrics** — exposed at `/metrics`. Tracks HTTP requests, WebSocket connections, message throughput, command lifecycle, rate limit hits.

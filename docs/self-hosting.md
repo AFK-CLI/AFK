@@ -25,6 +25,9 @@ Edit `backend/.env`:
 # Required — generate with: openssl rand -hex 32
 AFK_JWT_SECRET=your-random-32-byte-hex-string
 
+# Required — password for the PostgreSQL database
+AFK_DB_PASSWORD=your-secure-db-password
+
 # Optional — leave empty to auto-generate an ephemeral key pair on each restart.
 # Set these for stable Ed25519 command signing across restarts.
 # Generate with: go run backend/cmd/keygen/main.go  (or any Ed25519 keygen)
@@ -84,7 +87,7 @@ The Certbot sidecar container renews certificates automatically every 12 hours. 
 ### 5. Start Services
 
 ```bash
-docker compose up -d
+docker compose --profile prod up -d
 ```
 
 Verify:
@@ -139,17 +142,20 @@ For App Store or TestFlight builds, set `AFK_APNS_PRODUCTION=1`. For Xcode debug
 
 ## Docker Compose Services
 
+The compose file uses profiles: `prod` for production and `dev` for local development. Start with `docker compose --profile prod up -d` or `docker compose --profile dev up -d`.
+
 | Service | Image | Ports | Purpose |
 |---------|-------|-------|---------|
+| `postgres` | `postgres:17-alpine` | 5432 (internal only) | PostgreSQL database |
 | `afk-cloud` | Built from `backend/Dockerfile` | 9847 (internal only) | Go backend |
-| `nginx` | `nginx:alpine` | 80, 443 | TLS termination, reverse proxy, WebSocket upgrade |
+| `nginx-prod` | `nginx:alpine` | 80, 443 | TLS termination, reverse proxy, WebSocket upgrade |
 | `certbot` | `certbot/certbot` | — | Automatic Let's Encrypt renewal (12h loop) |
 
 ### Volumes
 
 | Volume/Bind | Path in Container | Purpose |
 |-------------|-------------------|---------|
-| `afk-data` (named) | `/data` | SQLite database |
+| `pg-data` (named) | `/var/lib/postgresql/data` | PostgreSQL data |
 | `./secrets/apns-key.p8` | `/secrets/apns-key.p8` (ro) | APNs authentication key |
 | `./certs` | `/etc/nginx/certs` (ro) | TLS certificates |
 | `./certbot-www` | `/var/www/certbot` (ro) | ACME challenge directory |
@@ -213,24 +219,21 @@ docker compose build
 docker compose up -d
 ```
 
-The backend runs SQLite migrations automatically on startup. No manual migration step required.
+The backend runs PostgreSQL migrations automatically on startup. No manual migration step required.
 
 ## Backup
 
-The SQLite database lives in the `afk-data` Docker volume, mapped to `/data/afk.db` inside the container.
+The PostgreSQL data lives in the `pg-data` Docker volume.
 
 To back up:
 
 ```bash
-# Find the volume path
-docker volume inspect afk_afk-data --format '{{ .Mountpoint }}'
+# Dump the database
+docker compose --profile prod exec postgres pg_dump -U afk afk > afk-backup.sql
 
-# Copy the database (safe — SQLite WAL mode allows concurrent reads)
-docker compose exec afk-cloud cp /data/afk.db /data/afk-backup.db
-docker cp $(docker compose ps -q afk-cloud):/data/afk-backup.db ./afk-backup.db
+# Restore from backup
+docker compose --profile prod exec -T postgres psql -U afk afk < afk-backup.sql
 ```
-
-**WAL considerations**: SQLite in WAL mode uses two additional files (`afk.db-wal` and `afk.db-shm`). If you copy the database file directly from the host filesystem, you must copy all three files atomically, or the backup may be inconsistent. The `cp` inside the container is safe because SQLite handles the WAL checkpoint internally. Alternatively, use `sqlite3 /data/afk.db ".backup /data/afk-backup.db"` for an atomic backup.
 
 ## Troubleshooting
 
@@ -254,13 +257,13 @@ Verify with: `curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" https:
 4. Check backend logs for APNs errors: `docker compose logs afk-cloud | grep -i apns`
 5. A 410 response from APNs means the device token is invalid — the app needs to re-register.
 
-### Database locked errors
+### Database connection errors
 
-SQLite allows one writer at a time. This should not occur with a single backend instance. If you see lock errors:
+If the backend cannot connect to PostgreSQL:
 
-1. Ensure only one `afk-cloud` container is running: `docker compose ps`
-2. Check for zombie processes: `docker compose exec afk-cloud ps aux`
-3. If the WAL file is very large, the backend may be under write pressure. Check disk I/O.
+1. Ensure the `postgres` container is healthy: `docker compose --profile prod ps`
+2. Verify `AFK_DATABASE_URL` is set correctly in `backend/.env`
+3. Check PostgreSQL logs: `docker compose --profile prod logs postgres`
 
 ### Agent cannot connect
 

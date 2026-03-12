@@ -55,7 +55,7 @@ func LandingFileServer() http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:")
+			"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'")
 		data, err := fs.ReadFile(sub, "index.html")
 		if err != nil {
 			http.Error(w, "landing page not available", http.StatusInternalServerError)

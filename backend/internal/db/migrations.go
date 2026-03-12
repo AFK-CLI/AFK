@@ -345,6 +345,14 @@ CREATE TABLE IF NOT EXISTS pending_skill_installs (
 CREATE INDEX IF NOT EXISTS idx_pending_skill_installs_target ON pending_skill_installs(target_device_id);
 `
 
+const pgSiteSettingsSQL = `
+CREATE TABLE IF NOT EXISTS site_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '',
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+`
+
 var migrations = []struct {
 	Name string
 	SQL  string
@@ -352,6 +360,7 @@ var migrations = []struct {
 	{Name: "001_pg_init.up.sql", SQL: pgInitSQL},
 	{Name: "002_device_inventory.up.sql", SQL: pgDeviceInventorySQL},
 	{Name: "003_pending_skill_installs.up.sql", SQL: pgPendingSkillInstallsSQL},
+	{Name: "004_site_settings.up.sql", SQL: pgSiteSettingsSQL},
 }
 
 func RunMigrations(db *sql.DB) error {

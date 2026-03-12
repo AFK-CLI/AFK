@@ -17,7 +17,7 @@ Remote monitoring and interaction for [Claude Code](https://docs.anthropic.com/e
 └─────────────────┘                       └─────────────────┘
 ```
 
-The agent reads Claude Code's JSONL output files, normalizes events, and streams them to the backend over WebSocket. The backend stores events in SQLite (unless relay-only mode is active) and forwards them to connected iOS clients. When the iOS app is backgrounded, APNs push notifications handle alerts for permission requests, errors, and session completion.
+The agent reads Claude Code's JSONL output files, normalizes events, and streams them to the backend over WebSocket. The backend stores events in PostgreSQL (unless relay-only mode is active) and forwards them to connected iOS clients. When the iOS app is backgrounded, APNs push notifications handle alerts for permission requests, errors, and session completion.
 
 Content encryption uses Curve25519 ECDH key agreement between the agent and iOS app directly — the backend routes encrypted blobs without access to plaintext.
 
@@ -53,19 +53,20 @@ Content encryption uses Curve25519 ECDH key agreement between the agent and iOS 
 git clone https://github.com/AFK-CLI/AFK.git
 cd AFK
 cp backend/.env.example backend/.env
-# Edit backend/.env — at minimum set AFK_JWT_SECRET
-docker compose up -d
+# Edit backend/.env — at minimum set AFK_JWT_SECRET and AFK_DB_PASSWORD
+docker compose --profile prod up -d
 ```
 
-This starts the Go backend, nginx with TLS termination, and a Certbot sidecar for certificate renewal. See [docs/self-hosting.md](docs/self-hosting.md) for TLS setup, APNs configuration, and the full environment variable reference.
+This starts PostgreSQL, the Go backend, nginx with TLS termination, and a Certbot sidecar for certificate renewal. See [docs/self-hosting.md](docs/self-hosting.md) for TLS setup, APNs configuration, and the full environment variable reference.
 
 ## Development
 
-**Backend** (Go 1.24+, CGO required for SQLite):
+**Backend** (Go 1.25+, PostgreSQL):
 
 ```bash
 cd backend
 cp .env.example .env
+# Start a local PostgreSQL instance (or use: docker compose --profile dev up -d postgres-dev)
 go build ./cmd/server && ./server
 ```
 
@@ -88,10 +89,10 @@ Both Xcode projects read configuration from `config/` xcconfig files. Copy the `
 ## Project Structure
 
 ```
-backend/           Go server — WebSocket hub, REST API, APNs, SQLite
+backend/           Go server — WebSocket hub, REST API, APNs, PostgreSQL
   cmd/server/      Entry point
   internal/        Business logic (ws, auth, push, monitor, config, db)
-  internal/db/     SQLite queries and embedded migrations
+  internal/db/     PostgreSQL queries and migrations
 agent/             macOS .app bundle — JSONL watcher, command executor
   AFK-Agent/       Swift sources (Session/, Network/, Security/, Command/)
 ios/               SwiftUI app — session list, conversation view, remote continue

@@ -135,7 +135,7 @@ Privacy mode is set per device and can be overridden per project path.
 
 The attack surface is kept small:
 
-- **Go backend**: `gorilla/websocket`, `go-sqlite3` (CGO), `golang-jwt/jwt`, `golang.org/x/crypto` (bcrypt only), `godotenv`. No web framework.
+- **Go backend**: `gorilla/websocket`, `pgx/v5` (PostgreSQL, pure Go), `golang-jwt/jwt`, `golang.org/x/crypto` (bcrypt only), `godotenv`. No web framework.
 - **iOS and agent**: Apple frameworks only — `CryptoKit`, `SwiftData`, `ActivityKit`, `AuthenticationServices`. No third-party crypto libraries.
 
 ## Supported Versions

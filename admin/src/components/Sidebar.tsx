@@ -19,6 +19,7 @@ const navItems = [
   { to: '/logs', label: 'Logs' },
   { to: '/feedback', label: 'Feedback' },
   { to: '/beta', label: 'Beta Requests' },
+  { to: '/settings', label: 'Settings' },
   { to: '/server', label: 'Server' },
   { to: '/profile', label: 'Profile' },
 ]

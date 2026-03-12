@@ -15,6 +15,7 @@ import { ServerPage } from './pages/ServerPage'
 import { LogsPage } from './pages/LogsPage'
 import { FeedbackPage } from './pages/FeedbackPage'
 import { BetaPage } from './pages/BetaPage'
+import { SettingsPage } from './pages/SettingsPage'
 import { ProfilePage } from './pages/ProfilePage'
 
 function AuthGate() {
@@ -55,6 +56,7 @@ const router = createBrowserRouter(
             { path: 'logs', element: <LogsPage /> },
             { path: 'feedback', element: <FeedbackPage /> },
             { path: 'beta', element: <BetaPage /> },
+            { path: 'settings', element: <SettingsPage /> },
             { path: 'profile', element: <ProfilePage /> },
           ],
         },

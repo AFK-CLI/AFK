@@ -4,7 +4,8 @@
 
 - **macOS 15+** (Sequoia) — required for the agent and iOS Simulator
 - **Xcode 16+** — builds the agent and iOS app
-- **Go 1.24+** — builds the backend. CGO must be enabled (SQLite driver uses cgo)
+- **Go 1.25+** — builds the backend
+- **PostgreSQL 17+** — database. Run locally or use `docker compose --profile dev up -d postgres-dev`
 - **Claude Code** — the CLI tool that AFK monitors. Install: `npm install -g @anthropic-ai/claude-code`
 - **Docker** (optional) — for running the full stack locally via `docker compose`
 
@@ -17,12 +18,12 @@ AFK/
     internal/
       auth/             JWT, Apple Sign-In, email/password, WS tickets
       config/           Environment variable loading
-      db/               SQLite queries and migrations
+      db/               PostgreSQL queries and migrations
       hub/              WebSocket hub (agent + iOS connection pools)
       model/            Data types (Session, Event, Device, Command, etc.)
       monitor/          Stuck session detector
       push/             APNs client and decision engine
-    internal/db/        SQLite queries and embedded migrations (migrations.go)
+    internal/db/        PostgreSQL queries and migrations
   agent/AFK-Agent/      macOS .app bundle
     Session/            SessionWatcher (JSONL polling), EventNormalizer
     Network/            WebSocketClient
@@ -71,14 +72,12 @@ go build ./cmd/server
 
 The server listens on `http://localhost:9847`. Verify: `curl http://localhost:9847/healthz`
 
-CGO is required because the SQLite driver (`github.com/mattn/go-sqlite3`) uses cgo. If you get linker errors, ensure you have a C compiler installed:
+The backend requires a running PostgreSQL instance. Set `AFK_DATABASE_URL` in `.env` (defaults to `postgres://afk:afk@localhost:5432/afk?sslmode=disable`). To start a local PostgreSQL via Docker:
 
 ```bash
-# macOS — Xcode command line tools
-xcode-select --install
-
-# Verify
-CGO_ENABLED=1 go build ./cmd/server
+docker compose --profile dev up -d postgres-dev
+# This exposes PostgreSQL on localhost:5434
+# Set AFK_DATABASE_URL=postgres://afk:devpassword@localhost:5434/afk?sslmode=disable
 ```
 
 ### Tests
@@ -95,7 +94,7 @@ go test ./internal/hub  # specific package
 | Package | Purpose |
 |---------|---------|
 | `github.com/gorilla/websocket` | WebSocket server |
-| `github.com/mattn/go-sqlite3` | SQLite driver (CGO) |
+| `github.com/jackc/pgx/v5` | PostgreSQL driver (pure Go) |
 | `github.com/golang-jwt/jwt/v5` | JWT signing/verification |
 | `golang.org/x/crypto` | bcrypt for password hashing |
 | `github.com/joho/godotenv` | `.env` file loading |
@@ -334,6 +333,6 @@ func getSessionSummary(sessionId: String) async throws -> SessionSummary {
 - **Backend WebSocket traffic**: Set `AFK_LOG_LEVEL=debug` to see every WebSocket message in the server logs.
 - **Agent logs**: Open Console.app on macOS and filter by process `AFK-Agent`. The agent logs WebSocket connection state, event processing, and hook activity.
 - **iOS WebSocket**: The `DiagnosticsView` in the iOS app (Settings → Diagnostics) shows WebSocket connection status, message counts, and latency.
-- **SQLite inspection**: `docker compose exec afk-cloud sqlite3 /data/afk.db` or directly open the local `afk.db` with any SQLite client.
+- **PostgreSQL inspection**: `docker compose exec postgres psql -U afk` (prod) or `docker compose exec postgres-dev psql -U afk` (dev).
 - **Permission hook debugging**: The hook script logs to stderr, visible in the Claude Code terminal. Check `~/.afk-agent/run/` for socket and flag files.
 - **E2EE debugging**: Both the agent and iOS log key fingerprints on enrollment. Compare them to verify both sides have the correct peer key. Look for "key agreement" and "fingerprint" in logs.

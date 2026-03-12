@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -1175,6 +1176,70 @@ func (h *AdminHandler) HandleAdminUpdateBetaRequest(w http.ResponseWriter, r *ht
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandleAdminGetSettings returns all site settings.
+func (h *AdminHandler) HandleAdminGetSettings(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	settings, err := db.GetAllSiteSettings(h.DB)
+	if err != nil {
+		writeError(w, "failed to load settings", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"settings": settings})
+}
+
+// HandleAdminUpdateSettings updates a site setting.
+func (h *AdminHandler) HandleAdminUpdateSettings(w http.ResponseWriter, r *http.Request) {
+	if !h.adminAuth(r) {
+		writeError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var body struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&body); err != nil {
+		writeError(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+	allowedKeys := map[string]bool{
+		"testflight_url": true,
+	}
+	if !allowedKeys[body.Key] {
+		writeError(w, "unknown setting key", http.StatusBadRequest)
+		return
+	}
+	if len(body.Value) > 2048 {
+		writeError(w, "value too long", http.StatusBadRequest)
+		return
+	}
+	// Validate URL settings to prevent javascript: protocol injection.
+	if body.Key == "testflight_url" && body.Value != "" {
+		parsed, err := url.Parse(body.Value)
+		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+			writeError(w, "URL must use https:// or http://", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := db.SetSiteSetting(h.DB, body.Key, body.Value); err != nil {
+		writeError(w, "failed to save setting", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// HandlePublicSiteConfig returns public-facing site configuration (no auth required).
+func HandlePublicSiteConfig(database *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		testflightURL, _ := db.GetSiteSetting(database, "testflight_url")
+		writeJSON(w, http.StatusOK, map[string]string{
+			"testflightUrl": testflightURL,
+		})
+	}
 }
 
 // adminAuthGetID checks admin authentication and returns the admin user ID.
