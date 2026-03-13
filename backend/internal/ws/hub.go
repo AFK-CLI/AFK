@@ -6,13 +6,10 @@ import (
 	"log/slog"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/AFK/afk-cloud/internal/model"
 	"github.com/gorilla/websocket"
 )
-
-const remoteApprovalGracePeriod = 30 * time.Second
 
 const maxConsecutiveDrops int64 = 50
 
@@ -80,7 +77,6 @@ type Hub struct {
 	ios           map[string][]*IOSConn        // userID -> conns
 	controlStates map[string]*model.WSMessage  // deviceID -> last agent.control_state
 	usageStates   map[string]*model.WSMessage  // deviceID -> last agent.usage.update
-	disableTimers map[string]*time.Timer       // userID -> pending remote approval disable
 	Notifier      PushNotifier                 // optional push notification sender
 	Decision      PushDecisionEngine           // optional intelligent push routing
 }
@@ -91,7 +87,6 @@ func NewHub() *Hub {
 		ios:           make(map[string][]*IOSConn),
 		controlStates: make(map[string]*model.WSMessage),
 		usageStates:   make(map[string]*model.WSMessage),
-		disableTimers: make(map[string]*time.Timer),
 	}
 }
 
@@ -129,14 +124,6 @@ func (h *Hub) UnregisterAgent(deviceID string) {
 func (h *Hub) RegisterIOS(userID, deviceID string, conn *websocket.Conn) *IOSConn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-
-	// Cancel any pending remote approval disable for this user,
-	// since an iOS client just reconnected (e.g., coming back from background).
-	if timer, ok := h.disableTimers[userID]; ok {
-		timer.Stop()
-		delete(h.disableTimers, userID)
-		slog.Info("iOS reconnected within grace period, cancelled remote approval disable", "user_id", userID)
-	}
 
 	ic := &IOSConn{
 		UserID:        userID,
@@ -312,43 +299,6 @@ func (h *Hub) HasActiveIOSConns(userID string) bool {
 	return len(h.ios[userID]) > 0
 }
 
-// ScheduleRemoteApprovalDisable schedules disabling remote approval for all
-// agents of a user after a grace period. If an iOS client reconnects before
-// the timer fires (e.g., app returning from background), RegisterIOS cancels it.
-func (h *Hub) ScheduleRemoteApprovalDisable(userID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// If a timer already exists, let it run (don't reset).
-	if _, ok := h.disableTimers[userID]; ok {
-		return
-	}
-
-	slog.Info("scheduling remote approval disable after grace period",
-		"user_id", userID, "grace_period", remoteApprovalGracePeriod)
-
-	h.disableTimers[userID] = time.AfterFunc(remoteApprovalGracePeriod, func() {
-		h.mu.Lock()
-		delete(h.disableTimers, userID)
-		h.mu.Unlock()
-
-		// Re-check: iOS may have reconnected between timer creation and firing.
-		if h.HasActiveIOSConns(userID) {
-			slog.Info("iOS reconnected before grace period expired, skipping disable", "user_id", userID)
-			return
-		}
-
-		ra := false
-		disableMsg, err := NewWSMessage("agent_control", struct {
-			RemoteApproval *bool `json:"remoteApproval"`
-		}{&ra})
-		if err == nil {
-			h.SendToUserAgents(userID, disableMsg)
-			slog.Info("grace period expired, disabled remote approval for all agents", "user_id", userID)
-		}
-	})
-}
-
 // SendToUserAgents sends a message to all agent connections for a user.
 func (h *Hub) SendToUserAgents(userID string, msg *model.WSMessage) {
 	h.mu.RLock()
@@ -461,11 +411,6 @@ func (h *Hub) Shutdown() {
 			c.Conn.Close()
 		}
 		delete(h.ios, userID)
-	}
-
-	for userID, timer := range h.disableTimers {
-		timer.Stop()
-		delete(h.disableTimers, userID)
 	}
 
 	slog.Info("hub shutdown complete")

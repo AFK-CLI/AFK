@@ -100,12 +100,6 @@ func iosReadPump(hub *Hub, ic *IOSConn, database *sql.DB, userID, deviceID strin
 			hub.BroadcastToUser(userID, statusMsg)
 		}
 
-		// If no iOS connections remain, schedule disabling remote approval
-		// after a grace period. This avoids flapping when the iOS app is
-		// merely backgrounded and will reconnect shortly.
-		if !hub.HasActiveIOSConns(userID) {
-			hub.ScheduleRemoteApprovalDisable(userID)
-		}
 	}()
 
 	ic.Conn.SetReadLimit(maxMessageSize)
