@@ -1,3 +1,6 @@
+// TODO: Split this file — extract handleAgentMessage cases into
+// agent_message_handlers.go (grouped by domain: session, permission, command, wwud).
+
 package ws
 
 import (
@@ -807,6 +810,28 @@ func handleAgentMessage(hub *Hub, database *sql.DB, userID, deviceID, deviceName
 		}
 
 		slog.Info("inventory synced", "device_id", deviceID, "hash", inventoryPayload.ContentHash, "encrypted", isEncrypted)
+
+	case "agent.wwud.auto_decision":
+		var decision model.WWUDAutoDecision
+		if err := json.Unmarshal(msg.Payload, &decision); err != nil {
+			slog.Error("parse wwud auto_decision failed", "device_id", deviceID, "error", err)
+			return
+		}
+		decision.DeviceID = deviceID
+		notification, _ := NewWSMessage("wwud.auto_decision", decision)
+		hub.BroadcastToUser(userID, notification)
+		slog.Info("forwarded wwud auto_decision", "device_id", deviceID, "decision_id", decision.DecisionID, "tool", decision.ToolName, "action", decision.Action)
+
+	case "agent.wwud.stats":
+		var stats model.WWUDStats
+		if err := json.Unmarshal(msg.Payload, &stats); err != nil {
+			slog.Error("parse wwud stats failed", "device_id", deviceID, "error", err)
+			return
+		}
+		stats.DeviceID = deviceID
+		notification, _ := NewWSMessage("wwud.stats", stats)
+		hub.BroadcastToUser(userID, notification)
+		slog.Info("forwarded wwud stats", "device_id", deviceID)
 
 	case "agent.session.metrics":
 		var metrics model.AgentSessionMetrics

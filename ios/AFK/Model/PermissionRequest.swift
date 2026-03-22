@@ -122,3 +122,42 @@ struct PermissionResponse: Codable, Sendable {
         return Data(signature).map { String(format: "%02x", $0) }.joined()
     }
 }
+
+// MARK: - WWUD (What Would User Do?)
+
+/// Auto-decision event from the WWUD engine, for the transparency feed.
+struct WWUDAutoDecision: Codable, Identifiable {
+    let deviceId: String?
+    let sessionId: String
+    let toolName: String
+    let toolInputPreview: String
+    let action: String
+    let confidence: Double
+    let patternDescription: String
+    let timestamp: Int64
+    let decisionId: String
+
+    var id: String { decisionId }
+
+    var date: Date {
+        Date(timeIntervalSince1970: TimeInterval(timestamp))
+    }
+}
+
+/// Aggregate stats from the WWUD engine.
+struct WWUDStatsPayload: Codable {
+    let deviceId: String?
+    let totalDecisions: Int
+    let autoApproved: Int
+    let autoDenied: Int
+    let forwarded: Int
+    let topPatterns: [WWUDPatternStat]
+}
+
+/// A single pattern stat entry.
+struct WWUDPatternStat: Codable {
+    let pattern: String
+    let action: String
+    let confidence: Double
+    let count: Int
+}

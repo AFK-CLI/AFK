@@ -65,6 +65,14 @@ struct MessageEncoder {
         return try WSMessage(type: "agent.permission_request", payload: event)
     }
 
+    static func wwudAutoDecision(event: WWUDAutoDecisionEvent) throws -> WSMessage {
+        return try WSMessage(type: "agent.wwud.auto_decision", payload: event)
+    }
+
+    static func wwudStats(stats: WWUDStats) throws -> WSMessage {
+        return try WSMessage(type: "agent.wwud.stats", payload: stats)
+    }
+
     static func commandAck(commandId: String, sessionId: String) throws -> WSMessage {
         let payload = CommandAckPayload(commandId: commandId, sessionId: sessionId)
         return try WSMessage(type: "agent.command.ack", payload: payload)

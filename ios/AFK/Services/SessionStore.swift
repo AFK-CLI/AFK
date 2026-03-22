@@ -1,3 +1,7 @@
+// TODO: Split this file — extract E2EE key management into SessionStore+E2EE.swift,
+// WebSocket callback wiring into SessionStore+WebSocket.swift, and event processing
+// into SessionStore+Events.swift.
+
 import Foundation
 import CryptoKit
 import OSLog
@@ -30,6 +34,8 @@ final class SessionStore {
     private var permissionModes: [String: String] = [:]  // deviceId -> mode
     private var agentControlStates: [String: AgentControlState] = [:]  // deviceId -> control state
     var usageByDevice: [String: ClaudeUsage] = [:]  // deviceId -> latest usage
+    var wwudAutoDecisions: [String: [WWUDAutoDecision]] = [:]  // deviceId -> decisions
+    var wwudStats: [String: WWUDStatsPayload] = [:]  // deviceId -> stats
 
     /// E2EE: cached session keys (sessionId -> SymmetricKey)
     private var e2eeSessionKeys: [String: SymmetricKey] = [:]
@@ -1083,6 +1089,22 @@ final class SessionStore {
             self.usageByDevice[usage.deviceId] = usage
         }
 
+        wsService.onWWUDAutoDecision = { [weak self] (decision: WWUDAutoDecision) in
+            guard let self, let deviceId = decision.deviceId else { return }
+            var decisions = self.wwudAutoDecisions[deviceId] ?? []
+            decisions.insert(decision, at: 0)
+            // Keep only last 50 decisions per device
+            if decisions.count > 50 {
+                decisions = Array(decisions.prefix(50))
+            }
+            self.wwudAutoDecisions[deviceId] = decisions
+        }
+
+        wsService.onWWUDStats = { [weak self] (stats: WWUDStatsPayload) in
+            guard let self, let deviceId = stats.deviceId else { return }
+            self.wwudStats[deviceId] = stats
+        }
+
         wsService.onPermissionRequest = { [weak self] (request: PermissionRequest) in
             guard let self else { return }
             guard !request.isExpired else { return }
@@ -1254,6 +1276,10 @@ final class SessionStore {
     func setAgentAutoPlanExit(deviceId: String, enabled: Bool) async {
         agentControlStates[deviceId, default: .default].autoPlanExit = enabled
         await wsService.sendAgentControl(deviceId: deviceId, autoPlanExit: enabled)
+    }
+
+    func sendWWUDOverride(deviceId: String, decisionId: String, correctedAction: String) async {
+        await wsService.sendWWUDOverride(deviceId: deviceId, decisionId: decisionId, correctedAction: correctedAction)
     }
 
     /// Counts active task-type tool calls (spawned agents) in a session's events.

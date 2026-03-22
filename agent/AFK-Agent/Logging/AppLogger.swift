@@ -17,4 +17,5 @@ enum AppLogger {
     static let queue = Logger(subsystem: subsystem, category: "Queue")
     static let statusBar = Logger(subsystem: subsystem, category: "StatusBar")
     static let usage = Logger(subsystem: subsystem, category: "Usage")
+    static let wwud = Logger(subsystem: subsystem, category: "WWUD")
 }

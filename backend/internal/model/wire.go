@@ -452,6 +452,46 @@ type ServerTodoToggle struct {
 	Checked     bool   `json:"checked"`
 }
 
+// WWUD (What Would U Do) auto-decision and override
+
+// WWUDAutoDecision is sent by the agent when WWUD mode auto-decides a permission.
+type WWUDAutoDecision struct {
+	DeviceID           string  `json:"deviceId,omitempty"`
+	SessionID          string  `json:"sessionId"`
+	ToolName           string  `json:"toolName"`
+	ToolInputPreview   string  `json:"toolInputPreview"`
+	Action             string  `json:"action"`
+	Confidence         float64 `json:"confidence"`
+	PatternDescription string  `json:"patternDescription"`
+	Timestamp          int64   `json:"timestamp"`
+	DecisionID         string  `json:"decisionId"`
+}
+
+// WWUDOverride is sent by iOS to correct a WWUD auto-decision.
+type WWUDOverride struct {
+	DeviceID        string `json:"deviceId"`
+	DecisionID      string `json:"decisionId"`
+	CorrectedAction string `json:"correctedAction"`
+}
+
+// WWUDStats is sent by the agent with aggregated WWUD decision statistics.
+type WWUDStats struct {
+	DeviceID       string           `json:"deviceId,omitempty"`
+	TotalDecisions int              `json:"totalDecisions"`
+	AutoApproved   int              `json:"autoApproved"`
+	AutoDenied     int              `json:"autoDenied"`
+	Forwarded      int              `json:"forwarded"`
+	TopPatterns    []WWUDPatternStat `json:"topPatterns"`
+}
+
+// WWUDPatternStat is a single pattern entry within WWUDStats.
+type WWUDPatternStat struct {
+	Pattern    string  `json:"pattern"`
+	Action     string  `json:"action"`
+	Confidence float64 `json:"confidence"`
+	Count      int     `json:"count"`
+}
+
 // App Logs
 
 type AppLog struct {

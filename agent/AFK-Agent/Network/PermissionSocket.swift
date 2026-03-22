@@ -2,6 +2,10 @@
 //  PermissionSocket.swift
 //  AFK-Agent
 //
+//  TODO: Split this file — extract WWUD handling into PermissionSocket+WWUD.swift,
+//  hook response/parsing into PermissionSocket+HookIO.swift, and E2EE verification
+//  into PermissionSocket+Verification.swift.
+//
 //  Unix domain socket server for receiving Claude Code PermissionRequest hooks.
 //  The hook script connects, sends the permission JSON, and blocks until we
 //  respond (or timeout). We forward the request to the iOS app via the backend
@@ -24,6 +28,20 @@ actor PermissionSocket {
     private let deviceId: String
     private let acceptLegacyFallback: Bool
 
+    /// WWUD (What Would User Do?) engine for smart permission learning.
+    private var wwudEngine: WWUDEngine?
+
+    /// Callback to send WWUD auto-decision events to iOS for transparency.
+    private var onWWUDAutoDecision: (@Sendable (WWUDAutoDecisionEvent) async -> Void)?
+
+    func setWWUDEngine(_ engine: WWUDEngine) {
+        self.wwudEngine = engine
+    }
+
+    func setOnWWUDAutoDecision(_ handler: @escaping @Sendable (WWUDAutoDecisionEvent) async -> Void) {
+        self.onWWUDAutoDecision = handler
+    }
+
     /// When true, check Claude settings.json allow/deny rules before forwarding to iOS.
     private var settingsRulesEnabled: Bool = false
 
@@ -44,6 +62,7 @@ actor PermissionSocket {
         case acceptEdits
         case plan
         case autoApprove
+        case wwud
     }
 
     private var currentMode: PermissionMode = .ask
@@ -110,6 +129,10 @@ actor PermissionSocket {
         let expiresAtUnix: Int64
         let challenge: String?
         let continuation: CheckedContinuation<PermissionDecision, Never>
+        // WWUD context: stored so we can record the user's decision
+        let toolName: String?
+        let toolInput: [String: String]?
+        let projectPath: String?
     }
 
     struct PermissionDecision: Sendable {
@@ -344,6 +367,7 @@ actor PermissionSocket {
             if e2eeVerified {
                 pending.removeValue(forKey: response.nonce)
                 req.continuation.resume(returning: PermissionDecision(action: response.action))
+                recordWWUDFromResponse(req: req, action: response.action)
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:e2ee_hmac")
                 return
             }
@@ -360,6 +384,7 @@ actor PermissionSocket {
             if hex == fallbackSig {
                 pending.removeValue(forKey: response.nonce)
                 req.continuation.resume(returning: PermissionDecision(action: response.action))
+                recordWWUDFromResponse(req: req, action: response.action)
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:challenge_response")
                 return
             }
@@ -378,6 +403,7 @@ actor PermissionSocket {
                 AppLogger.permission.warning("Legacy fallback key accepted for nonce \(response.nonce.prefix(8), privacy: .public) — DEPRECATED")
                 pending.removeValue(forKey: response.nonce)
                 req.continuation.resume(returning: PermissionDecision(action: response.action))
+                recordWWUDFromResponse(req: req, action: response.action)
                 auditLog(nonce: response.nonce, action: response.action, note: "accepted:legacy_fallback_DEPRECATED")
                 return
             }
@@ -499,6 +525,10 @@ actor PermissionSocket {
                 Task { await self.onStop?(event) }
                 return  // fire-and-forget, no response needed
 
+            case "tool_used":
+                Task { await self.handleToolUsed(envelope.payload) }
+                return  // fire-and-forget, no response needed
+
             default:
                 AppLogger.permission.warning("Unknown envelope type: \(envelope.type, privacy: .public)")
                 return
@@ -574,6 +604,58 @@ actor PermissionSocket {
             AppLogger.permission.info("Auto-deny unsafe (\(toolName, privacy: .public)) — mode: plan")
             writeHookResponse(fd: fd, decision: "deny", reason: "Denied via AFK Plan Mode (read-only)")
             return
+        case .wwud:
+            // WWUD: evaluate against learned patterns
+            let semWWUD = DispatchSemaphore(value: 0)
+            var wwudResult: WWUDResult = .uncertain
+            var wwudProjectPath: String?
+            // Build tool input display early for WWUD evaluation
+            var wwudToolInput: [String: String] = [:]
+            if let ti = input.tool_input {
+                for (k, v) in ti { wwudToolInput[k] = v.stringValue }
+            }
+            Task {
+                wwudProjectPath = await self.resolveProjectPath(sessionId: sessionId)
+                if let engine = await self.wwudEngine {
+                    wwudResult = await engine.evaluate(
+                        toolName: toolName,
+                        toolInput: wwudToolInput,
+                        projectPath: wwudProjectPath ?? "unknown"
+                    )
+                }
+                semWWUD.signal()
+            }
+            semWWUD.wait()
+
+            switch wwudResult {
+            case .autoAllow(let confidence, let pattern), .autoDeny(let confidence, let pattern):
+                let action = if case .autoAllow = wwudResult { "allow" } else { "deny" }
+                let verb = action == "allow" ? "auto-approved" : "auto-denied"
+                let pct = Int(confidence * 100)
+                AppLogger.permission.info("WWUD auto-\(action, privacy: .public) (\(toolName, privacy: .public)) — confidence: \(pct, privacy: .public)% pattern: \(pattern.description, privacy: .public)")
+                writeHookResponse(fd: fd, decision: action, reason: "Smart Mode \(verb) (confidence: \(pct)%, pattern: \(pattern.description))")
+                let decisionId = UUID().uuidString
+                Task {
+                    await self.wwudEngine?.recordDecision(
+                        toolName: toolName, toolInput: wwudToolInput,
+                        projectPath: wwudProjectPath ?? "unknown",
+                        action: action, source: "auto"
+                    )
+                    let event = WWUDAutoDecisionEvent(
+                        sessionId: sessionId, toolName: toolName,
+                        toolInputPreview: String(wwudToolInput.values.joined(separator: " ").prefix(200)),
+                        action: action, confidence: confidence,
+                        patternDescription: pattern.description,
+                        timestamp: Int64(Date().timeIntervalSince1970),
+                        decisionId: decisionId
+                    )
+                    await self.onWWUDAutoDecision?(event)
+                }
+                auditLog(nonce: "wwud", sessionId: sessionId, toolName: toolName, toolInput: wwudToolInput.description, action: action, note: "wwud:auto:\(pct)%")
+                return
+            case .uncertain:
+                break // fall through to iOS forwarding
+            }
         default:
             break // fall through to existing iOS forwarding logic
         }
@@ -644,6 +726,16 @@ actor PermissionSocket {
         let semaphore = DispatchSemaphore(value: 0)
         var decision = PermissionDecision(action: "deny")
 
+        // Resolve project path for WWUD recording (reuse if already resolved)
+        if resolvedProjectPath == nil, mode == .wwud {
+            let semProj = DispatchSemaphore(value: 0)
+            Task {
+                resolvedProjectPath = await self.resolveProjectPath(sessionId: sessionId)
+                semProj.signal()
+            }
+            semProj.wait()
+        }
+
         // Hop to the actor to register the pending request and forward to iOS.
         Task {
             decision = await self.processPermissionRequest(
@@ -651,7 +743,8 @@ actor PermissionSocket {
                 toolName: toolName,
                 toolInput: toolInputDisplay,
                 toolUseId: toolUseId,
-                sessionId: sessionId
+                sessionId: sessionId,
+                wwudProjectPath: resolvedProjectPath
             )
             semaphore.signal()
         }
@@ -747,7 +840,8 @@ actor PermissionSocket {
         toolName: String,
         toolInput: [String: String],
         toolUseId: String,
-        sessionId: String
+        sessionId: String,
+        wwudProjectPath: String? = nil
     ) async -> PermissionDecision {
         let expiresAt = Date().addingTimeInterval(timeout)
         let expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
@@ -777,7 +871,10 @@ actor PermissionSocket {
                 expiresAt: expiresAt,
                 expiresAtUnix: expiresAtUnix,
                 challenge: challenge,
-                continuation: continuation
+                continuation: continuation,
+                toolName: toolName,
+                toolInput: toolInput,
+                projectPath: wwudProjectPath
             )
 
             // Schedule timeout
@@ -798,6 +895,75 @@ actor PermissionSocket {
         )
 
         return decision
+    }
+
+    /// Handle a WWUD override from iOS (user correcting an auto-decision).
+    func handleWWUDOverride(decisionId: String, correctedAction: String) {
+        guard correctedAction == "allow" || correctedAction == "deny" else {
+            AppLogger.wwud.warning("Invalid WWUD override action: \(correctedAction, privacy: .public)")
+            return
+        }
+        guard let engine = wwudEngine else {
+            AppLogger.wwud.warning("WWUD override received but no engine configured")
+            return
+        }
+        Task {
+            await engine.recordOverride(decisionId: decisionId, correctedAction: correctedAction)
+        }
+    }
+
+    /// Record a user's permission decision in the WWUD engine (if active).
+    private func recordWWUDFromResponse(req: PendingRequest, action: String) {
+        guard currentMode == .wwud,
+              let engine = wwudEngine,
+              let toolName = req.toolName,
+              let toolInput = req.toolInput else { return }
+        // Only record allow/deny, not plan actions or answers
+        guard action == "allow" || action == "deny" else { return }
+        let projectPath = req.projectPath ?? "unknown"
+        Task {
+            await engine.recordDecision(
+                toolName: toolName,
+                toolInput: toolInput,
+                projectPath: projectPath,
+                action: action,
+                source: "user"
+            )
+        }
+    }
+
+    /// Record a tool execution from the PostToolUse hook in the WWUD engine.
+    /// This lets WWUD learn from terminal permission decisions (tools the user allowed locally).
+    private func handleToolUsed(_ payload: [String: AnyCodable]?) {
+        guard let engine = wwudEngine,
+              let payload else { return }
+
+        let toolName = payload["tool_name"]?.stringValue ?? "unknown"
+        let sessionId = payload["session_id"]?.stringValue ?? "unknown"
+
+        // Skip read-only tools — they're always auto-allowed and not meaningful for learning
+        let readOnlyTools: Set<String> = ["Read", "Glob", "Grep", "LS", "LSP"]
+        guard !readOnlyTools.contains(toolName) else { return }
+
+        // Extract tool input as [String: String]
+        var toolInput: [String: String] = [:]
+        if let inputDict = payload["tool_input"]?.value as? [String: Any] {
+            for (k, v) in inputDict {
+                toolInput[k] = "\(v)"
+            }
+        }
+
+        Task {
+            let projectPath = await self.resolveProjectPath(sessionId: sessionId)
+            await engine.recordDecision(
+                toolName: toolName,
+                toolInput: toolInput,
+                projectPath: projectPath ?? "unknown",
+                action: "allow",
+                source: "terminal"
+            )
+            AppLogger.wwud.debug("Recorded terminal tool use: \(toolName, privacy: .public)")
+        }
     }
 
     private func expireRequest(nonce: String) {

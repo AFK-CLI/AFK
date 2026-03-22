@@ -18,12 +18,14 @@ struct HookInstaller {
     private let stopHookScriptName = "afk-stop-hook.sh"
     private let sessionStartHookScriptName = "afk-session-start-hook.sh"
     private let promptSubmitHookScriptName = "afk-prompt-submit-hook.sh"
+    private let toolUsedHookScriptName = "afk-tool-used-hook.sh"
     private let hookTimeout: Int         // ms
 
     /// All AFK hook script names for install/uninstall management.
     private var allScriptNames: [String] {
         [hookScriptName, notificationHookScriptName,
-         stopHookScriptName, sessionStartHookScriptName, promptSubmitHookScriptName]
+         stopHookScriptName, sessionStartHookScriptName, promptSubmitHookScriptName,
+         toolUsedHookScriptName]
     }
 
     /// Legacy script names to clean up from older installs.
@@ -104,23 +106,6 @@ struct HookInstaller {
             }
         }
 
-        // Remove legacy PostToolUse hook (no longer used — Shift+Tab injection removed).
-        if var postToolHooks = hooks["PostToolUse"] as? [[String: Any]] {
-            postToolHooks.removeAll { entry in
-                if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                    return entryHooks.contains { cmd in
-                        guard let command = cmd["command"] as? String else { return false }
-                        return legacyScriptNames.contains(where: { command.contains($0) })
-                    }
-                }
-                return false
-            }
-            if postToolHooks.isEmpty {
-                hooks.removeValue(forKey: "PostToolUse")
-            } else {
-                hooks["PostToolUse"] = postToolHooks
-            }
-        }
         // Delete legacy PostToolUse script file
         for name in legacyScriptNames {
             let path = scriptPath(name)
@@ -168,6 +153,10 @@ struct HookInstaller {
             &hooks, key: "UserPromptSubmit", matcher: "",
             scriptName: promptSubmitHookScriptName, timeout: 3000
         )
+
+        // 8. Install PostToolUse hook (async, fire-and-forget — records tool usage for WWUD learning)
+        try installScript(toolUsedHookScriptName, contents: bundledToolUsedHookContents(), fm: fm)
+        registerHook(&hooks, key: "PostToolUse", matcher: "", scriptName: toolUsedHookScriptName, timeout: 3000)
 
         settings["hooks"] = hooks
 
@@ -507,6 +496,39 @@ struct HookInstaller {
         cat << 'JSONEOF'
         {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[AFK] Session is remotely monitored via the AFK mobile app. Tool permissions are managed remotely."}}
         JSONEOF
+        """
+    }
+
+    // MARK: - PostToolUse Hook (async, fire-and-forget — WWUD learning)
+
+    private func bundledToolUsedHookContents() -> String {
+        let configDir = BuildEnvironment.configDirectoryName
+        return """
+        #!/bin/bash
+        # AFK Agent — Claude Code PostToolUse hook (async)
+        # Fire-and-forget: notifies agent that a tool was executed (allowed).
+        # Used by WWUD engine to learn from terminal permission decisions.
+        SOCKET="$HOME/\(configDir)/run/agent.sock"
+
+        INPUT=$(cat 2>/dev/null) || true
+        [ -z "$INPUT" ] && exit 0
+        [ ! -S "$SOCKET" ] && exit 0
+
+        ENVELOPE="{\\"type\\":\\"tool_used\\",\\"payload\\":$INPUT}"
+        echo "$ENVELOPE" | python3 -c "
+        import sys, socket
+        data = sys.stdin.buffer.read()
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect('$SOCKET')
+            sock.settimeout(3)
+            sock.sendall(data)
+            sock.shutdown(socket.SHUT_WR)
+        except:
+            pass
+        sock.close()
+        " 2>/dev/null || true
+        exit 0
         """
     }
 }

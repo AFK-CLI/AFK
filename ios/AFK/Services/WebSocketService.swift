@@ -49,6 +49,8 @@ final class WebSocketService {
     var onSessionMetrics: ((SessionMetricsData) -> Void)?
     var onUsageUpdate: ((ClaudeUsage) -> Void)?
     var onInventoryUpdated: ((String, InventoryReport?) -> Void)?  // (deviceId, fullInventory if included)
+    var onWWUDAutoDecision: ((WWUDAutoDecision) -> Void)?
+    var onWWUDStats: ((WWUDStatsPayload) -> Void)?
 
     /// Content decryptor closure — set by SessionStore to decrypt E2EE content.
     /// Accepts (content dict, sessionId) and returns decrypted content dict.
@@ -167,6 +169,14 @@ final class WebSocketService {
         struct Payload: Encodable { let deviceId: String; let remoteApproval: Bool?; let autoPlanExit: Bool? }
         guard let msg = try? WSMessage(type: "app.agent_control",
                   payload: Payload(deviceId: deviceId, remoteApproval: remoteApproval, autoPlanExit: autoPlanExit)),
+              let data = try? msg.toJSONData() else { return }
+        try? await webSocketTask?.send(.data(data))
+    }
+
+    func sendWWUDOverride(deviceId: String, decisionId: String, correctedAction: String) async {
+        struct Payload: Encodable { let deviceId: String; let decisionId: String; let correctedAction: String }
+        guard let msg = try? WSMessage(type: "app.wwud.override",
+                  payload: Payload(deviceId: deviceId, decisionId: decisionId, correctedAction: correctedAction)),
               let data = try? msg.toJSONData() else { return }
         try? await webSocketTask?.send(.data(data))
     }
@@ -353,6 +363,14 @@ final class WebSocketService {
         case "inventory.updated":
             if let payload = try? decoder.decode(InventoryUpdatedPayload.self, from: payloadData) {
                 onInventoryUpdated?(payload.deviceId, payload.inventory)
+            }
+        case "wwud.auto_decision":
+            if let decision = try? decoder.decode(WWUDAutoDecision.self, from: payloadData) {
+                onWWUDAutoDecision?(decision)
+            }
+        case "wwud.stats":
+            if let stats = try? decoder.decode(WWUDStatsPayload.self, from: payloadData) {
+                onWWUDStats?(stats)
             }
         default:
             break

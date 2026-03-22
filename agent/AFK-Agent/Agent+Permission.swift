@@ -82,6 +82,24 @@ extension Agent {
             return await self.sessionIndex.projectPath(for: sessionId)
         }
 
+        // Set up WWUD (What Would User Do?) smart permission engine
+        let wwudEngine = WWUDEngine()
+        await wwudEngine.pruneExpired()
+        await socket.setWWUDEngine(wwudEngine)
+        self.wwudEngine = wwudEngine
+
+        // Forward WWUD auto-decisions to iOS for transparency
+        await socket.setOnWWUDAutoDecision { [weak self] event in
+            guard let self, let client = await self.wsClient else { return }
+            do {
+                let msg = try MessageEncoder.wwudAutoDecision(event: event)
+                try await client.send(msg)
+                AppLogger.wwud.debug("Forwarded WWUD auto-decision: \(event.action, privacy: .public) \(event.toolName, privacy: .public)")
+            } catch {
+                AppLogger.wwud.error("Failed to forward WWUD auto-decision: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
         // Derive permission signing keys from E2EE key agreement with iOS peers.
         await setupPermissionSigningKeys(socket: socket, deviceId: deviceId)
 

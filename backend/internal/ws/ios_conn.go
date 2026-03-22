@@ -282,6 +282,37 @@ func handleIOSMessage(hub *Hub, ic *IOSConn, database *sql.DB, msg *model.WSMess
 			slog.Info("forwarded session stop", "session_id", req.SessionID, "device_id", req.DeviceID)
 		}
 
+	case "app.wwud.override":
+		var req model.WWUDOverride
+		if err := json.Unmarshal(msg.Payload, &req); err != nil {
+			slog.Error("failed to parse wwud override", "error", err)
+			return
+		}
+		// Validate correctedAction — only "allow" or "deny" are valid.
+		if req.CorrectedAction != "allow" && req.CorrectedAction != "deny" {
+			slog.Warn("invalid wwud override action", "action", req.CorrectedAction, "device_id", req.DeviceID)
+			return
+		}
+		// Ownership check: verify the agent belongs to this iOS user.
+		if ac := hub.GetAgentConn(req.DeviceID); ac != nil && ac.UserID != ic.UserID {
+			slog.Warn("cross-user wwud.override rejected",
+				"ios_user", ic.UserID, "agent_user", ac.UserID, "device_id", req.DeviceID)
+			return
+		}
+		fwd, err := NewWSMessage("server.wwud.override", struct {
+			DecisionID      string `json:"decisionId"`
+			CorrectedAction string `json:"correctedAction"`
+		}{req.DecisionID, req.CorrectedAction})
+		if err != nil {
+			slog.Error("failed to marshal wwud override", "error", err)
+			return
+		}
+		if err := hub.SendToAgent(req.DeviceID, fwd); err != nil {
+			slog.Error("failed to forward wwud override", "device_id", req.DeviceID, "error", err)
+		} else {
+			slog.Info("forwarded wwud override", "decision_id", req.DecisionID, "device_id", req.DeviceID)
+		}
+
 	case "app.plan.restart":
 		var req model.AppPlanRestart
 		if err := json.Unmarshal(msg.Payload, &req); err != nil {

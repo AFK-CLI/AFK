@@ -1,3 +1,6 @@
+// TODO: Split this file — extract user queries into admin_queries_users.go,
+// device queries into admin_queries_devices.go, and analytics into admin_queries_analytics.go.
+
 package db
 
 import (

@@ -9,6 +9,7 @@ struct PermissionModeMenu: View {
         case "acceptEdits": return "pencil.circle"
         case "plan": return "eye.circle"
         case "autoApprove": return "bolt.shield"
+        case "wwud": return "brain"
         default: return "shield.lefthalf.filled"
         }
     }
@@ -18,6 +19,7 @@ struct PermissionModeMenu: View {
         case "acceptEdits": return .orange
         case "plan": return .blue
         case "autoApprove": return .green
+        case "wwud": return .purple
         default: return .secondary
         }
     }
@@ -50,6 +52,15 @@ struct PermissionModeMenu: View {
             } label: {
                 Label("Auto-Approve", systemImage: "bolt.shield")
                 if currentMode == "autoApprove" { Image(systemName: "checkmark") }
+            }
+
+            Divider()
+
+            Button {
+                onChange("wwud")
+            } label: {
+                Label("Smart Mode", systemImage: "brain")
+                if currentMode == "wwud" { Image(systemName: "checkmark") }
             }
         } label: {
             Image(systemName: icon)

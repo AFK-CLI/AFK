@@ -1,3 +1,6 @@
+// TODO: Split this file — extract admin dashboard handlers into admin_dashboard.go,
+// user management into admin_users.go, and device management into admin_devices.go.
+
 package handler
 
 import (

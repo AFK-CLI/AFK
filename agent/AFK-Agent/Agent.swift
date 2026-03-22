@@ -16,6 +16,7 @@ actor Agent {
     var normalizer = EventNormalizer()
     var wsClient: WebSocketClient?
     var permissionSocket: PermissionSocket?
+    var wwudEngine: WWUDEngine?
     var otlpReceiver: OTLPReceiver?
     var commandExecutor: CommandExecutor?
     var commandVerifier: CommandVerifier?

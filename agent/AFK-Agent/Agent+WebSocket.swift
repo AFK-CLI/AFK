@@ -233,6 +233,24 @@ extension Agent {
             await handleTodoAppend(msg)
         case "server.todo.toggle":
             await handleTodoToggle(msg)
+        case "server.wwud.override":
+            struct WWUDOverridePayload: Codable {
+                let decisionId: String
+                let correctedAction: String
+            }
+            let decoder = JSONDecoder()
+            guard let payload = try? decoder.decode(WWUDOverridePayload.self, from: msg.payloadJSON),
+                  let socket = permissionSocket else {
+                AppLogger.wwud.error("Failed to parse WWUD override")
+                return
+            }
+            // Validate correctedAction — only "allow" or "deny" are valid
+            guard payload.correctedAction == "allow" || payload.correctedAction == "deny" else {
+                AppLogger.wwud.warning("Invalid WWUD override action: \(payload.correctedAction, privacy: .public)")
+                return
+            }
+            await socket.handleWWUDOverride(decisionId: payload.decisionId, correctedAction: payload.correctedAction)
+            AppLogger.wwud.info("WWUD override: \(payload.decisionId.prefix(8), privacy: .public) → \(payload.correctedAction, privacy: .public)")
         case "agent_control":
             struct ControlPayload: Codable {
                 let remoteApproval: Bool?

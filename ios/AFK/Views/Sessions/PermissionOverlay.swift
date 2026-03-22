@@ -4,6 +4,7 @@ struct PermissionOverlay: View {
     let request: PermissionRequest
     let onApprove: () -> Void
     let onDeny: () -> Void
+    var isWWUDMode: Bool = false
 
     @AppStorage("biometricGateEnabled", store: BuildEnvironment.userDefaults) private var biometricGateEnabled = false
     @State private var biometricError: String?
@@ -53,6 +54,17 @@ struct PermissionOverlay: View {
                 Label(biometricError, systemImage: "faceid")
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+
+            // WWUD learning indicator
+            if isWWUDMode {
+                HStack(spacing: 4) {
+                    Image(systemName: "brain")
+                        .font(.caption2)
+                    Text("Your decision will teach Smart Mode")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.purple)
             }
 
             // Action buttons

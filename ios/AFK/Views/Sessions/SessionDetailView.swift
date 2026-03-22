@@ -81,7 +81,8 @@ struct SessionDetailView: View {
                             },
                             onDeny: {
                                 Task { await sessionStore.sendPermissionResponse(nonce: permRequest.nonce, action: "deny") }
-                            }
+                            },
+                            isWWUDMode: session.map { sessionStore.permissionMode(for: $0.deviceId) == "wwud" } ?? false
                         )
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
@@ -263,6 +264,29 @@ struct SessionDetailView: View {
                     onDismiss: { commandStore.clearCommand(sessionId: sessionId) }
                 )
                 .padding(.horizontal)
+            }
+
+            // WWUD Smart Mode transparency feed
+            if let session,
+               sessionStore.permissionMode(for: session.deviceId) == "wwud" {
+                let deviceDecisions = sessionStore.wwudAutoDecisions[session.deviceId] ?? []
+                let deviceStats = sessionStore.wwudStats[session.deviceId]
+                if !deviceDecisions.isEmpty || deviceStats != nil {
+                    WWUDDigestView(
+                        decisions: deviceDecisions,
+                        stats: deviceStats,
+                        deviceId: session.deviceId,
+                        onOverride: { decisionId, correctedAction in
+                            Task {
+                                await sessionStore.sendWWUDOverride(
+                                    deviceId: session.deviceId,
+                                    decisionId: decisionId,
+                                    correctedAction: correctedAction
+                                )
+                            }
+                        }
+                    )
+                }
             }
 
             if let completedCmd = commandStore.completedCommand(for: sessionId) {
