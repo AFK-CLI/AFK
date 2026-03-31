@@ -361,6 +361,10 @@ var migrations = []struct {
 	{Name: "002_device_inventory.up.sql", SQL: pgDeviceInventorySQL},
 	{Name: "003_pending_skill_installs.up.sql", SQL: pgPendingSkillInstallsSQL},
 	{Name: "004_site_settings.up.sql", SQL: pgSiteSettingsSQL},
+	{Name: "005_session_provider.up.sql", SQL: `
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'claude_code';
+CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
+`},
 }
 
 func RunMigrations(db *sql.DB) error {

@@ -6,7 +6,8 @@
 import Foundation
 
 enum SessionStatus: String, Codable, Sendable {
-    case initial, running, idle, waitingPermission, error, completed
+    case initial, running, idle, error, completed
+    case waitingPermission = "waiting_permission"
 }
 
 struct ProcessResult: Sendable {

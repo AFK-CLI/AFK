@@ -52,7 +52,7 @@ actor CommandExecutor {
         let is_error: Bool?
     }
 
-    func execute(request: CommandRequest, verifier: CommandVerifier?, nonceStore: NonceStore, projectPath: String, wsClient: WebSocketClient, keyCache: SessionKeyCache? = nil) async {
+    func execute(request: CommandRequest, verifier: CommandVerifier?, nonceStore: NonceStore, projectPath: String, wsClient: WebSocketClient, keyCache: SessionKeyCache? = nil, provider: (any CodingToolProvider)? = nil) async {
         isCancelled = false
 
         do {
@@ -89,15 +89,23 @@ actor CommandExecutor {
                 images = request.images
             }
 
-            // 3. Resolve claude path and build args — resume in-place (no forking)
-            let claudePath = try CommandValidator.resolveClaudePath()
+            // 3. Resolve binary path and build args via provider
+            let binaryPath: String
+            let args: [String]
 
             // Save attached images to temp files and build prompt with references
             let effectivePrompt = saveImagesAndBuildPrompt(prompt: prompt, images: images, projectPath: projectPath)
 
-            let args = [claudePath, "--resume", request.sessionId, "-p", effectivePrompt, "--output-format", "json"]
-            try CommandValidator.validate(args: args)
+            if let provider {
+                binaryPath = try await provider.resolveBinaryPath()
+                args = try await provider.buildContinueArgs(binaryPath: binaryPath, sessionId: request.sessionId, prompt: effectivePrompt)
+            } else {
+                binaryPath = try CommandValidator.resolveClaudePath()
+                args = [binaryPath, "--resume", request.sessionId, "-p", effectivePrompt, "--output-format", "json"]
+                try CommandValidator.validate(args: args)
+            }
 
+            let claudePath = binaryPath
             AppLogger.command.info("Resuming session: \(request.sessionId.prefix(8), privacy: .public)")
 
             // 3. Send ack
@@ -140,7 +148,7 @@ actor CommandExecutor {
     }
 
     /// Execute a new chat command. Returns the new session ID if one was created.
-    func executeNewChat(request: NewChatRequest, verifier: CommandVerifier?, nonceStore: NonceStore, wsClient: WebSocketClient) async -> String? {
+    func executeNewChat(request: NewChatRequest, verifier: CommandVerifier?, nonceStore: NonceStore, wsClient: WebSocketClient, provider: (any CodingToolProvider)? = nil) async -> String? {
         isCancelled = false
         var resultSessionId: String?
 
@@ -160,20 +168,32 @@ actor CommandExecutor {
                 AppLogger.command.warning("No verifier configured — skipping signature verification")
             }
 
-            // 2. Resolve claude path and build args
-            let claudePath = try CommandValidator.resolveClaudePath()
-            var args = [claudePath, "-p", request.prompt, "--output-format", "json"]
-            if let mode = request.permissionMode, !mode.isEmpty, mode != "default" {
-                args.append(contentsOf: ["--permission-mode", mode])
-            }
-            if request.useWorktree {
-                if let name = request.worktreeName, !name.isEmpty {
-                    args.append(contentsOf: ["-w", name])
-                } else {
-                    args.append("--worktree")
+            // 2. Resolve binary path and build args via provider
+            let claudePath: String
+            var args: [String]
+            let options = NewChatOptions(
+                useWorktree: request.useWorktree,
+                worktreeName: request.worktreeName,
+                permissionMode: request.permissionMode
+            )
+            if let provider {
+                claudePath = try await provider.resolveBinaryPath()
+                args = try await provider.buildNewChatArgs(binaryPath: claudePath, prompt: request.prompt, options: options)
+            } else {
+                claudePath = try CommandValidator.resolveClaudePath()
+                args = [claudePath, "-p", request.prompt, "--output-format", "json"]
+                if let mode = request.permissionMode, !mode.isEmpty, mode != "default" {
+                    args.append(contentsOf: ["--permission-mode", mode])
                 }
+                if request.useWorktree {
+                    if let name = request.worktreeName, !name.isEmpty {
+                        args.append(contentsOf: ["-w", name])
+                    } else {
+                        args.append("--worktree")
+                    }
+                }
+                try CommandValidator.validate(args: args)
             }
-            try CommandValidator.validate(args: args)
 
             // 3. Send ack (with empty sessionId since we don't have one yet)
             let ackMsg = try MessageEncoder.commandAck(

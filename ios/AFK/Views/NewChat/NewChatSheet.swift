@@ -114,7 +114,7 @@ struct NewChatSheet: View {
         } header: {
             Text("Device")
         } footer: {
-            Text("The Mac where Claude Code will run.")
+            Text("The Mac where the coding tool will run.")
         }
     }
 
@@ -203,7 +203,7 @@ struct NewChatSheet: View {
                 .frame(minHeight: 100, maxHeight: 200)
                 .overlay(alignment: .topLeading) {
                     if prompt.isEmpty {
-                        Text("What would you like Claude to do?")
+                        Text("What would you like to do?")
                             .foregroundStyle(.tertiary)
                             .padding(.top, 8)
                             .padding(.leading, 4)

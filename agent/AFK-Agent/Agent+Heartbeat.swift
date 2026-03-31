@@ -99,18 +99,23 @@ extension Agent {
             try? await Task.sleep(for: .seconds(5))
             let allSessions = await stateManager.allSessions()
             let activeSessions = Set(allSessions.filter { $0.value.status == .running }.map(\.key))
-            let stallEvents = normalizer.checkPermissionStalls(stallTimeout: config.permissionStallTimeout, activeSessions: activeSessions)
-            for event in stallEvents {
-                _ = await stateManager.processEvent(event)
-                if let client = wsClient {
-                    do {
-                        let msg = try MessageEncoder.sessionEvent(sessionId: event.sessionId, event: event)
-                        try await client.send(msg)
-                    } catch {
-                        AppLogger.ws.error("Failed to send permission stall: \(error.localizedDescription, privacy: .public)")
+
+            // Check permission stalls across all providers
+            guard let registry = providerRegistry else { continue }
+            for provider in await registry.enabledProviders {
+                let stallEvents = await provider.checkPermissionStalls(stallTimeout: config.permissionStallTimeout, activeSessions: activeSessions)
+                for event in stallEvents {
+                    _ = await stateManager.processEvent(event)
+                    if let client = wsClient {
+                        do {
+                            let msg = try MessageEncoder.sessionEvent(sessionId: event.sessionId, event: event)
+                            try await client.send(msg)
+                        } catch {
+                            AppLogger.ws.error("Failed to send permission stall: \(error.localizedDescription, privacy: .public)")
+                        }
                     }
+                    AppLogger.session.debug("\(event.sessionId.prefix(8), privacy: .public) \(event.eventType.rawValue, privacy: .public) (permission stall)")
                 }
-                AppLogger.session.debug("\(event.sessionId.prefix(8), privacy: .public) \(event.eventType.rawValue, privacy: .public) (permission stall)")
             }
         }
     }

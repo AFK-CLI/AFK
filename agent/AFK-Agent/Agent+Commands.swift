@@ -28,6 +28,14 @@ extension Agent {
         let projectPath = await sessionIndex.projectPath(for: request.sessionId) ?? ""
 
         let keyCache = sessionKeyCache
+        // Look up the provider for this session
+        let sessionProvider: (any CodingToolProvider)?
+        if let providerName = sessionProviders[request.sessionId],
+           let registry = providerRegistry {
+            sessionProvider = await registry.provider(for: providerName)
+        } else {
+            sessionProvider = nil
+        }
         Task {
             await executor.execute(
                 request: request,
@@ -35,7 +43,8 @@ extension Agent {
                 nonceStore: commandNonceStore,
                 projectPath: projectPath,
                 wsClient: client,
-                keyCache: keyCache
+                keyCache: keyCache,
+                provider: sessionProvider
             )
         }
     }
@@ -60,7 +69,6 @@ extension Agent {
             updateTodoStatus(projectPath: request.projectPath, todoText: todoText, from: "- [ ] ", to: "- [*] ")
         }
 
-        let projectsPath = config.claudeProjectsPath
         let requestProjectPath = request.projectPath
         let todoText = request.todoText
         let sbc = statusBarController
@@ -79,11 +87,21 @@ extension Agent {
 
             // Register the new session in SessionIndex so continue commands can find its project path.
             if let newSessionId {
-                if let jsonlPath = Self.findJSONLFile(sessionId: newSessionId, under: projectsPath) {
-                    let (_, projectPath) = await sessionIndex.register(filePath: jsonlPath)
-                    AppLogger.command.info("Registered new chat session \(newSessionId.prefix(8), privacy: .public) → \(projectPath, privacy: .public)")
-                } else {
-                    AppLogger.command.warning("Could not find JSONL for new session \(newSessionId.prefix(8), privacy: .public)")
+                // Try each provider to find the session file
+                var registered = false
+                if let registry = await self?.providerRegistry {
+                    for provider in await registry.enabledProviders {
+                        if let dataPath = await provider.findSessionFile(sessionId: newSessionId) {
+                            await sessionIndex.registerDirect(sessionId: newSessionId, projectPath: requestProjectPath)
+                            await self?.setSessionProvider(sessionId: newSessionId, provider: provider.identifier)
+                            AppLogger.command.info("Registered new chat session \(newSessionId.prefix(8), privacy: .public) → \(requestProjectPath, privacy: .public) [\(provider.identifier, privacy: .public)]")
+                            registered = true
+                            break
+                        }
+                    }
+                }
+                if !registered {
+                    AppLogger.command.warning("Could not find data file for new session \(newSessionId.prefix(8), privacy: .public)")
                 }
 
                 // Register in menu bar for easy resume
@@ -236,9 +254,8 @@ extension Agent {
 
         AppLogger.command.info("Plan restart for session \(sessionId.prefix(8), privacy: .public) with mode=\(mode, privacy: .public)")
 
-        let projectsPath = config.claudeProjectsPath
         let sbc = statusBarController
-        Task { [sessionIndex] in
+        Task { [sessionIndex, weak self] in
             let newSessionId = await executor.executeNewChat(
                 request: request,
                 verifier: nil,  // Skip verification for plan restart
@@ -247,9 +264,16 @@ extension Agent {
             )
 
             if let newSessionId {
-                if let jsonlPath = Self.findJSONLFile(sessionId: newSessionId, under: projectsPath) {
-                    let (_, projPath) = await sessionIndex.register(filePath: jsonlPath)
-                    AppLogger.command.info("Plan restart session \(newSessionId.prefix(8), privacy: .public) → \(projPath, privacy: .public)")
+                // Try each provider to find the session file
+                if let registry = await self?.providerRegistry {
+                    for provider in await registry.enabledProviders {
+                        if await provider.findSessionFile(sessionId: newSessionId) != nil {
+                            await sessionIndex.registerDirect(sessionId: newSessionId, projectPath: projectPath)
+                            await self?.setSessionProvider(sessionId: newSessionId, provider: provider.identifier)
+                            AppLogger.command.info("Plan restart session \(newSessionId.prefix(8), privacy: .public) → \(projectPath, privacy: .public)")
+                            break
+                        }
+                    }
                 }
 
                 // Register in menu bar for easy resume

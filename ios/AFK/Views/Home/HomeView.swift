@@ -23,7 +23,7 @@ struct HomeView: View {
                         ContentUnavailableView(
                             "No Active Sessions",
                             systemImage: "moon.zzz",
-                            description: Text("Claude Code sessions will appear here when active")
+                            description: Text("Coding sessions will appear here when active")
                         )
                         .padding(.top, 60)
                     } else {
@@ -33,10 +33,11 @@ struct HomeView: View {
                             }
                             .buttonStyle(.plain)
                             .contextMenu {
-                                Button("Copy Resume Command", systemImage: "doc.on.doc") {
-                                    let command = "cd \(session.projectPath) && claude --resume \(session.id)"
-                                    UIPasteboard.general.string = command
-                                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                if session.supportsResume {
+                                    Button("Copy Resume Command", systemImage: "doc.on.doc") {
+                                        UIPasteboard.general.string = session.resumeCommand
+                                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                    }
                                 }
                                 if session.status == .idle {
                                     Button("Dismiss", systemImage: "xmark.circle") {

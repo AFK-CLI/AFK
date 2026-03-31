@@ -127,7 +127,10 @@ struct SetupView: View {
             ctrlClickTogglesRemoteAndSleep: false,
             notifyOnIdle: true,
             usagePollingEnabled: true,
-            updateCheckInterval: 3600
+            updateCheckInterval: 3600,
+            enabledProviders: ["claude_code"],
+            openCodePollInterval: 2,
+            openCodeServerPort: 0
         )
         config.save()
         onSave(config)

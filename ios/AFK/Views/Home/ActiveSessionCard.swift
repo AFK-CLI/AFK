@@ -10,6 +10,14 @@ struct ActiveSessionCard: View {
                     .foregroundStyle(session.status.color)
                 Text(session.projectName)
                     .font(.headline)
+                if session.provider != "claude_code" {
+                    Label(session.providerDisplayName, systemImage: session.providerIcon)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(.secondary.opacity(0.12), in: .capsule)
+                }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(session.status.displayName)

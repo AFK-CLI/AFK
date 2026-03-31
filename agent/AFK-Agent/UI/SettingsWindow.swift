@@ -123,7 +123,10 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             ctrlClickTogglesRemoteAndSleep: settings.ctrlClickTogglesRemoteAndSleep,
             notifyOnIdle: settings.notifyOnIdle,
             usagePollingEnabled: settings.usagePollingEnabled,
-            updateCheckInterval: settings.updateCheckInterval
+            updateCheckInterval: settings.updateCheckInterval,
+            enabledProviders: config.enabledProviders,
+            openCodePollInterval: config.openCodePollInterval,
+            openCodeServerPort: config.openCodeServerPort
         )
         config.save()
         onConfigChanged?(config)

@@ -30,6 +30,9 @@ struct AgentConfig: Sendable {
     let notifyOnIdle: Bool               // true by default — show macOS notification when Claude is idle
     let usagePollingEnabled: Bool        // true by default — poll Claude API usage
     let updateCheckInterval: TimeInterval // 3600 (1 hour) default — Sparkle check interval
+    let enabledProviders: [String]       // ["claude_code"] by default
+    let openCodePollInterval: TimeInterval // 2s default — SQLite polling interval
+    let openCodeServerPort: Int          // 0 = auto-detect (tries 4096), >0 = explicit
 
     var isConfigured: Bool {
         !serverURL.isEmpty
@@ -75,7 +78,10 @@ struct AgentConfig: Sendable {
                 ctrlClickTogglesRemoteAndSleep: json["ctrlClickTogglesRemoteAndSleep"] as? Bool ?? false,
                 notifyOnIdle: json["notifyOnIdle"] as? Bool ?? true,
                 usagePollingEnabled: json["usagePollingEnabled"] as? Bool ?? true,
-                updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600
+                updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600,
+                enabledProviders: json["enabledProviders"] as? [String] ?? ["claude_code"],
+                openCodePollInterval: json["openCodePollInterval"] as? TimeInterval ?? 2,
+                openCodeServerPort: json["openCodeServerPort"] as? Int ?? 0
             )
         }
 
@@ -110,7 +116,10 @@ struct AgentConfig: Sendable {
             ctrlClickTogglesRemoteAndSleep: false,
             notifyOnIdle: true,
             usagePollingEnabled: true,
-            updateCheckInterval: 3600
+            updateCheckInterval: 3600,
+            enabledProviders: ["claude_code"],
+            openCodePollInterval: 2,
+            openCodeServerPort: 0
         )
     }
 

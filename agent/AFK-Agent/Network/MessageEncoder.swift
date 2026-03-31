@@ -27,7 +27,8 @@ struct MessageEncoder {
         turnCount: Int,
         description: String,
         ephemeralPublicKey: String? = nil,
-        lastInputTokens: Int64 = 0
+        lastInputTokens: Int64 = 0,
+        provider: String? = nil
     ) throws -> WSMessage {
         let payload = AgentSessionUpdate(
             sessionId: sessionId,
@@ -40,7 +41,8 @@ struct MessageEncoder {
             turnCount: turnCount,
             description: description,
             ephemeralPublicKey: ephemeralPublicKey,
-            lastInputTokens: lastInputTokens
+            lastInputTokens: lastInputTokens,
+            provider: provider
         )
         return try WSMessage(type: "agent.session.update", payload: payload)
     }
@@ -205,6 +207,7 @@ struct AgentSessionUpdate: Codable, Sendable {
     let description: String
     let ephemeralPublicKey: String?
     let lastInputTokens: Int64
+    let provider: String?
 }
 
 struct AgentSessionEvent: Codable, Sendable {

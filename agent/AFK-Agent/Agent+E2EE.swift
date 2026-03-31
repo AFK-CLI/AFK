@@ -175,7 +175,7 @@ extension Agent {
             keyCache.setEphemeralKey(sessionId: sessionId, key: ephKey)
         }
 
-        normalizer.contentEncryptor = { content, sessionId in
+        let encryptor: @Sendable ([String: String], String) -> [String: String]? = { content, sessionId in
             let peerKeyMap = keyCache.getOrDeriveKeys(sessionId: sessionId)
             guard !peerKeyMap.isEmpty else { return nil }
             var encrypted: [String: String] = [:]
@@ -197,6 +197,13 @@ extension Agent {
                 }
             }
             return encrypted.isEmpty ? nil : encrypted
+        }
+
+        // Set encryptor on all providers
+        if let registry = providerRegistry {
+            for provider in await registry.enabledProviders {
+                await provider.setContentEncryptor(encryptor)
+            }
         }
         AppLogger.e2ee.info("E2EE content encryptor wired for \(peerKeys.count, privacy: .public) peer(s) (own key v\(myKeyVersion, privacy: .public)) — privacy mode: \(self.config.defaultPrivacyMode, privacy: .public)")
     }

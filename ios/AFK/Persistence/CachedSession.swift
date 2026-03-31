@@ -23,6 +23,7 @@ final class CachedSession {
     var lastModel: String?
     var otlpCacheReadTokens: Int64 = 0
     var otlpCacheCreationTokens: Int64 = 0
+    var provider: String = "claude_code"
     var lastSyncedAt: Date
 
     init(from session: Session) {
@@ -46,6 +47,7 @@ final class CachedSession {
         self.lastModel = session.lastModel
         self.otlpCacheReadTokens = session.otlpCacheReadTokens
         self.otlpCacheCreationTokens = session.otlpCacheCreationTokens
+        self.provider = session.provider
         self.lastSyncedAt = Date()
     }
 
@@ -70,7 +72,8 @@ final class CachedSession {
             costUsd: costUsd,
             lastModel: lastModel,
             otlpCacheReadTokens: otlpCacheReadTokens,
-            otlpCacheCreationTokens: otlpCacheCreationTokens
+            otlpCacheCreationTokens: otlpCacheCreationTokens,
+            provider: provider
         )
     }
 
@@ -94,6 +97,7 @@ final class CachedSession {
         lastModel = session.lastModel
         otlpCacheReadTokens = session.otlpCacheReadTokens
         otlpCacheCreationTokens = session.otlpCacheCreationTokens
+        provider = session.provider
         lastSyncedAt = Date()
     }
 }

@@ -76,6 +76,34 @@ struct Session: Codable, Identifiable, Sendable {
     var otlpCacheReadTokens: Int64 = 0
     var otlpCacheCreationTokens: Int64 = 0
     var lastInputTokens: Int64 = 0
+    var provider: String = "claude_code"
+
+    var providerDisplayName: String {
+        switch provider {
+        case "opencode": return "OpenCode"
+        case "codex": return "Codex"
+        default: return "Claude Code"
+        }
+    }
+
+    var supportsResume: Bool {
+        provider == "claude_code" || provider == "opencode"
+    }
+
+    var resumeCommand: String {
+        switch provider {
+        case "opencode": return "cd \(projectPath) && opencode -s \(id)"
+        default: return "cd \(projectPath) && claude --resume \(id)"
+        }
+    }
+
+    var providerIcon: String {
+        switch provider {
+        case "opencode": return "terminal.fill"
+        case "codex": return "cpu"
+        default: return "sparkle"
+        }
+    }
 
     /// Resolves worktree paths to their parent project path.
     /// e.g. `/path/to/AFK/.claude/worktrees/xyz` → `/path/to/AFK`
@@ -97,7 +125,7 @@ struct Session: Codable, Identifiable, Sendable {
          deviceName: String? = nil, projectId: String? = nil, description: String = "",
          ephemeralPublicKey: String? = nil, costUsd: Double = 0,
          lastModel: String? = nil, otlpCacheReadTokens: Int64 = 0, otlpCacheCreationTokens: Int64 = 0,
-         lastInputTokens: Int64 = 0) {
+         lastInputTokens: Int64 = 0, provider: String = "claude_code") {
         self.id = id
         self.deviceId = deviceId
         self.userId = userId
@@ -119,6 +147,7 @@ struct Session: Codable, Identifiable, Sendable {
         self.otlpCacheReadTokens = otlpCacheReadTokens
         self.otlpCacheCreationTokens = otlpCacheCreationTokens
         self.lastInputTokens = lastInputTokens
+        self.provider = provider
     }
 
     /// Preserves locally-accumulated OTLP fields (cost, model, cache tokens)
@@ -154,5 +183,6 @@ struct Session: Codable, Identifiable, Sendable {
         otlpCacheReadTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheReadTokens) ?? 0
         otlpCacheCreationTokens = try container.decodeIfPresent(Int64.self, forKey: .otlpCacheCreationTokens) ?? 0
         lastInputTokens = try container.decodeIfPresent(Int64.self, forKey: .lastInputTokens) ?? 0
+        provider = try container.decodeIfPresent(String.self, forKey: .provider) ?? "claude_code"
     }
 }

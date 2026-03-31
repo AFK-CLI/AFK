@@ -193,6 +193,14 @@ extension Agent {
                 return
             }
             await socket.handleResponse(response)
+
+            // Also route to non-CC providers (OpenCode uses HTTP API, not hook socket)
+            if let entry = pendingProviderPermissions.removeValue(forKey: response.nonce),
+               let registry = providerRegistry,
+               let provider = await registry.provider(for: entry.provider) {
+                // Pass the raw action — could be "allow", "deny", or "answer:<label>" for questions
+                await provider.handlePermissionResponse(nonce: response.nonce, action: response.action, message: nil)
+            }
         case "permission_mode":
             struct ModePayload: Codable { let mode: String }
             let decoder = JSONDecoder()

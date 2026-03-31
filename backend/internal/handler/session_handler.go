@@ -23,8 +23,9 @@ func (h *SessionHandler) HandleList(w http.ResponseWriter, r *http.Request) {
 
 	deviceID := r.URL.Query().Get("deviceId")
 	status := r.URL.Query().Get("status")
+	provider := r.URL.Query().Get("provider")
 
-	sessions, err := db.ListSessions(h.DB, userID, deviceID, status)
+	sessions, err := db.ListSessions(h.DB, userID, deviceID, status, provider)
 	if err != nil {
 		writeError(w, "failed to list sessions", http.StatusInternalServerError)
 		return

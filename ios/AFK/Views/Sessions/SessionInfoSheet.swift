@@ -55,25 +55,28 @@ struct SessionInfoSheet: View {
                     }
 
                     row("Session ID", value: String(session.id.prefix(8)) + "...", icon: "number")
+                    row("Provider", value: session.providerDisplayName, icon: session.providerIcon)
                 }
 
-                Section("Resume on Mac") {
-                    Button {
-                        UIPasteboard.general.string = "cd \(session.projectPath) && claude --resume \(session.id)"
-                        copiedToast = true
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            copiedToast = false
-                        }
-                    } label: {
-                        HStack {
-                            Label("Copy resume command", systemImage: "doc.on.doc")
-                            Spacer()
-                            if copiedToast {
-                                Text("Copied!")
-                                    .font(.caption)
-                                    .foregroundStyle(.green)
+                if session.supportsResume {
+                    Section("Resume on Mac") {
+                        Button {
+                            UIPasteboard.general.string = session.resumeCommand
+                            copiedToast = true
+                            let generator = UINotificationFeedbackGenerator()
+                            generator.notificationOccurred(.success)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                copiedToast = false
+                            }
+                        } label: {
+                            HStack {
+                                Label("Copy resume command", systemImage: "doc.on.doc")
+                                Spacer()
+                                if copiedToast {
+                                    Text("Copied!")
+                                        .font(.caption)
+                                        .foregroundStyle(.green)
+                                }
                             }
                         }
                     }

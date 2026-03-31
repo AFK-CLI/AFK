@@ -282,7 +282,7 @@ struct SignInView: View {
                                 .font(.title.bold())
                                 .foregroundStyle(.white)
 
-                            Text("Monitor Claude Code sessions\nfrom your iPhone")
+                            Text("Monitor AI coding sessions\nfrom your iPhone")
                                 .font(.body)
                                 .foregroundStyle(.white.opacity(0.6))
                                 .multilineTextAlignment(.center)

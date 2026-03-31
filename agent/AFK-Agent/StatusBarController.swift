@@ -386,7 +386,10 @@ final class StatusBarController: NSObject {
                 ctrlClickTogglesRemoteAndSleep: config.ctrlClickTogglesRemoteAndSleep,
                 notifyOnIdle: config.notifyOnIdle,
                 usagePollingEnabled: config.usagePollingEnabled,
-                updateCheckInterval: config.updateCheckInterval
+                updateCheckInterval: config.updateCheckInterval,
+                enabledProviders: config.enabledProviders,
+                openCodePollInterval: config.openCodePollInterval,
+                openCodeServerPort: config.openCodeServerPort
             )
             config.save()
             agentConfig = config

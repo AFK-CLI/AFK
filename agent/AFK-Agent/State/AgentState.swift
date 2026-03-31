@@ -11,11 +11,12 @@ import OSLog
 struct AgentState: Codable {
     struct SessionSnapshot: Codable {
         let sessionId: String
-        let jsonlPath: String
-        var lastByteOffset: UInt64
+        let jsonlPath: String       // data path (JSONL file, SQLite DB, etc.)
+        var lastByteOffset: UInt64  // read offset (byte offset for JSONL, rowid for SQLite)
         var lastSeq: Int
         let projectPath: String
         let createdAt: Date
+        var provider: String?       // "claude_code", "opencode" — nil means legacy claude_code
     }
 
     var activeSessions: [String: SessionSnapshot] = [:]
@@ -70,7 +71,7 @@ struct AgentState: Codable {
 
     // MARK: - Mutations
 
-    mutating func trackSession(sessionId: String, jsonlPath: String, projectPath: String) {
+    mutating func trackSession(sessionId: String, jsonlPath: String, projectPath: String, provider: String? = nil) {
         guard activeSessions[sessionId] == nil else { return }
         activeSessions[sessionId] = SessionSnapshot(
             sessionId: sessionId,
@@ -78,7 +79,8 @@ struct AgentState: Codable {
             lastByteOffset: 0,
             lastSeq: 0,
             projectPath: projectPath,
-            createdAt: Date()
+            createdAt: Date(),
+            provider: provider
         )
     }
 

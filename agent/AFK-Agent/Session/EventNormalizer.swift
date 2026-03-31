@@ -9,7 +9,11 @@ struct EventNormalizer: Sendable {
     private var turnIndex: [String: Int] = [:]
     private var pendingToolUses: [String: ToolUseInfo] = [:]  // toolUseId -> info
     private let redactor = ContentRedactor()
-    private let toolProvider: ToolProvider = ClaudeCodeToolProvider()
+    let toolProvider: ToolProvider
+
+    init(toolProvider: ToolProvider = ClaudeCodeToolProvider()) {
+        self.toolProvider = toolProvider
+    }
 
     struct ToolUseInfo: Sendable {
         let toolName: String

@@ -73,6 +73,7 @@ type AgentSessionUpdate struct {
 	Description        string `json:"description"`
 	EphemeralPublicKey string `json:"ephemeralPublicKey,omitempty"`
 	LastInputTokens    int64  `json:"lastInputTokens,omitempty"`
+	Provider           string `json:"provider,omitempty"`
 }
 
 type AgentUsageUpdate struct {
