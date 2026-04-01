@@ -130,7 +130,9 @@ struct SetupView: View {
             updateCheckInterval: 3600,
             enabledProviders: ["claude_code"],
             openCodePollInterval: 2,
-            openCodeServerPort: 0
+            openCodeServerPort: 0,
+            hookServerPort: 19280,
+            hookServerEnabled: true
         )
         config.save()
         onSave(config)

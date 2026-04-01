@@ -59,6 +59,10 @@ extension Agent {
         if let receiver = otlpReceiver {
             await receiver.stop()
         }
+        // Stop HTTP hook server
+        if let server = hookServer {
+            await server.stop()
+        }
         // Shared skill files persist across restarts — no cleanup on quit
         // Close disk queue
         diskQueue?.close()

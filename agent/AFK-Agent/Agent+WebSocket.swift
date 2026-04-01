@@ -194,6 +194,15 @@ extension Agent {
             }
             await socket.handleResponse(response)
 
+            // Also resolve HTTP hook server pending permissions
+            if let hookServer = hookServer {
+                let hookResponse = HookPermissionResponse(
+                    behavior: response.action == "allow" ? "allow" : "deny",
+                    updatedInput: nil
+                )
+                await hookServer.resolvePermission(nonce: response.nonce, response: hookResponse)
+            }
+
             // Also route to non-CC providers (OpenCode uses HTTP API, not hook socket)
             if let entry = pendingProviderPermissions.removeValue(forKey: response.nonce),
                let registry = providerRegistry,

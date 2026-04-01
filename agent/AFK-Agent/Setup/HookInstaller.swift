@@ -20,12 +20,20 @@ struct HookInstaller {
     private let promptSubmitHookScriptName = "afk-prompt-submit-hook.sh"
     private let toolUsedHookScriptName = "afk-tool-used-hook.sh"
     private let hookTimeout: Int         // ms
+    private let httpHookPort: Int
 
     /// All AFK hook script names for install/uninstall management.
     private var allScriptNames: [String] {
         [hookScriptName, notificationHookScriptName,
          stopHookScriptName, sessionStartHookScriptName, promptSubmitHookScriptName,
          toolUsedHookScriptName]
+    }
+
+    /// All HTTP hook URL paths for install/uninstall management.
+    var allHTTPHookPaths: [String] {
+        ["/hooks/pre-tool-use", "/hooks/post-tool-use", "/hooks/permission-request",
+         "/hooks/session-start", "/hooks/session-end", "/hooks/user-prompt-submit",
+         "/hooks/stop", "/hooks/notification"]
     }
 
     /// Legacy script names to clean up from older installs.
@@ -46,14 +54,16 @@ struct HookInstaller {
     /// All settings.json hook keys that AFK may register under.
     private static let allHookKeys = [
         "PreToolUse", "PostToolUse", "Notification", "Stop",
-        "SessionStart", "UserPromptSubmit", "PermissionRequest"
+        "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest",
+        "SubagentStart", "SubagentStop"
     ]
 
-    init(hookInstallDir: String, timeoutSeconds: TimeInterval) {
+    init(hookInstallDir: String, timeoutSeconds: TimeInterval, httpHookPort: Int = 0) {
         self.hookInstallDir = hookInstallDir
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         self.settingsPath = "\(home)/.claude/settings.json"
         self.hookTimeout = Int(timeoutSeconds * 1000)
+        self.httpHookPort = httpHookPort
     }
 
     var installedHookPath: String {
@@ -90,6 +100,23 @@ struct HookInstaller {
             "matcher": "",
             "hooks": [hookEntry]
         ]
+
+        // Clean up stale HTTP hooks for PreToolUse and PermissionRequest from previous installs.
+        // Permission handling stays on the Unix socket (E2EE, HMAC, WWUD).
+        removeHTTPHooks(&hooks, key: "PreToolUse")
+        removeHTTPHooks(&hooks, key: "PermissionRequest")
+
+        // Register HTTP hooks for non-permission events only.
+        if httpHookPort > 0 {
+            registerHTTPHook(&hooks, key: "PostToolUse", matcher: "", path: "/hooks/post-tool-use", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SessionStart", matcher: "", path: "/hooks/session-start", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SessionEnd", matcher: "", path: "/hooks/session-end", timeout: 2000)
+            registerHTTPHook(&hooks, key: "UserPromptSubmit", matcher: "", path: "/hooks/user-prompt-submit", timeout: 3000)
+            registerHTTPHook(&hooks, key: "Stop", matcher: "", path: "/hooks/stop", timeout: 5000)
+            registerHTTPHook(&hooks, key: "Notification", matcher: "", path: "/hooks/notification", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SubagentStart", matcher: "", path: "/hooks/subagent-start", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SubagentStop", matcher: "", path: "/hooks/subagent-stop", timeout: 5000)
+        }
 
         // Remove from old PermissionRequest key if present (migrating to PreToolUse).
         if var oldHooks = hooks["PermissionRequest"] as? [[String: Any]] {
@@ -169,7 +196,15 @@ struct HookInstaller {
 
         try saveSettings(settings)
 
-        AppLogger.hook.info("Installed all AFK hooks (\(allScriptNames.count, privacy: .public) scripts)")
+        // Write port file so other processes can discover the HTTP hook server
+        if httpHookPort > 0 {
+            let runDir = BuildEnvironment.configDirectoryPath + "/run"
+            try? fm.createDirectory(atPath: runDir, withIntermediateDirectories: true)
+            let portFilePath = runDir + "/hook-server.port"
+            try? "\(httpHookPort)".write(toFile: portFilePath, atomically: true, encoding: .utf8)
+        }
+
+        AppLogger.hook.info("Installed all AFK hooks (\(allScriptNames.count, privacy: .public) scripts, http=\(httpHookPort > 0 ? "port \(httpHookPort)" : "off", privacy: .public))")
     }
 
     /// Remove all hook scripts and unregister from Claude Code settings.
@@ -194,9 +229,16 @@ struct HookInstaller {
                 let before = hookEntries.count
                 hookEntries.removeAll { entry in
                     if let entryHooks = entry["hooks"] as? [[String: Any]] {
-                        return entryHooks.contains { cmd in
-                            guard let command = cmd["command"] as? String else { return false }
-                            return (allScriptNames + legacyScriptNames).contains(where: { command.contains($0) })
+                        return entryHooks.contains { hook in
+                            // Remove shell script hooks by command name
+                            if let command = hook["command"] as? String {
+                                return (allScriptNames + legacyScriptNames).contains(where: { command.contains($0) })
+                            }
+                            // Remove HTTP hooks by URL containing AFK hook server address
+                            if let url = hook["url"] as? String {
+                                return url.contains("127.0.0.1") && url.contains("/hooks/")
+                            }
+                            return false
                         }
                     }
                     return false
@@ -210,6 +252,12 @@ struct HookInstaller {
                     }
                 }
             }
+        }
+
+        // Remove hook server port file
+        let portFilePath = BuildEnvironment.configDirectoryPath + "/run/hook-server.port"
+        if fm.fileExists(atPath: portFilePath) {
+            try? fm.removeItem(atPath: portFilePath)
         }
 
         // Remove OTLP env vars
@@ -279,6 +327,55 @@ struct HookInstaller {
         }
         if !alreadyInstalled {
             entries.append(matcherEntry)
+            hooks[key] = entries
+        }
+    }
+
+    /// Register an HTTP hook in settings.json if not already present (checked by URL).
+    private func registerHTTPHook(
+        _ hooks: inout [String: Any],
+        key: String,
+        matcher: String,
+        path: String,
+        timeout: Int
+    ) {
+        let url = "http://127.0.0.1:\(httpHookPort)\(path)"
+        let hookEntry: [String: Any] = [
+            "type": "http",
+            "url": url,
+            "timeout": timeout
+        ]
+        let matcherEntry: [String: Any] = [
+            "matcher": matcher,
+            "hooks": [hookEntry]
+        ]
+
+        var entries = hooks[key] as? [[String: Any]] ?? []
+        let alreadyInstalled = entries.contains { entry in
+            if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                return entryHooks.contains { ($0["url"] as? String) == url }
+            }
+            return false
+        }
+        if !alreadyInstalled {
+            entries.insert(matcherEntry, at: 0)
+            hooks[key] = entries
+        }
+    }
+
+    /// Remove all HTTP hook entries for a given key (e.g. "PreToolUse").
+    /// Used to clean up stale entries from previous installs.
+    private func removeHTTPHooks(_ hooks: inout [String: Any], key: String) {
+        guard var entries = hooks[key] as? [[String: Any]] else { return }
+        entries.removeAll { entry in
+            if let entryHooks = entry["hooks"] as? [[String: Any]] {
+                return entryHooks.contains { ($0["url"] as? String)?.contains("127.0.0.1") == true && ($0["url"] as? String)?.contains("/hooks/") == true }
+            }
+            return false
+        }
+        if entries.isEmpty {
+            hooks.removeValue(forKey: key)
+        } else {
             hooks[key] = entries
         }
     }

@@ -389,7 +389,9 @@ final class StatusBarController: NSObject {
                 updateCheckInterval: config.updateCheckInterval,
                 enabledProviders: config.enabledProviders,
                 openCodePollInterval: config.openCodePollInterval,
-                openCodeServerPort: config.openCodeServerPort
+                openCodeServerPort: config.openCodeServerPort,
+                hookServerPort: config.hookServerPort,
+                hookServerEnabled: config.hookServerEnabled
             )
             config.save()
             agentConfig = config

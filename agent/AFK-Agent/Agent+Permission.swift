@@ -107,7 +107,8 @@ extension Agent {
             // Install hook first (idempotent, handles missing socket gracefully with retry)
             let installer = HookInstaller(
                 hookInstallDir: config.hookInstallPath,
-                timeoutSeconds: config.remoteApprovalTimeout
+                timeoutSeconds: config.remoteApprovalTimeout,
+                httpHookPort: config.hookServerEnabled ? config.hookServerPort : 0
             )
             try installer.install()
 

@@ -16,6 +16,9 @@ enum NormalizedEventType: String, Codable, Sendable {
     case sessionIdle = "session_idle"
     case sessionCompleted = "session_completed"
     case permissionNeeded = "permission_needed"
+    case toolResult = "tool_result"
+    case subagentStarted = "subagent_started"
+    case subagentStopped = "subagent_stopped"
     case errorRaised = "error_raised"
 }
 

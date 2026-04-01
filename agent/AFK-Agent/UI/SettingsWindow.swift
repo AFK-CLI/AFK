@@ -126,7 +126,9 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
             updateCheckInterval: settings.updateCheckInterval,
             enabledProviders: config.enabledProviders,
             openCodePollInterval: config.openCodePollInterval,
-            openCodeServerPort: config.openCodeServerPort
+            openCodeServerPort: config.openCodeServerPort,
+            hookServerPort: config.hookServerPort,
+            hookServerEnabled: config.hookServerEnabled
         )
         config.save()
         onConfigChanged?(config)

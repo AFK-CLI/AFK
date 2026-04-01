@@ -89,6 +89,12 @@ actor SessionStateManager {
             if let out = event.data["outputTokens"] {
                 info.tokensOut += Int64(out) ?? 0
             }
+        case .toolResult:
+            info.status = .running
+        case .subagentStarted:
+            info.status = .running
+        case .subagentStopped:
+            info.status = .running
         case .sessionIdle:
             info.status = .idle
         case .sessionCompleted:

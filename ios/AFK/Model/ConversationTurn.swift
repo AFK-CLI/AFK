@@ -164,8 +164,11 @@ enum TurnBuilder {
 
         // Step 1: Build global tool-finish map (toolUseId -> event)
         var finishMap: [String: SessionEvent] = [:]
-        for event in sorted where event.eventType == "tool_finished" {
+        for event in sorted where event.eventType == "tool_finished" || event.eventType == "tool_result" {
             if let toolUseId = event.toolUseId {
+                // tool_result from hooks arrives before tool_finished from JSONL.
+                // Prefer tool_finished if both exist (it has richer content).
+                if event.eventType == "tool_result" && finishMap[toolUseId] != nil { continue }
                 finishMap[toolUseId] = event
             }
         }

@@ -1289,11 +1289,25 @@ final class SessionStore {
             guard let toolUseId = event.payload?["toolUseId"] else { continue }
             if event.eventType == "tool_started" && event.toolCategory == "task" {
                 activeToolIds.insert(toolUseId)
-            } else if event.eventType == "tool_finished" {
+            } else if event.eventType == "tool_finished" || event.eventType == "tool_result" {
                 activeToolIds.remove(toolUseId)
             }
         }
         return activeToolIds.count
+    }
+
+    /// Count active subagents (spawned but not yet stopped) in a session.
+    static func countActiveSubagents(in events: [SessionEvent]) -> Int {
+        var activeAgents = Set<String>()
+        for event in events {
+            let agentId = event.payload?["agentId"] ?? event.payload?["agentType"] ?? "unknown"
+            if event.eventType == "subagent_started" {
+                activeAgents.insert(agentId)
+            } else if event.eventType == "subagent_stopped" {
+                activeAgents.remove(agentId)
+            }
+        }
+        return activeAgents.count
     }
 
     // MARK: - Diagnostics

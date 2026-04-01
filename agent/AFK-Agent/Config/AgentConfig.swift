@@ -33,6 +33,8 @@ struct AgentConfig: Sendable {
     let enabledProviders: [String]       // ["claude_code"] by default
     let openCodePollInterval: TimeInterval // 2s default — SQLite polling interval
     let openCodeServerPort: Int          // 0 = auto-detect (tries 4096), >0 = explicit
+    let hookServerPort: Int              // 19280 default — HTTP hook server port
+    let hookServerEnabled: Bool          // true by default — enable HTTP hook server
 
     var isConfigured: Bool {
         !serverURL.isEmpty
@@ -81,7 +83,9 @@ struct AgentConfig: Sendable {
                 updateCheckInterval: json["updateCheckInterval"] as? TimeInterval ?? 3600,
                 enabledProviders: json["enabledProviders"] as? [String] ?? ["claude_code"],
                 openCodePollInterval: json["openCodePollInterval"] as? TimeInterval ?? 2,
-                openCodeServerPort: json["openCodeServerPort"] as? Int ?? 0
+                openCodeServerPort: json["openCodeServerPort"] as? Int ?? 0,
+                hookServerPort: json["hookServerPort"] as? Int ?? 19280,
+                hookServerEnabled: json["hookServerEnabled"] as? Bool ?? true
             )
         }
 
@@ -119,7 +123,19 @@ struct AgentConfig: Sendable {
             updateCheckInterval: 3600,
             enabledProviders: ["claude_code"],
             openCodePollInterval: 2,
-            openCodeServerPort: 0
+            openCodeServerPort: 0,
+            hookServerPort: {
+                if let val = env["AFK_HOOK_SERVER_PORT"], let port = Int(val) {
+                    return port
+                }
+                return 19280
+            }(),
+            hookServerEnabled: {
+                if let val = env["AFK_HOOK_SERVER_ENABLED"] {
+                    return val != "false" && val != "0"
+                }
+                return true
+            }()
         )
     }
 
@@ -152,6 +168,8 @@ struct AgentConfig: Sendable {
             "notifyOnIdle": notifyOnIdle,
             "usagePollingEnabled": usagePollingEnabled,
             "updateCheckInterval": updateCheckInterval,
+            "hookServerPort": hookServerPort,
+            "hookServerEnabled": hookServerEnabled,
         ]
         if let deviceID { dict["deviceId"] = deviceID }
         if let authToken { dict["authToken"] = authToken }
