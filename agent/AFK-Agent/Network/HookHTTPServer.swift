@@ -321,6 +321,14 @@ actor HookHTTPServer {
                 await self.handleFireAndForget(type: "notification", json: json)
                 Self.sendResponse(connection: connection, status: "200 OK", body: "{}")
 
+            case "/hooks/subagent-start":
+                await self.handleFireAndForget(type: "subagent_start", json: json)
+                Self.sendResponse(connection: connection, status: "200 OK", body: "{}")
+
+            case "/hooks/subagent-stop":
+                await self.handleFireAndForget(type: "subagent_stop", json: json)
+                Self.sendResponse(connection: connection, status: "200 OK", body: "{}")
+
             case "/hooks/pre-tool-use":
                 let responseBody = await self.handlePreToolUse(json: json)
                 Self.sendResponse(connection: connection, status: "200 OK", body: responseBody)

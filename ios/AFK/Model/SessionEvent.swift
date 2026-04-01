@@ -23,6 +23,8 @@ struct SessionEvent: Codable, Identifiable, Sendable {
         case "session_idle": "Session Idle"
         case "session_completed": "Session Completed"
         case "permission_needed": "Permission Needed"
+        case "subagent_started": "Agent Spawned: \(payload?["agentType"] ?? payload?["agentName"] ?? "worker")"
+        case "subagent_stopped": "Agent Finished: \(payload?["agentType"] ?? payload?["agentName"] ?? "worker")"
         case "error_raised": "Error: \(payload?["toolName"] ?? "")"
         default: eventType
         }
@@ -41,6 +43,8 @@ struct SessionEvent: Codable, Identifiable, Sendable {
         case "session_idle": "pause.fill"
         case "session_completed": "stop.fill"
         case "permission_needed": "lock.fill"
+        case "subagent_started": "person.2.fill"
+        case "subagent_stopped": "person.2.badge.checkmark"
         case "error_raised": "exclamationmark.triangle"
         default: "questionmark"
         }

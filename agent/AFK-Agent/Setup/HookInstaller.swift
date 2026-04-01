@@ -54,7 +54,8 @@ struct HookInstaller {
     /// All settings.json hook keys that AFK may register under.
     private static let allHookKeys = [
         "PreToolUse", "PostToolUse", "Notification", "Stop",
-        "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest"
+        "SessionStart", "SessionEnd", "UserPromptSubmit", "PermissionRequest",
+        "SubagentStart", "SubagentStop"
     ]
 
     init(hookInstallDir: String, timeoutSeconds: TimeInterval, httpHookPort: Int = 0) {
@@ -113,6 +114,8 @@ struct HookInstaller {
             registerHTTPHook(&hooks, key: "UserPromptSubmit", matcher: "", path: "/hooks/user-prompt-submit", timeout: 3000)
             registerHTTPHook(&hooks, key: "Stop", matcher: "", path: "/hooks/stop", timeout: 5000)
             registerHTTPHook(&hooks, key: "Notification", matcher: "", path: "/hooks/notification", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SubagentStart", matcher: "", path: "/hooks/subagent-start", timeout: 5000)
+            registerHTTPHook(&hooks, key: "SubagentStop", matcher: "", path: "/hooks/subagent-stop", timeout: 5000)
         }
 
         // Remove from old PermissionRequest key if present (migrating to PreToolUse).

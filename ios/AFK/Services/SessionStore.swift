@@ -1296,6 +1296,20 @@ final class SessionStore {
         return activeToolIds.count
     }
 
+    /// Count active subagents (spawned but not yet stopped) in a session.
+    static func countActiveSubagents(in events: [SessionEvent]) -> Int {
+        var activeAgents = Set<String>()
+        for event in events {
+            let agentId = event.payload?["agentId"] ?? event.payload?["agentType"] ?? "unknown"
+            if event.eventType == "subagent_started" {
+                activeAgents.insert(agentId)
+            } else if event.eventType == "subagent_stopped" {
+                activeAgents.remove(agentId)
+            }
+        }
+        return activeAgents.count
+    }
+
     // MARK: - Diagnostics
 
     struct PeerDiagnostic {

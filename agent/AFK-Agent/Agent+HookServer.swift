@@ -42,15 +42,31 @@ extension Agent {
                 eventType = .sessionIdle  // notifications map to idle state
             case "user_prompt_submit":
                 eventType = .turnStarted
+            case "subagent_start":
+                eventType = .subagentStarted
+            case "subagent_stop":
+                eventType = .subagentStopped
             default:
                 AppLogger.hook.debug("Unknown hook event type: \(event.type)")
                 return
             }
 
+            // Extract subagent metadata if present
+            var eventData: [String: String] = ["source": "hook_http"]
+            if let agentId = event.payload["agent_id"] as? String {
+                eventData["agentId"] = agentId
+            }
+            if let agentType = event.payload["agent_type"] as? String {
+                eventData["agentType"] = agentType
+            }
+            if let agentName = event.payload["agent_name"] as? String {
+                eventData["agentName"] = agentName
+            }
+
             let normalized = NormalizedEvent(
                 sessionId: sessionId,
                 eventType: eventType,
-                data: ["source": "hook_http"]
+                data: eventData
             )
             let providerEvent = ProviderEvent(
                 event: normalized,

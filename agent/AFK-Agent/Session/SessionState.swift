@@ -91,6 +91,10 @@ actor SessionStateManager {
             }
         case .toolResult:
             info.status = .running
+        case .subagentStarted:
+            info.status = .running
+        case .subagentStopped:
+            info.status = .running
         case .sessionIdle:
             info.status = .idle
         case .sessionCompleted:
