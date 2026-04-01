@@ -1289,7 +1289,7 @@ final class SessionStore {
             guard let toolUseId = event.payload?["toolUseId"] else { continue }
             if event.eventType == "tool_started" && event.toolCategory == "task" {
                 activeToolIds.insert(toolUseId)
-            } else if event.eventType == "tool_finished" {
+            } else if event.eventType == "tool_finished" || event.eventType == "tool_result" {
                 activeToolIds.remove(toolUseId)
             }
         }

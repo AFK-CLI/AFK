@@ -545,160 +545,97 @@ actor PermissionSocket {
         let toolUseId = input.tool_use_id ?? UUID().uuidString
         let sessionId = input.session_id ?? "unknown"
 
-        // Local bypass — hook disabled from menu bar, let Claude Code handle permissions normally
-        if StatusBarController.isHookBypassed {
-            AppLogger.permission.debug("Hook bypassed — \(toolName, privacy: .public)")
-            return  // empty response → Claude Code uses normal permission flow
-        }
-
-        // Auto-allow read-only tools — these never modify anything and should
-        // not require mobile approval or local prompts.
-        let readOnlyTools: Set<String> = [
-            "Read", "Glob", "Grep",
-            "Task", "TodoRead",
-            "TaskCreate", "TaskUpdate", "TaskList", "TaskGet",
-            "EnterPlanMode", "NotebookRead"
-        ]
-        if readOnlyTools.contains(toolName) {
-            AppLogger.permission.debug("Auto-allow read-only tool: \(toolName, privacy: .public)")
-            writeHookResponse(fd: fd, decision: "allow", reason: "Read-only tool auto-allowed by AFK agent")
-            return
-        }
-
-        // Auto-allow when Claude Code session is in bypassPermissions mode
-        if input.permission_mode == "bypassPermissions" {
-            AppLogger.permission.info("Auto-allow (\(toolName, privacy: .public)) — permission_mode: bypassPermissions")
-            writeHookResponse(fd: fd, decision: "allow", reason: "Bypassed via permission_mode")
-            return
-        }
-
-        // Check permission mode — auto-handle based on current mode
-        let semaphoreMode = DispatchSemaphore(value: 0)
-        var mode: PermissionMode = .ask
-        Task { mode = await self.getMode(); semaphoreMode.signal() }
-        semaphoreMode.wait()
-
-        let editTools: Set<String> = ["Write", "Edit", "NotebookEdit", "MultiEdit"]
-        let unsafeTools: Set<String> = ["Write", "Edit", "NotebookEdit", "MultiEdit", "Bash"]
-
-        switch mode {
-        case .autoApprove:
-            AppLogger.permission.info("Auto-approve (\(toolName, privacy: .public)) — mode: autoApprove")
-            writeHookResponse(fd: fd, decision: "allow", reason: "Auto-approved via AFK permission mode")
-            return
-        case .acceptEdits where editTools.contains(toolName):
-            AppLogger.permission.info("Auto-approve edit (\(toolName, privacy: .public)) — mode: acceptEdits")
-            writeHookResponse(fd: fd, decision: "allow", reason: "Edit auto-approved via AFK Accept Edits mode")
-            return
-        case .plan where unsafeTools.contains(toolName):
-            // Allow writes to plan files so Claude can save the plan
-            if let filePath = input.tool_input?["file_path"]?.stringValue,
-               filePath.contains("/.claude/plans/") {
-                // Track plan file path for later ExitPlanMode injection
-                let semPlan = DispatchSemaphore(value: 0)
-                Task { await self.setPlanFilePath(sessionId: sessionId, path: filePath); semPlan.signal() }
-                semPlan.wait()
-                AppLogger.permission.info("Auto-approve plan file write: \(toolName, privacy: .public) -> \(filePath, privacy: .public)")
-                return  // empty response → normal flow
-            }
-            AppLogger.permission.info("Auto-deny unsafe (\(toolName, privacy: .public)) — mode: plan")
-            writeHookResponse(fd: fd, decision: "deny", reason: "Denied via AFK Plan Mode (read-only)")
-            return
-        case .wwud:
-            // WWUD: evaluate against learned patterns
-            let semWWUD = DispatchSemaphore(value: 0)
-            var wwudResult: WWUDResult = .uncertain
-            var wwudProjectPath: String?
-            // Build tool input display early for WWUD evaluation
-            var wwudToolInput: [String: String] = [:]
-            if let ti = input.tool_input {
-                for (k, v) in ti { wwudToolInput[k] = v.stringValue }
-            }
-            Task {
-                wwudProjectPath = await self.resolveProjectPath(sessionId: sessionId)
-                if let engine = await self.wwudEngine {
-                    wwudResult = await engine.evaluate(
-                        toolName: toolName,
-                        toolInput: wwudToolInput,
-                        projectPath: wwudProjectPath ?? "unknown"
-                    )
-                }
-                semWWUD.signal()
-            }
-            semWWUD.wait()
-
-            switch wwudResult {
-            case .autoAllow(let confidence, let pattern), .autoDeny(let confidence, let pattern):
-                let action = if case .autoAllow = wwudResult { "allow" } else { "deny" }
-                let verb = action == "allow" ? "auto-approved" : "auto-denied"
-                let pct = Int(confidence * 100)
-                AppLogger.permission.info("WWUD auto-\(action, privacy: .public) (\(toolName, privacy: .public)) — confidence: \(pct, privacy: .public)% pattern: \(pattern.description, privacy: .public)")
-                writeHookResponse(fd: fd, decision: action, reason: "Smart Mode \(verb) (confidence: \(pct)%, pattern: \(pattern.description))")
-                let decisionId = UUID().uuidString
-                Task {
-                    await self.wwudEngine?.recordDecision(
-                        toolName: toolName, toolInput: wwudToolInput,
-                        projectPath: wwudProjectPath ?? "unknown",
-                        action: action, source: "auto"
-                    )
-                    let event = WWUDAutoDecisionEvent(
-                        sessionId: sessionId, toolName: toolName,
-                        toolInputPreview: String(wwudToolInput.values.joined(separator: " ").prefix(200)),
-                        action: action, confidence: confidence,
-                        patternDescription: pattern.description,
-                        timestamp: Int64(Date().timeIntervalSince1970),
-                        decisionId: decisionId
-                    )
-                    await self.onWWUDAutoDecision?(event)
-                }
-                auditLog(nonce: "wwud", sessionId: sessionId, toolName: toolName, toolInput: wwudToolInput.description, action: action, note: "wwud:auto:\(pct)%")
-                return
-            case .uncertain:
-                break // fall through to iOS forwarding
-            }
-        default:
-            break // fall through to existing iOS forwarding logic
-        }
-
-        // Check settings.json allow/deny rules (if enabled)
-        let semSettings = DispatchSemaphore(value: 0)
-        var settingsEnabled = false
-        var resolvedProjectPath: String?
-        Task {
-            settingsEnabled = await self.getSettingsRulesEnabled()
-            if settingsEnabled {
-                resolvedProjectPath = await self.resolveProjectPath(sessionId: sessionId)
-            }
-            semSettings.signal()
-        }
-        semSettings.wait()
-
-        if settingsEnabled {
-            // Build tool input string for rule matching
-            let settingsToolInput = Self.extractToolInputForSettings(toolName: toolName, input: input)
-            let parser = ClaudeSettingsParser(projectPath: resolvedProjectPath)
-            let settingsDecision = parser.decision(for: toolName, toolInput: settingsToolInput)
-
-            switch settingsDecision {
-            case .allow:
-                AppLogger.permission.info("Settings allow: \(toolName, privacy: .public) (session: \(sessionId.prefix(8), privacy: .public))")
-                writeHookResponse(fd: fd, decision: "allow", reason: "Allowed by settings.json rule")
-                return
-            case .deny:
-                AppLogger.permission.info("Settings deny: \(toolName, privacy: .public) (session: \(sessionId.prefix(8), privacy: .public))")
-                writeHookResponse(fd: fd, decision: "deny", reason: "Denied by settings.json rule")
-                return
-            case .ask:
-                break // fall through to iOS forwarding
-            }
-        }
-
-        // Build simplified tool input for display
+        // Build simplified tool input for evaluator
         var toolInputDisplay: [String: String] = [:]
         if let ti = input.tool_input {
             for (k, v) in ti {
                 toolInputDisplay[k] = v.stringValue
             }
+        }
+
+        // Gather evaluator inputs via actor hop
+        let semEval = DispatchSemaphore(value: 0)
+        var mode: PermissionMode = .ask
+        var settingsEnabled = false
+        var resolvedProjectPath: String?
+        var wwudEngineRef: WWUDEngine?
+        Task {
+            mode = await self.getMode()
+            settingsEnabled = await self.getSettingsRulesEnabled()
+            resolvedProjectPath = await self.resolveProjectPath(sessionId: sessionId)
+            wwudEngineRef = await self.wwudEngine
+            semEval.signal()
+        }
+        semEval.wait()
+
+        // Delegate the decision to PermissionEvaluator (pure function, no I/O)
+        let semDecision = DispatchSemaphore(value: 0)
+        var evalDecision: PermissionEvaluator.Decision = .askRemote
+        Task {
+            evalDecision = await PermissionEvaluator.evaluate(
+                toolName: toolName,
+                toolInput: toolInputDisplay,
+                sessionId: sessionId,
+                claudePermissionMode: input.permission_mode,
+                agentMode: mode,
+                remoteApprovalBypassed: StatusBarController.isHookBypassed,
+                settingsRulesEnabled: settingsEnabled,
+                projectPath: resolvedProjectPath,
+                wwudEngine: wwudEngineRef,
+                filePath: input.tool_input?["file_path"]?.stringValue
+            )
+            semDecision.signal()
+        }
+        semDecision.wait()
+
+        // Act on the evaluator's decision
+        switch evalDecision {
+        case .allow(let reason):
+            AppLogger.permission.info("Evaluator allow (\(toolName, privacy: .public)): \(reason, privacy: .public)")
+            writeHookResponse(fd: fd, decision: "allow", reason: reason)
+            return
+
+        case .deny(let reason):
+            AppLogger.permission.info("Evaluator deny (\(toolName, privacy: .public)): \(reason, privacy: .public)")
+            writeHookResponse(fd: fd, decision: "deny", reason: reason)
+            return
+
+        case .planAllowFile(let path):
+            // Track plan file path for later ExitPlanMode injection
+            let semPlan = DispatchSemaphore(value: 0)
+            Task { await self.setPlanFilePath(sessionId: sessionId, path: path); semPlan.signal() }
+            semPlan.wait()
+            AppLogger.permission.info("Auto-approve plan file write: \(toolName, privacy: .public) -> \(path, privacy: .public)")
+            return  // empty response → normal flow
+
+        case .wwudAllow(let confidence, let pattern, let decisionId),
+             .wwudDeny(let confidence, let pattern, let decisionId):
+            let action = if case .wwudAllow = evalDecision { "allow" } else { "deny" }
+            let verb = action == "allow" ? "auto-approved" : "auto-denied"
+            let pct = Int(confidence * 100)
+            AppLogger.permission.info("WWUD auto-\(action, privacy: .public) (\(toolName, privacy: .public)) — confidence: \(pct, privacy: .public)% pattern: \(pattern.description, privacy: .public)")
+            writeHookResponse(fd: fd, decision: action, reason: "Smart Mode \(verb) (confidence: \(pct)%, pattern: \(pattern.description))")
+            Task {
+                await self.wwudEngine?.recordDecision(
+                    toolName: toolName, toolInput: toolInputDisplay,
+                    projectPath: resolvedProjectPath ?? "unknown",
+                    action: action, source: "auto"
+                )
+                let event = WWUDAutoDecisionEvent(
+                    sessionId: sessionId, toolName: toolName,
+                    toolInputPreview: String(toolInputDisplay.values.joined(separator: " ").prefix(200)),
+                    action: action, confidence: confidence,
+                    patternDescription: pattern.description,
+                    timestamp: Int64(Date().timeIntervalSince1970),
+                    decisionId: decisionId
+                )
+                await self.onWWUDAutoDecision?(event)
+            }
+            auditLog(nonce: "wwud", sessionId: sessionId, toolName: toolName, toolInput: toolInputDisplay.description, action: action, note: "wwud:auto:\(pct)%")
+            return
+
+        case .askRemote:
+            break // fall through to iOS forwarding
         }
 
         // Inject plan content into ExitPlanMode requests
@@ -725,16 +662,6 @@ actor PermissionSocket {
         // The semaphore blocks THIS GCD thread (not the actor) until iOS responds.
         let semaphore = DispatchSemaphore(value: 0)
         var decision = PermissionDecision(action: "deny")
-
-        // Resolve project path for WWUD recording (reuse if already resolved)
-        if resolvedProjectPath == nil, mode == .wwud {
-            let semProj = DispatchSemaphore(value: 0)
-            Task {
-                resolvedProjectPath = await self.resolveProjectPath(sessionId: sessionId)
-                semProj.signal()
-            }
-            semProj.wait()
-        }
 
         // Hop to the actor to register the pending request and forward to iOS.
         Task {
@@ -1006,31 +933,6 @@ actor PermissionSocket {
             AppLogger.permission.warning("Partial write — \(written, privacy: .public)/\(data.count, privacy: .public) bytes. Hook script may not receive full response.")
         } else {
             AppLogger.permission.debug("Wrote \(written, privacy: .public) byte \(decision, privacy: .public) response")
-        }
-    }
-
-    // MARK: - Settings Rule Input Extraction
-
-    /// Extract the most relevant tool input string for settings.json rule matching.
-    /// For Bash: uses the "command" field. For Write/Edit: uses "file_path".
-    /// Falls back to concatenating all string values.
-    private nonisolated static func extractToolInputForSettings(toolName: String, input: HookInput) -> String? {
-        guard let ti = input.tool_input else { return nil }
-
-        switch toolName {
-        case "Bash":
-            // Bash rules match against the command string
-            return ti["command"]?.stringValue
-        case "Write", "Edit", "NotebookEdit", "MultiEdit":
-            // File tools match against the file path
-            return ti["file_path"]?.stringValue ?? ti["notebook_path"]?.stringValue
-        case "WebFetch", "WebSearch":
-            // Domain rules match against the URL
-            return ti["url"]?.stringValue ?? ti["query"]?.stringValue
-        default:
-            // For other tools, concatenate all string values
-            let values = ti.values.map(\.stringValue).filter { !$0.isEmpty }
-            return values.isEmpty ? nil : values.joined(separator: " ")
         }
     }
 

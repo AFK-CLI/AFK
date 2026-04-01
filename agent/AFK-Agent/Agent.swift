@@ -15,6 +15,7 @@ actor Agent {
     var providerRegistry: ProviderRegistry?
     var sessionProviders: [String: String] = [:]  // sessionId -> provider identifier
     var wsClient: WebSocketClient?
+    var hookServer: HookHTTPServer?
     var permissionSocket: PermissionSocket?
     var wwudEngine: WWUDEngine?
     var otlpReceiver: OTLPReceiver?
@@ -27,6 +28,9 @@ actor Agent {
     var agentState = AgentState()
     /// Maps AFK nonce -> (provider identifier, OpenCode request ID) for permission round-trips
     var pendingProviderPermissions: [String: (provider: String, requestId: String)] = [:]
+    /// Recent toolUseIds seen from hooks or JSONL — prevents double-counting when both fire.
+    private var recentToolUseIds: Set<String> = []
+    private var toolUseIdCleanupTask: Task<Void, Never>?
     var diskQueue: DiskQueue?
     var todoWatcher: TodoWatcher?
     var usageService: ClaudeUsageService?
@@ -168,6 +172,9 @@ actor Agent {
 
                 // Start OTLP telemetry receiver for cost/token tracking
                 await setupOTLPReceiver()
+
+                // Start HTTP hook server for native Claude Code hook integration
+                await setupHookServer(deviceId: deviceId)
 
                 // Refresh peer keys on every WS reconnect to pick up rotated keys
                 await client.onReconnect { [weak self] in
@@ -384,6 +391,23 @@ actor Agent {
 
         for providerEvent in batch.events {
             let event = providerEvent.event
+
+            // Dedup: skip tool events already seen from another source (hooks vs JSONL)
+            if let toolUseId = event.data["toolUseId"],
+               (event.eventType == .toolStarted || event.eventType == .toolFinished || event.eventType == .toolResult) {
+                if recentToolUseIds.contains(toolUseId) {
+                    AppLogger.hook.debug("Dedup: skipping \(event.eventType.rawValue) for \(toolUseId.prefix(8))")
+                    continue
+                }
+                recentToolUseIds.insert(toolUseId)
+                // Auto-cleanup after 60s
+                let id = toolUseId
+                Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(60))
+                    await self?.removeToolUseId(id)
+                }
+            }
+
             let result = await stateManager.processEvent(
                 event,
                 projectPath: projectPath,
@@ -629,6 +653,10 @@ actor Agent {
 
     func setSessionProvider(sessionId: String, provider: String) {
         sessionProviders[sessionId] = provider
+    }
+
+    private func removeToolUseId(_ id: String) {
+        recentToolUseIds.remove(id)
     }
 
     /// Search for a JSONL file matching the given session ID under the claude projects directory.
